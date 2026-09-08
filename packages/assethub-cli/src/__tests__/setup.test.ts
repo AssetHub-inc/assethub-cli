@@ -214,6 +214,11 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     expect(requests.every(r => r.auth === 'Bearer selected-key')).toBe(true)
     requests.length = 0
     envKey = 'stale-environment-key'
+    for (const flag of ['--api-key', '--profile']) {
+      const empty = await invoke('doctor', flag, '')
+      expect(empty.code).toBe(2)
+      expect(requests).toHaveLength(0)
+    }
     const missing = await invoke('doctor', '--profile', 'missing')
     expect(missing.code).toBe(2)
     expect(JSON.parse(missing.stdout).ok).toBe(false)

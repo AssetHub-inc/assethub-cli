@@ -582,7 +582,11 @@ const readStdinBlob = async (type?: string): Promise<Blob> =>
 const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
   const explicitProfile = getFlag(flags, 'profile')
   const apiKeyFromFlags = getFlag(flags, 'api-key')
-  const overrideKey = apiKeyFromFlags !== 'true' ? apiKeyFromFlags : undefined
+  if (apiKeyFromFlags != null && (!apiKeyFromFlags.trim() || apiKeyFromFlags === 'true'))
+    throw new Error('--api-key requires a non-empty value.')
+  if (explicitProfile != null && (!explicitProfile.trim() || explicitProfile === 'true'))
+    throw new Error('--profile requires a non-empty name.')
+  const overrideKey = apiKeyFromFlags
   // Read saved auth only when it can affect selection. Environment-only use
   // should still work without a readable local config.
   const config =
