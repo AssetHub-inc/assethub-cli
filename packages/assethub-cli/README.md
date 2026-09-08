@@ -33,6 +33,29 @@ explicit overrides. `auth logout` removes the selected saved profile (or the
 saved default); environment credentials remain under your shell’s control.
 Diagnostics omit API keys and raw server error bodies.
 
+## Historical meshes and artifact graphs
+
+Internal preview: these reads require workspace feature access. Lists are scoped
+to the selected workspace, including assets created in the UI. Mesh search
+includes parts, revisions, and archived meshes, and excludes samples.
+
+```sh
+assethub mesh list --query "helmet" --limit 25
+assethub mesh get mesh_123
+assethub mesh download mesh_123 --out-dir ./meshes
+assethub graph list --limit 25
+assethub graph show --graph "$GRAPH_ID"
+assethub graph export --graph "$GRAPH_ID" --out ./graph.json
+assethub graph lineage --graph "$GRAPH_ID" --artifact "$NODE_ID" --direction ancestors
+```
+
+Pass each `nextCursor` as `--cursor` until it is null; a graph page can be empty
+while its cursor advances past duplicates. Graph catalogs include generated and
+uploaded graphs. Use `--source upload` to read uploaded snapshots. Graph exports
+contain the full saved graph and blob references; they do not download blob bytes.
+`--canvas` keeps the existing CLI/API execution history view and cannot be combined
+with `--graph`. Mesh IDs returned by search can be passed to `composer run`.
+
 ## Agent generation with canvas history
 
 This release uses the Internal `api_canvas_execution` gate. Run `assethub capabilities`

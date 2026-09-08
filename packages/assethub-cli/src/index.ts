@@ -236,14 +236,18 @@ Usage:
   assethub runs list [--canvas <id>] [--cursor <cursor>] [--limit <n>]
   assethub runs get|watch <run-id> [--timeout-ms <n>]
   assethub runs resume <operation-id> [--wait]
-  assethub graph show|export [--canvas <id>] [--artifact <node-id>] [--out <path>] [--allow-truncated]
-  assethub graph lineage --artifact <node-id> [--canvas <id>] [--direction ancestors|descendants|both] [--depth <n>]
+  assethub graph list [--cursor <cursor>] [--limit <n>]
+  assethub graph show|export [--canvas <id> | --graph <id>] [--source generated|upload] [--artifact <node-id>] [--out <path>] [--allow-truncated]
+  assethub graph lineage --artifact <node-id> [--canvas <id> | --graph <id>] [--source generated|upload] [--direction ancestors|descendants|both] [--depth <n>] [--out <path>]
   assethub evaluate list
   assethub evaluations submit --artifact <asset-id> --report <json|file|@file|@-> [--agent <name>] [--canvas <id>] [--reference <asset-id>...] [--run <run-id>] [--operation-id <uuid>] [--require-pass]
   assethub evaluations list [--canvas <id>] [--artifact <asset-id>]
   assethub evaluations get <evaluation-id>
   assethub image generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
   assethub mesh generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
+  assethub mesh list [--query <text>] [--cursor <cursor>] [--limit <n>]
+  assethub mesh get <mesh-asset-id>
+  assethub mesh download <mesh-asset-id> --out-dir <directory>
   assethub image generate --prompt <text> [--file <path> | --source-url <url> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard] [--file-name <name>] [--content-type <type>] [--model-id <id>] [--batch-size <n>] [--wait] [--download --out-dir <dir>] [--canvas <id>] [--operation-id <uuid>] [--api-version v2]
   assethub image generate --prompt <text> --source-resource-id <id> --api-version v2 [--model-id <id>] [--batch-size <n>] [--wait]
   assethub mesh generate (--file <path> | --source-url <url> | --source-resource-id <id> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri>) [--file-name <name>] [--content-type <type>] [--model-id <id>] [--name <name>] [--wait] [--download --out-dir <dir>]
@@ -2341,8 +2345,39 @@ const commandComposer = async (
 
 const commandMesh = async (
   subcommand: string | undefined,
+  positionals: string[],
   ctx: CommandContext,
 ): Promise<void> => {
+  if (subcommand === 'list') {
+    print(
+      await ctx.client.v2.listMeshes({
+        query: getFlag(ctx.flags, 'query'),
+        ...pageOptions(ctx.flags),
+      }),
+    )
+    return
+  }
+
+  if (subcommand === 'get') {
+    print(
+      await ctx.client.v2.getAsset(
+        requirePositional(positionals, 2, 'mesh-asset-id'),
+      ),
+    )
+    return
+  }
+
+  if (subcommand === 'download') {
+    const assetId = requirePositional(positionals, 2, 'mesh-asset-id')
+    const asset = await ctx.client.v2.getAsset(assetId)
+    const downloads = await maybeDownloadUrls(
+      {...ctx.flags, download: true},
+      asset,
+    )
+    print({asset, downloads})
+    return
+  }
+
   if (subcommand === 'generate') {
     const inputJson = getFlag(ctx.flags, 'input-json')
     const input = inputJson
@@ -2410,7 +2445,9 @@ const commandMesh = async (
     return
   }
 
-  throw new Error('Unknown mesh command. Use "mesh generate" or "mesh retopo".')
+  throw new Error(
+    'Unknown mesh command. Use "mesh list|get|download|generate|retopo".',
+  )
 }
 
 /**
@@ -4104,20 +4141,40 @@ const commandGraph = async (
   subcommand: string | undefined,
   ctx: CommandContext,
 ) => {
+  const graphId = getFlag(ctx.flags, 'graph')
+  if (getFlag(ctx.flags, 'source') && !graphId)
+    throw new Error('--source requires --graph')
+  if (graphId && getFlag(ctx.flags, 'canvas'))
+    throw new Error('cannot combine --graph and --canvas')
+  if (subcommand === 'list') {
+    print(await ctx.client.v2.listGraphs(pageOptions(ctx.flags)))
+    return
+  }
   if (!['show', 'lineage', 'export'].includes(subcommand ?? ''))
-    throw new Error('Use graph show|lineage|export')
-  const {canvas} = await canvasForRead(ctx)
+    throw new Error('Use graph list|show|lineage|export')
+
   const direction = getFlag(ctx.flags, 'direction') ?? 'both'
   if (!['ancestors', 'descendants', 'both'].includes(direction))
     throw new Error('--direction must be ancestors, descendants, or both')
-  const graph = await ctx.client.v2.getCanvasGraph(canvas.id, {
-    artifactId:
-      subcommand === 'lineage'
-        ? requireFlag(ctx.flags, 'artifact')
-        : getFlag(ctx.flags, 'artifact'),
-    direction: direction as 'ancestors' | 'descendants' | 'both',
-    depth: parsePositiveIntegerFlag(ctx.flags, 'depth', 5),
-  })
+  const artifactId =
+    subcommand === 'lineage'
+      ? requireFlag(ctx.flags, 'artifact')
+      : getFlag(ctx.flags, 'artifact')
+  const graph = graphId
+    ? await ctx.client.v2.getGraph(graphId, {
+        source: parseEnumFlag(ctx.flags, 'source', ['generated', 'upload'] as const),
+        artifactId,
+        direction: direction as 'ancestors' | 'descendants' | 'both',
+        depth: parsePositiveIntegerFlag(ctx.flags, 'depth', 5),
+      })
+    : await (async () => {
+        const {canvas} = await canvasForRead(ctx)
+        return ctx.client.v2.getCanvasGraph(canvas.id, {
+          artifactId,
+          direction: direction as 'ancestors' | 'descendants' | 'both',
+          depth: parsePositiveIntegerFlag(ctx.flags, 'depth', 5),
+        })
+      })()
   if (
     subcommand === 'export' &&
     graph.truncated &&
@@ -4573,7 +4630,7 @@ const run = async (): Promise<void> => {
       await commandImage(subcommand, ctx)
       return
     case 'mesh':
-      await commandMesh(subcommand, ctx)
+      await commandMesh(subcommand, parsed.positionals, ctx)
       return
     case 'rig':
       await commandRig(subcommand, ctx)

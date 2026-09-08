@@ -2,6 +2,16 @@
 
 Typed client for the public AssetHub API.
 
+## Historical assets
+
+Internal preview, scoped to the API key workspace:
+`client.v2.listMeshes({query, cursor, limit})`, `listGraphs({cursor, limit})`,
+and `getGraph(graphId, {source, artifactId, direction, depth})` read existing UI
+assets and graphs. Use `getAsset(assetId)` for a signed mesh download URL.
+Continue pagination until `nextCursor` is null, even after an empty graph page.
+Generated graphs read the current authoritative head; uploaded graphs use
+`source: 'upload'`. A graph export retains blob references, not downloaded bytes.
+
 ## Recorded canvas executions
 
 Discover availability with `client.v2.getCapabilities()`. Create a canvas with

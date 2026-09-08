@@ -41,6 +41,25 @@ import type {
   Page,
   PageOptions,
 } from './canvas.js'
+import type {
+  GraphListResult,
+  HistoricalGraph,
+  HistoricalGraphOptions,
+  MeshListOptions,
+  MeshListResult,
+} from './historical.js'
+export type {
+  GraphListResult,
+  GraphSummary,
+  HistoricalGraph,
+  HistoricalGraphEdge,
+  HistoricalGraphNode,
+  HistoricalGraphOptions,
+  HistoricalGraphSource,
+  MeshAsset,
+  MeshListOptions,
+  MeshListResult,
+} from './historical.js'
 export type {
   ApiCapabilities,
   Canvas,
@@ -1938,6 +1957,49 @@ export class AssetHubClient {
         await this.request<{assetId: string; url: string; expiresAt: string}>(
           'v2',
           `/assets/${encodeURIComponent(assetId)}`,
+          {method: 'GET'},
+        )
+      ).data,
+
+    listMeshes: async (
+      options: MeshListOptions = {},
+    ): Promise<MeshListResult> =>
+      (
+        await this.request<MeshListResult>(
+          'v2',
+          withQuery('/meshes', {
+            q: options.query,
+            cursor: options.cursor,
+            limit: options.limit,
+          }),
+          {method: 'GET'},
+        )
+      ).data,
+
+    listGraphs: async (
+      options: PageOptions = {},
+    ): Promise<GraphListResult> =>
+      (
+        await this.request<GraphListResult>(
+          'v2',
+          withQuery('/graphs', {...options}),
+          {method: 'GET'},
+        )
+      ).data,
+
+    getGraph: async (
+      graphId: string,
+      options: HistoricalGraphOptions = {},
+    ): Promise<HistoricalGraph> =>
+      (
+        await this.request<HistoricalGraph>(
+          'v2',
+          withQuery(`/graphs/${encodeURIComponent(graphId)}`, {
+            source: options.source ?? 'generated',
+            artifactId: options.artifactId,
+            direction: options.direction,
+            depth: options.depth,
+          }),
           {method: 'GET'},
         )
       ).data,

@@ -49,14 +49,18 @@ Usage:
   assethub runs list [--canvas <id>] [--cursor <cursor>] [--limit <n>]
   assethub runs get|watch <run-id> [--timeout-ms <n>]
   assethub runs resume <operation-id> [--wait]
-  assethub graph show|export [--canvas <id>] [--artifact <node-id>] [--out <path>] [--allow-truncated]
-  assethub graph lineage --artifact <node-id> [--canvas <id>] [--direction ancestors|descendants|both] [--depth <n>]
+  assethub graph list [--cursor <cursor>] [--limit <n>]
+  assethub graph show|export [--canvas <id> | --graph <id>] [--source generated|upload] [--artifact <node-id>] [--out <path>] [--allow-truncated]
+  assethub graph lineage --artifact <node-id> [--canvas <id> | --graph <id>] [--source generated|upload] [--direction ancestors|descendants|both] [--depth <n>] [--out <path>]
   assethub evaluate list
   assethub evaluations submit --artifact <asset-id> --report <json|file|@file|@-> [--agent <name>] [--canvas <id>] [--reference <asset-id>...] [--run <run-id>] [--operation-id <uuid>] [--require-pass]
   assethub evaluations list [--canvas <id>] [--artifact <asset-id>]
   assethub evaluations get <evaluation-id>
   assethub image generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
   assethub mesh generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
+  assethub mesh list [--query <text>] [--cursor <cursor>] [--limit <n>]
+  assethub mesh get <mesh-asset-id>
+  assethub mesh download <mesh-asset-id> --out-dir <directory>
   assethub image generate --prompt <text> [--file <path> | --source-url <url> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard] [--file-name <name>] [--content-type <type>] [--model-id <id>] [--batch-size <n>] [--wait] [--download --out-dir <dir>] [--canvas <id>] [--operation-id <uuid>] [--api-version v2]
   assethub image generate --prompt <text> --source-resource-id <id> --api-version v2 [--model-id <id>] [--batch-size <n>] [--wait]
   assethub mesh generate (--file <path> | --source-url <url> | --source-resource-id <id> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri>) [--file-name <name>] [--content-type <type>] [--model-id <id>] [--name <name>] [--wait] [--download --out-dir <dir>]
