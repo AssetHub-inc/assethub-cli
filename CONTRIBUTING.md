@@ -17,7 +17,8 @@ workspaces; shared development dependencies live at the repository root.
 4. Run the **Publish packages** workflow from `main`, selecting `api-client` or
    `cli`. Publish the SDK first if the CLI requires its new version.
 5. The workflow builds, tests, packs, publishes with npm OIDC provenance, and
-   creates a GitHub Release containing the package tarball. Verify the published
+   creates a GitHub Release containing the package tarball, then waits up to ten
+   minutes for an anonymous registry download matching that tarball. Verify the published
    package from a clean install before announcing it.
 
 The publish workflow uses the GitHub environment `npm`. Each npm package must
@@ -27,3 +28,6 @@ token is needed. The workflow only runs on `main`; rerunning an already publishe
 version fails rather than replacing it. If npm publication succeeds but GitHub
 Release creation fails, create the missing release for the same commit and
 published tarball instead of changing the npm version just to retry the release.
+
+If only the final registry check times out, verify the existing npm version and
+GitHub Release again after registry processing finishes. Do not republish it.

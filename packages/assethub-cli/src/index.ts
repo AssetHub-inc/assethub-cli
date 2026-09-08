@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {setTimeout as delay} from 'node:timers/promises'
+import {cliVersion, diagnose, mcpConfig} from './setup.js'
 import {ingestProjectSources} from './projectSources.js'
 import {writeCanvasComparison} from './canvasComparison.js'
 import {importCanvasAssetWithState} from './canvasAssetImport.js'
@@ -185,6 +186,9 @@ export const usage = `AssetHub CLI
 Internal preview: canvas/context/layout and moodboards require workspace feature access.
 
 Usage:
+  assethub --version
+  assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
+  assethub mcp config --client cursor|codex [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
   assethub auth status [--profile <name>]
@@ -250,9 +254,10 @@ Usage:
 
 Global options:
   --api-key <key>       Overrides saved auth and ASSETHUB_API_KEY.
-  --base-url <url>      Defaults to ASSETHUB_API_BASE_URL, saved auth, or ${defaultBaseUrl}.
-  --profile <name>      Saved auth profile name. Defaults to ${defaultProfileName}.
+  --base-url <url>      Override the selected API origin. Default: ${defaultBaseUrl}.
+  --profile <name>      Select this saved profile ahead of environment credentials and origin.
   --config <path>       Auth config path. Defaults to ~/.assethub/config.json.
+  --version             Show installed package version.
   --help                Show help.
 
 Examples:
@@ -587,7 +592,9 @@ const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
     }
   }
 
-  if (env.ASSETHUB_API_KEY != null && env.ASSETHUB_API_KEY.trim() !== '') {
+  const explicitProfile = getFlag(flags, 'profile')
+  // Explicit selection must never fall back to another workspace's env key.
+  if (!explicitProfile && env.ASSETHUB_API_KEY?.trim()) {
     return {
       apiKey: env.ASSETHUB_API_KEY,
       baseUrl: baseUrlFromFlags ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl,
@@ -595,27 +602,26 @@ const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
       source: 'env',
     }
   }
-
   const config = await readAuthConfig(getConfigPath(flags))
-  const fallbackProfileName =
-    profile === defaultProfileName ? config.defaultProfile : undefined
-  const storedProfile =
-    config.profiles?.[profile] ??
-    (fallbackProfileName != null
-      ? config.profiles?.[fallbackProfileName]
-      : undefined)
-  if (storedProfile != null) {
+  const storedName =
+    explicitProfile ?? config.defaultProfile ?? defaultProfileName
+  const storedProfile = config.profiles?.[storedName]
+  if (storedProfile?.apiKey) {
     return {
       apiKey: storedProfile.apiKey,
       baseUrl:
-        baseUrlFromFlags ?? env.ASSETHUB_API_BASE_URL ?? storedProfile.baseUrl,
-      profile:
-        config.profiles?.[profile] != null
-          ? profile
-          : (fallbackProfileName ?? profile),
+        baseUrlFromFlags ??
+        (explicitProfile
+          ? storedProfile.baseUrl
+          : env.ASSETHUB_API_BASE_URL ?? storedProfile.baseUrl),
+      profile: storedName,
       source: 'profile',
     }
   }
+  if (explicitProfile)
+    throw new Error(
+      'Selected auth profile was not found. Run auth login --api-key-stdin --profile <name>.',
+    )
 
   throw new Error(
     'Missing API key. Run "assethub auth login --api-key-stdin", set ASSETHUB_API_KEY, or pass --api-key.',
@@ -4096,12 +4102,38 @@ const parseNonNegativeIntegerFlag = (
 
 const run = async (): Promise<void> => {
   const parsed = parseArgs(argv.slice(2))
+  if (hasFlag(parsed.flags, 'version')) {
+    stdout.write(`${await cliVersion()}\n`)
+    return
+  }
   if (hasFlag(parsed.flags, 'help') || parsed.positionals.length === 0) {
     stdout.write(usage)
     return
   }
 
   const [command, subcommand] = parsed.positionals
+  if (command === 'mcp') {
+    if (subcommand !== 'config')
+      throw new Error('Use mcp config --client cursor|codex')
+    stdout.write(
+      mcpConfig(
+        requireFlag(parsed.flags, 'client'),
+        getFlag(parsed.flags, 'base-url') ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl,
+      ),
+    )
+    return
+  }
+  if (command === 'doctor') {
+    stderr.write('Checking AssetHub connection…\n')
+    const report = await diagnose({
+      resolveAuth: () => resolveAuth(parsed.flags),
+      includeMcp: hasFlag(parsed.flags, 'mcp'),
+      timeoutMs: parsePositiveIntegerFlag(parsed.flags, 'timeout-ms', 15000),
+    })
+    print(report)
+    if (!report.ok) process.exitCode = 2
+    return
+  }
   if (command === 'project') {
     if (subcommand !== 'ingest')
       throw new Error('Use project ingest <source-dir> --out-dir <directory>')

@@ -6,6 +6,9 @@ exports[`CLI usage / --help > matches the committed help snapshot 1`] = `
 Internal preview: canvas/context/layout and moodboards require workspace feature access.
 
 Usage:
+  assethub --version
+  assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
+  assethub mcp config --client cursor|codex [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
   assethub auth status [--profile <name>]
@@ -71,9 +74,10 @@ Usage:
 
 Global options:
   --api-key <key>       Overrides saved auth and ASSETHUB_API_KEY.
-  --base-url <url>      Defaults to ASSETHUB_API_BASE_URL, saved auth, or https://app.assethub.io.
-  --profile <name>      Saved auth profile name. Defaults to default.
+  --base-url <url>      Override the selected API origin. Default: https://app.assethub.io.
+  --profile <name>      Select this saved profile ahead of environment credentials and origin.
   --config <path>       Auth config path. Defaults to ~/.assethub/config.json.
+  --version             Show installed package version.
   --help                Show help.
 
 Examples:

@@ -2,6 +2,33 @@
 
 Command line interface for AssetHub.
 
+## Connection diagnostics and MCP
+
+```sh
+assethub --version
+assethub doctor --mcp --profile my-workspace
+assethub mcp config --client cursor
+assethub mcp config --client codex
+```
+
+`doctor` checks API access and the authenticated workspace. `--mcp` also checks
+MCP initialization and tool discovery, without invoking any tool or generating
+assets. It returns JSON and exit 0 when checks pass, or exit 2 with a diagnostic
+and next step when a check fails. The default total timeout is 15 seconds; change
+it with `--timeout-ms`. Hosted MCP currently requires Internal access for the key
+creator, independently of regular API access.
+
+`mcp config` outputs a Cursor JSON object or Codex TOML section to merge into
+existing user settings. It does not write files or read your saved API key.
+The generated settings read `ASSETHUB_API_KEY` from the AI client's environment.
+Use the same workspace key as your CLI profile. For a different API origin, pass
+`--base-url https://your-host` (HTTP is accepted only for localhost).
+
+Explicit `--profile` uses that profile's key and origin, ahead of environment
+variables. A missing profile fails. Without an explicit profile, environment
+credentials precede the default saved profile. `--api-key` and `--base-url` remain
+explicit overrides. Diagnostics omit API keys and raw server error bodies.
+
 ## Agent generation with canvas history
 
 This release uses the Internal `api_canvas_execution` gate. Run `assethub capabilities`
@@ -38,7 +65,7 @@ state directory private. `--operation-id <uuid>` supplies an operation identity;
 retries and `runs resume <operation-id>` reuse its identical body and key. A new
 candidate needs a new operation ID. `runs watch <run-id>` only reads status.
 
-stdout contains final JSON; stderr contains progress. Exit codes are 0 for accepted/
+stdout contains final JSON; stderr contains progress. Exceptions: `--version` prints the version, and `mcp config` prints the requested configuration. Exit codes are 0 for accepted/
 completed, 1 for terminal failure/partial, 2 for input/auth/capability/budget errors,
 3 for timeout/history pending/needs review, and 130 for Ctrl-C. Timeout and Ctrl-C
 leave server execution running and return known identities.
