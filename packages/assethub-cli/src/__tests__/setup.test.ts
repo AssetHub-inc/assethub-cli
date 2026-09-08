@@ -33,7 +33,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     const status = req.url?.endsWith('/api/mcp') ? mcpStatus : apiStatus
     if (req.url === '/api/v2/models') {
       res.writeHead(200, {'content-type': 'application/json'})
-      res.end(JSON.stringify({success: true, data: []}))
+      res.end(JSON.stringify({success: true, data: {models: []}}))
     } else if (req.url === '/api/workspaces') {
       res.writeHead(200, {'content-type': 'application/json'})
       res.end(JSON.stringify({userId: 'selected-user', workspaces: []}))
