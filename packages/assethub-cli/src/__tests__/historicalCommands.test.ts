@@ -113,6 +113,14 @@ test('reads historical meshes and graphs through the built CLI', async () => {
     expect(graphs.items[0].graphId).toBe('graph-1')
     const lineage = JSON.parse((await cli(baseUrl, stateDir, ['graph', 'lineage', '--graph', 'graph-1', '--artifact', 'node-1', '--direction', 'ancestors', '--depth', '2'])).stdout)
     expect(lineage.graphId).toBe('graph-1')
+    const lineagePath = join(stateDir, 'lineage.json')
+    const savedLineage = JSON.parse((await cli(baseUrl, stateDir, ['graph', 'lineage', '--graph', 'graph-1', '--artifact', 'node-1', '--out', lineagePath])).stdout)
+    expect(savedLineage.path).toBe(lineagePath)
+    expect(JSON.parse(await readFile(lineagePath, 'utf8')).nodes[0].id).toBe('node-1')
+    const shownPath = join(stateDir, 'shown.json')
+    await cli(baseUrl, stateDir, ['graph', 'show', '--graph', 'graph-1', '--out', shownPath])
+    expect(JSON.parse(await readFile(shownPath, 'utf8')).graphId).toBe('graph-1')
+
     const output = join(stateDir, 'graph.json')
     const exported = JSON.parse((await cli(baseUrl, stateDir, ['graph', 'export', '--graph', 'graph-1', '--out', output])).stdout)
     expect(exported.path).toBe(output)
@@ -127,4 +135,4 @@ test('reads historical meshes and graphs through the built CLI', async () => {
   } finally {
     await Promise.all(cleanup.splice(0).map(fn => fn()))
   }
-})
+}, 30000)

@@ -4176,7 +4176,7 @@ const commandGraph = async (
         })
       })()
   if (
-    subcommand === 'export' &&
+    (subcommand === 'export' || getFlag(ctx.flags, 'out')) &&
     graph.truncated &&
     !hasFlag(ctx.flags, 'allow-truncated')
   )
@@ -4184,7 +4184,7 @@ const commandGraph = async (
       'Graph exceeds export bounds; narrow with --artifact or explicitly use --allow-truncated',
     )
   const out = getFlag(ctx.flags, 'out')
-  if (subcommand === 'export' && out) {
+  if (out) {
     await writeFile(resolve(out), JSON.stringify(graph, null, 2) + '\n', {
       mode: 0o600,
     })
