@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {setTimeout as delay} from 'node:timers/promises'
+import {cliVersion, diagnose, mcpConfig} from './setup.js'
 import {ingestProjectSources} from './projectSources.js'
 import {writeCanvasComparison} from './canvasComparison.js'
 import {importCanvasAssetWithState} from './canvasAssetImport.js'
@@ -192,6 +193,9 @@ export const usage = `AssetHub CLI
 Internal preview: canvas/context/layout and moodboards require workspace feature access.
 
 Usage:
+  assethub --version
+  assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
+  assethub mcp config --client cursor|codex [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
   assethub auth login --access-token-stdin [--base-url <url>] [--profile <name>]
@@ -265,9 +269,10 @@ Usage:
 
 Global options:
   --api-key <key>       Overrides saved auth and ASSETHUB_API_KEY.
-  --base-url <url>      Defaults to ASSETHUB_API_BASE_URL, saved auth, or ${defaultBaseUrl}.
-  --profile <name>      Saved auth profile name. Defaults to ${defaultProfileName}.
+  --base-url <url>      Override the selected API origin. Default: ${defaultBaseUrl}.
+  --profile <name>      Select this saved profile ahead of environment credentials and origin.
   --config <path>       Auth config path. Defaults to ~/.assethub/config.json.
+  --version             Show installed package version.
   --help                Show help.
 
 Examples:
@@ -520,7 +525,7 @@ const getSourceResourceIdFlag = (flags: Flags): string | undefined =>
   getFlag(flags, 'resource-id')
 
 const getProfileName = (flags: Flags): string =>
-  getFlag(flags, 'profile') ?? defaultProfileName
+  hasFlag(flags, 'profile') ? requireFlag(flags, 'profile') : defaultProfileName
 
 const getConfigPath = (flags: Flags): string =>
   getFlag(flags, 'config') ??
@@ -591,57 +596,40 @@ const readStdinBlob = async (type?: string): Promise<Blob> =>
   })
 
 const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
-  const profile = getProfileName(flags)
-  const baseUrlFromFlags = getFlag(flags, 'base-url')
-  const apiKeyFromFlags = getFlag(flags, 'api-key')
-  if (apiKeyFromFlags != null && apiKeyFromFlags !== 'true') {
-    return {
-      apiKey: apiKeyFromFlags,
-      baseUrl: baseUrlFromFlags ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl,
-      profile,
-      source: 'flag',
-    }
-  }
-
-  const config = await readAuthConfig(getConfigPath(flags))
-  const storedName =
-    getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
-  const storedProfile = config.profiles?.[storedName]
-  const storedAuth = storedProfile?.apiKey
-    ? {
-        apiKey: storedProfile.apiKey,
-        baseUrl:
-          baseUrlFromFlags ??
-          env.ASSETHUB_API_BASE_URL ??
-          storedProfile.baseUrl,
-        profile: storedName,
-        source: 'profile' as const,
-      }
-    : undefined
-  // An explicit profile or workspace selection must control the next command,
-  // even if the shell still contains the previous organization's key.
-  if (storedAuth && (getFlag(flags, 'profile') || storedProfile?.workspaceId)) {
+  const explicitProfile = hasFlag(flags, 'profile') ? requireFlag(flags, 'profile') : undefined
+  const overrideKey = hasFlag(flags, 'api-key') ? requireFlag(flags, 'api-key') : undefined
+  const config =
+    !overrideKey || explicitProfile
+      ? await readAuthConfig(getConfigPath(flags))
+      : undefined
+  const profile = explicitProfile ?? config?.defaultProfile ?? defaultProfileName
+  const storedProfile = config?.profiles?.[profile]
+  const selected = Boolean(explicitProfile || storedProfile?.workspaceId)
+  if (selected && (!storedProfile || (!storedProfile.apiKey && !overrideKey)))
+    throw new Error(
+      'Selected profile has no workspace API key. Use workspace use <id> or auth login --api-key-stdin --profile <name>.',
+    )
+  const baseUrl =
+    getFlag(flags, 'base-url') ??
+    (selected
+      ? storedProfile!.baseUrl
+      : env.ASSETHUB_API_BASE_URL ?? storedProfile?.baseUrl ?? defaultBaseUrl)
+  if (overrideKey)
+    return {apiKey: overrideKey, baseUrl, profile, source: 'flag'}
+  if (selected && storedProfile?.apiKey) {
     if (
-      storedProfile?.workspaceId &&
-      new URL(storedAuth.baseUrl).origin !==
-        new URL(storedProfile.baseUrl).origin
+      storedProfile.workspaceId &&
+      new URL(baseUrl).origin !== new URL(storedProfile.baseUrl).origin
     )
       throw new Error(
         'Selected workspace belongs to another API origin; select a workspace for this origin or supply an explicit API key',
       )
-    return storedAuth
+    return {apiKey: storedProfile.apiKey, baseUrl, profile, source: 'profile'}
   }
-  if (env.ASSETHUB_API_KEY != null && env.ASSETHUB_API_KEY.trim() !== '') {
-    return {
-      apiKey: env.ASSETHUB_API_KEY,
-      baseUrl: baseUrlFromFlags ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl,
-      profile,
-      source: 'env',
-    }
-  }
-
-  if (storedAuth) return storedAuth
-
+  if (env.ASSETHUB_API_KEY?.trim())
+    return {apiKey: env.ASSETHUB_API_KEY, baseUrl, profile, source: 'env'}
+  if (storedProfile?.apiKey)
+    return {apiKey: storedProfile.apiKey, baseUrl, profile, source: 'profile'}
   throw new Error(
     'Missing workspace API key. Use "workspace use <id>" after user login, "auth login --api-key-stdin", or ASSETHUB_API_KEY.',
   )
@@ -1724,21 +1712,21 @@ const commandModels = async (
 const workspaceAuth = async (flags: Flags) => {
   const configPath = getConfigPath(flags)
   const config = await readAuthConfig(configPath)
-  const profile =
-    getFlag(flags, 'profile') ?? config.defaultProfile ?? defaultProfileName
+  const explicitProfile = hasFlag(flags, 'profile') ? requireFlag(flags, 'profile') : undefined
+  const profile = explicitProfile ?? config.defaultProfile ?? defaultProfileName
   const stored = config.profiles?.[profile]
-  const accessToken = env.ASSETHUB_ACCESS_TOKEN?.trim() || stored?.accessToken
+  const environmentToken = explicitProfile ? undefined : env.ASSETHUB_ACCESS_TOKEN?.trim()
+  const accessToken = environmentToken || stored?.accessToken
   if (!accessToken)
     throw new Error(
       'Workspace management requires user authentication: auth login --access-token-stdin or ASSETHUB_ACCESS_TOKEN',
     )
   const baseUrl =
     getFlag(flags, 'base-url') ??
-    env.ASSETHUB_API_BASE_URL ??
-    stored?.baseUrl ??
+    (explicitProfile ? stored?.baseUrl : env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl) ??
     defaultBaseUrl
   if (
-    !env.ASSETHUB_ACCESS_TOKEN?.trim() &&
+    !environmentToken &&
     stored &&
     new URL(baseUrl).origin !== new URL(stored.baseUrl).origin
   )
@@ -1746,7 +1734,7 @@ const workspaceAuth = async (flags: Flags) => {
       'Saved user authentication belongs to another API origin; log in for this origin',
     )
   const workspaceMfaToken =
-    env.ASSETHUB_WORKSPACE_MFA?.trim() ||
+    (!explicitProfile && env.ASSETHUB_WORKSPACE_MFA?.trim()) ||
     (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin
       ? stored.workspaceMfaToken
       : undefined)
@@ -1766,6 +1754,11 @@ const commandWorkspace = async (
   positionals: string[],
   flags: Flags,
 ) => {
+  const suppliedKey = hasFlag(flags, 'api-key')
+    ? requireFlag(flags, 'api-key')
+    : hasFlag(flags, 'profile')
+      ? undefined
+      : env.ASSETHUB_API_KEY?.trim()
   const auth = await workspaceAuth(flags)
   if (subcommand === 'list') {
     print(await auth.client.list())
@@ -1817,7 +1810,6 @@ const commandWorkspace = async (
       entry.apiKey,
   )
   let apiKey: string | undefined
-  const suppliedKey = getFlag(flags, 'api-key') ?? env.ASSETHUB_API_KEY?.trim()
   for (const candidate of new Set([cached?.[1].apiKey, suppliedKey])) {
     if (!candidate) continue
     try {
@@ -1964,7 +1956,7 @@ const commandAuth = async (
         getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
       ]
     if (
-      env.ASSETHUB_ACCESS_TOKEN?.trim() ||
+      (!hasFlag(flags, 'profile') && env.ASSETHUB_ACCESS_TOKEN?.trim()) ||
       (current?.accessToken && !current.apiKey)
     ) {
       const auth = await workspaceAuth(flags)
@@ -1997,24 +1989,16 @@ const commandAuth = async (
 
   if (subcommand === 'logout') {
     const config = await readAuthConfig(configPath)
+    const selectedProfile = getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
     const profiles = config.profiles ?? {}
-    const selectedProfile =
-      getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
     const existed = profiles[selectedProfile] != null
     delete profiles[selectedProfile]
     await writeAuthConfig(configPath, {
       defaultProfile:
-        config.defaultProfile === selectedProfile
-          ? undefined
-          : config.defaultProfile,
+        config.defaultProfile === selectedProfile ? undefined : config.defaultProfile,
       profiles,
     })
-    print({
-      success: true,
-      profile: selectedProfile,
-      removed: existed,
-      configPath,
-    })
+    print({success: true, profile: selectedProfile, removed: existed, configPath})
     return
   }
 
@@ -4412,12 +4396,38 @@ const parseNonNegativeIntegerFlag = (
 
 const run = async (): Promise<void> => {
   const parsed = parseArgs(argv.slice(2))
+  if (hasFlag(parsed.flags, 'version')) {
+    stdout.write(`${await cliVersion()}\n`)
+    return
+  }
   if (hasFlag(parsed.flags, 'help') || parsed.positionals.length === 0) {
     stdout.write(usage)
     return
   }
 
   const [command, subcommand] = parsed.positionals
+  if (command === 'mcp') {
+    if (subcommand !== 'config')
+      throw new Error('Use mcp config --client cursor|codex')
+    stdout.write(
+      mcpConfig(
+        requireFlag(parsed.flags, 'client'),
+        getFlag(parsed.flags, 'base-url') ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl,
+      ),
+    )
+    return
+  }
+  if (command === 'doctor') {
+    stderr.write('Checking AssetHub connection…\n')
+    const report = await diagnose({
+      resolveAuth: () => resolveAuth(parsed.flags),
+      includeMcp: hasFlag(parsed.flags, 'mcp'),
+      timeoutMs: parsePositiveIntegerFlag(parsed.flags, 'timeout-ms', 15000),
+    })
+    print(report)
+    if (!report.ok) process.exitCode = 2
+    return
+  }
   if (command === 'project') {
     if (subcommand !== 'ingest')
       throw new Error('Use project ingest <source-dir> --out-dir <directory>')

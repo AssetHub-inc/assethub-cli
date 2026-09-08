@@ -17,6 +17,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: npm
+    timeout-minutes: 25
     permissions:
       contents: write
       id-token: write
@@ -36,12 +37,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          verify_registry() {
+            local spec="$1" expected="${2:-}" directory tarball
+            directory=$(mktemp -d "$RUNNER_TEMP/registry.XXXXXX")
+            local deadline=$((SECONDS + 600))
+            while ((SECONDS < deadline)); do
+              if (cd "$directory" && env -u NODE_AUTH_TOKEN -u NPM_TOKEN NPM_CONFIG_USERCONFIG=/dev/null npm pack "$spec" --ignore-scripts --json --fetch-retries=0 --fetch-timeout=10000 --cache "$directory/cache" > pack.json); then
+                tarball=$(jq -r '.[0].filename' "$directory/pack.json")
+                if [ -n "$expected" ]; then
+                  cmp "$expected" "$directory/$tarball" || return 1
+                fi
+                return 0
+              fi
+              echo "Waiting for npm distribution: $spec"
+              sleep 15
+            done
+            echo "npm accepted publication but the package is not downloadable: $spec" >&2
+            return 1
+          }
           case "$PACKAGE" in
             api-client) PACKAGE_DIR=packages/assethub-api-client ;;
             cli)
               PACKAGE_DIR=packages/assethub-cli
               SDK_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('packages/assethub-api-client/package.json')).version")
-              npm view "@assethub/api-client@$SDK_VERSION" version
+              verify_registry "@assethub/api-client@$SDK_VERSION"
               ;;
             *) exit 1 ;;
           esac
@@ -50,3 +69,4 @@ jobs:
           npm publish "$RUNNER_TEMP/$TARBALL" --access public --provenance --ignore-scripts
           printf '%s\n' "Published @assethub/$PACKAGE $VERSION to npm. See CHANGELOG.md for changes." > "$RUNNER_TEMP/release-notes.md"
           gh release create "$PACKAGE-v$VERSION" "$RUNNER_TEMP/$TARBALL" --target "$GITHUB_SHA" --title "@assethub/$PACKAGE $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
+          verify_registry "@assethub/$PACKAGE@$VERSION" "$RUNNER_TEMP/$TARBALL"

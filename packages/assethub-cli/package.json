@@ -1,6 +1,6 @@
 {
   "name": "@assethub/cli",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Command line interface for AssetHub.",
   "type": "module",
   "bin": {
@@ -30,7 +30,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@assethub/api-client": "^0.1.4"
+    "@assethub/api-client": "^0.1.4",
+    "@modelcontextprotocol/sdk": "^1.30.0"
   },
   "repository": {
     "type": "git",
