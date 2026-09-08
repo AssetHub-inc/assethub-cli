@@ -2,7 +2,8 @@ import {execFile} from 'node:child_process'
 import {createServer} from 'node:http'
 import {mkdtemp, readFile, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {join, resolve} from 'node:path'
+import {join} from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {promisify} from 'node:util'
 import {afterEach, expect, test} from 'vitest'
 
@@ -14,7 +15,7 @@ afterEach(async () => {
 const cli = (baseUrl: string, stateDir: string, args: string[]) =>
   promisify(execFile)(
     process.execPath,
-    [resolve('packages/assethub-cli/dist/index.js'), ...args],
+    [fileURLToPath(new URL('../../dist/index.js', import.meta.url)), ...args],
     {
       env: {
         ...process.env,
