@@ -8,18 +8,10 @@ export const cliVersion = async (): Promise<string> =>
     ) as {version: string}
   ).version
 
-const apiOrigin = (baseUrl: string): string => {
+const validatedBaseUrl = (baseUrl: string): string => {
   const url = new URL(baseUrl)
-  if (
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash ||
-    url.pathname !== '/'
-  )
-    throw new Error(
-      'Use an API origin without credentials, path, query, or fragment.',
-    )
+  if (url.username || url.password || url.search || url.hash)
+    throw new Error('Use an API URL without credentials, query, or fragment.')
   if (
     url.protocol !== 'https:' &&
     !(
@@ -30,11 +22,11 @@ const apiOrigin = (baseUrl: string): string => {
     throw new Error(
       'Use HTTPS for remote servers; HTTP is supported only on localhost.',
     )
-  return url.origin
+  return url.href.replace(/\/+$/, '')
 }
 
 export const mcpConfig = (client: string, baseUrl: string): string => {
-  const url = `${apiOrigin(baseUrl)}/api/mcp`
+  const url = `${validatedBaseUrl(baseUrl)}/api/mcp`
   if (client === 'cursor')
     return (
       JSON.stringify(
@@ -137,7 +129,7 @@ export const diagnose = async ({
   let auth: Auth
   try {
     auth = await resolveAuth()
-    auth.baseUrl = apiOrigin(auth.baseUrl)
+    auth.baseUrl = validatedBaseUrl(auth.baseUrl)
   } catch {
     return {
       ok: false,

@@ -15,7 +15,7 @@ Use Node.js 22.14 or newer and npm.
 ```sh
 npm install -g @assethub/cli
 assethub auth login --api-key-stdin
-assethub doctor --mcp
+assethub doctor
 ```
 
 Create a workspace API key in [AssetHub](https://app.assethub.io), run the login
@@ -54,7 +54,7 @@ MCP configuration prints Cursor JSON or a Codex TOML section. Merge it into your
 existing user configuration; it does not modify any settings. Both clients read
 `ASSETHUB_API_KEY` from their launch environment. No key is printed or embedded.
 CLI saved profiles and the AI client's environment are separate; use the same
-workspace key in both. `--base-url` supports custom HTTPS origins and localhost.
+workspace key in both. `--base-url` supports custom HTTPS URLs (including path prefixes) and localhost.
 
 An explicit `--profile` selects that profile's key and API origin even when the
 shell contains another workspace's environment variables. A missing explicit

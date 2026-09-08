@@ -22,12 +22,14 @@ creator, independently of regular API access.
 existing user settings. It does not write files or read your saved API key.
 The generated settings read `ASSETHUB_API_KEY` from the AI client's environment.
 Use the same workspace key as your CLI profile. For a different API origin, pass
-`--base-url https://your-host` (HTTP is accepted only for localhost).
+`--base-url https://your-host/prefix` (HTTP is accepted only for localhost).
 
 Explicit `--profile` uses that profile's key and origin, ahead of environment
 variables. A missing profile fails. Without an explicit profile, environment
 credentials precede the default saved profile. `--api-key` and `--base-url` remain
-explicit overrides. Diagnostics omit API keys and raw server error bodies.
+explicit overrides. `auth logout` removes the selected saved profile (or the
+saved default); environment credentials remain under your shell’s control.
+Diagnostics omit API keys and raw server error bodies.
 
 ## Agent generation with canvas history
 

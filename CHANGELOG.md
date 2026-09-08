@@ -6,7 +6,7 @@
 - Add `mcp config --client cursor|codex` with environment-based credentials.
 - Add `--version` for support and installation checks.
 - Honor an explicit auth profile ahead of stale environment credentials and origin; reject missing profiles.
-- Use the saved default profile when no environment key or explicit profile is supplied.
+- Use the saved default profile when no environment key or explicit profile is supplied; log out of that same saved profile.
 - Verify actual npm tarball availability and integrity during publishing.
 
 ## CLI 0.1.8 / API client 0.1.3

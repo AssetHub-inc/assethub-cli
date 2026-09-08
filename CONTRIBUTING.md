@@ -17,7 +17,7 @@ workspaces; shared development dependencies live at the repository root.
 4. Run the **Publish packages** workflow from `main`, selecting `api-client` or
    `cli`. Publish the SDK first if the CLI requires its new version.
 5. The workflow builds, tests, packs, publishes with npm OIDC provenance, and
-   creates a GitHub Release containing the package tarball, then waits up to ten
+   creates a GitHub Release containing the package tarball, then waits about ten
    minutes for an anonymous registry download matching that tarball. Verify the published
    package from a clean install before announcing it.
 

@@ -17,7 +17,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
   let hang = false
   const server = createServer(async (req, res) => {
     if (hang) return
-    if (req.method === 'GET' && req.url === '/api/mcp') {
+    if (req.method === 'GET' && req.url?.endsWith('/api/mcp')) {
       res.writeHead(405)
       res.end()
       return
@@ -30,7 +30,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
       auth: req.headers.authorization,
       method: rpc.method,
     })
-    const status = req.url === '/api/mcp' ? mcpStatus : apiStatus
+    const status = req.url?.endsWith('/api/mcp') ? mcpStatus : apiStatus
     if (status !== 200) {
       res.writeHead(status, {'content-type': 'application/json'})
       res.end(
@@ -39,7 +39,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
           error: {code: 'TEST_ERROR', message: 'sensitive-server-text'},
         }),
       )
-    } else if (req.url === '/api/mcp') {
+    } else if (req.url?.endsWith('/api/mcp')) {
       if (rpc.id == null) {
         res.writeHead(202)
         res.end()
@@ -136,6 +136,30 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     const codex = await invoke('mcp', 'config', '--client', 'codex')
     expect(codex.stdout).toContain('bearer_token_env_var = "ASSETHUB_API_KEY"')
     expect(requests).toHaveLength(0)
+    const mountedConfig = await invoke(
+      'mcp',
+      'config',
+      '--client',
+      'cursor',
+      '--base-url',
+      origin + '/mounted/',
+    )
+    expect(mountedConfig.code).toBe(0)
+    expect(JSON.parse(mountedConfig.stdout).mcpServers.assethub.url).toBe(
+      origin + '/mounted/api/mcp',
+    )
+    const mounted = await invoke(
+      'doctor',
+      '--mcp',
+      '--profile',
+      'selected',
+      '--base-url',
+      origin + '/mounted',
+    )
+    expect(mounted.code).toBe(0)
+    expect(requests.length).toBeGreaterThan(0)
+    expect(requests.every(r => r.path.startsWith('/mounted/'))).toBe(true)
+    requests.length = 0
 
     envOrigin = 'http://127.0.0.1:1'
     const healthy = await invoke('doctor', '--mcp', '--profile', 'selected')
@@ -163,6 +187,26 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
       /selected-key|stale-environment-key/,
     )
     requests.length = 0
+    const overridden = await invoke(
+      'doctor',
+      '--profile',
+      'selected',
+      '--api-key',
+      'explicit-key',
+    )
+    expect(overridden.code).toBe(0)
+    expect(requests.every(r => r.auth === 'Bearer explicit-key')).toBe(true)
+    expect(requests.length).toBeGreaterThan(0)
+    requests.length = 0
+    const missingOverride = await invoke(
+      'doctor',
+      '--profile',
+      'missing',
+      '--api-key',
+      'explicit-key',
+    )
+    expect(missingOverride.code).toBe(2)
+    expect(requests).toHaveLength(0)
     envKey = ''
     envOrigin = origin
     const selected = await invoke('capabilities')
@@ -191,6 +235,19 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     expect(denied.code).toBe(2)
     expect(JSON.parse(denied.stdout).checks).toContainEqual(
       expect.objectContaining({name: 'api', code: 'UNAUTHORIZED'}),
+    )
+    const logout = await invoke('auth', 'logout')
+    expect(logout.code).toBe(0)
+    expect(JSON.parse(logout.stdout).profile).toBe('selected')
+    const afterLogout = JSON.parse(await readFile(config, 'utf8'))
+    expect(afterLogout.profiles.selected).toBeUndefined()
+    expect(afterLogout.profiles.default.apiKey).toBe('default-key')
+    // Restore the test-only profile for the independent timeout check.
+    await writeFile(
+      config,
+      JSON.stringify({
+        profiles: {selected: {apiKey: 'selected-key', baseUrl: origin}},
+      }),
     )
     hang = true
     const timeout = await invoke(

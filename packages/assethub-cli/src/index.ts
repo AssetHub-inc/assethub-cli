@@ -580,49 +580,33 @@ const readStdinBlob = async (type?: string): Promise<Blob> =>
   })
 
 const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
-  const profile = getProfileName(flags)
-  const baseUrlFromFlags = getFlag(flags, 'base-url')
-  const apiKeyFromFlags = getFlag(flags, 'api-key')
-  if (apiKeyFromFlags != null && apiKeyFromFlags !== 'true') {
-    return {
-      apiKey: apiKeyFromFlags,
-      baseUrl: baseUrlFromFlags ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl,
-      profile,
-      source: 'flag',
-    }
-  }
-
   const explicitProfile = getFlag(flags, 'profile')
-  // Explicit selection must never fall back to another workspace's env key.
-  if (!explicitProfile && env.ASSETHUB_API_KEY?.trim()) {
-    return {
-      apiKey: env.ASSETHUB_API_KEY,
-      baseUrl: baseUrlFromFlags ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl,
-      profile,
-      source: 'env',
-    }
-  }
-  const config = await readAuthConfig(getConfigPath(flags))
-  const storedName =
-    explicitProfile ?? config.defaultProfile ?? defaultProfileName
-  const storedProfile = config.profiles?.[storedName]
-  if (storedProfile?.apiKey) {
-    return {
-      apiKey: storedProfile.apiKey,
-      baseUrl:
-        baseUrlFromFlags ??
-        (explicitProfile
-          ? storedProfile.baseUrl
-          : env.ASSETHUB_API_BASE_URL ?? storedProfile.baseUrl),
-      profile: storedName,
-      source: 'profile',
-    }
-  }
-  if (explicitProfile)
+  const apiKeyFromFlags = getFlag(flags, 'api-key')
+  const overrideKey = apiKeyFromFlags !== 'true' ? apiKeyFromFlags : undefined
+  // Read saved auth only when it can affect selection. Environment-only use
+  // should still work without a readable local config.
+  const config =
+    explicitProfile || (!overrideKey && !env.ASSETHUB_API_KEY?.trim())
+      ? await readAuthConfig(getConfigPath(flags))
+      : undefined
+  const profile = explicitProfile ?? config?.defaultProfile ?? defaultProfileName
+  const storedProfile = config?.profiles?.[profile]
+  if (explicitProfile && !storedProfile?.apiKey)
     throw new Error(
       'Selected auth profile was not found. Run auth login --api-key-stdin --profile <name>.',
     )
-
+  const baseUrl =
+    getFlag(flags, 'base-url') ??
+    (explicitProfile
+      ? storedProfile!.baseUrl
+      : env.ASSETHUB_API_BASE_URL ?? storedProfile?.baseUrl ?? defaultBaseUrl)
+  if (overrideKey)
+    return {apiKey: overrideKey, baseUrl, profile, source: 'flag'}
+  // Explicit selection must never fall back to another workspace's env key.
+  if (!explicitProfile && env.ASSETHUB_API_KEY?.trim())
+    return {apiKey: env.ASSETHUB_API_KEY, baseUrl, profile, source: 'env'}
+  if (storedProfile?.apiKey)
+    return {apiKey: storedProfile.apiKey, baseUrl, profile, source: 'profile'}
   throw new Error(
     'Missing API key. Run "assethub auth login --api-key-stdin", set ASSETHUB_API_KEY, or pass --api-key.',
   )
@@ -1768,15 +1752,16 @@ const commandAuth = async (
 
   if (subcommand === 'logout') {
     const config = await readAuthConfig(configPath)
+    const selectedProfile = getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
     const profiles = config.profiles ?? {}
-    const existed = profiles[profile] != null
-    delete profiles[profile]
+    const existed = profiles[selectedProfile] != null
+    delete profiles[selectedProfile]
     await writeAuthConfig(configPath, {
       defaultProfile:
-        config.defaultProfile === profile ? undefined : config.defaultProfile,
+        config.defaultProfile === selectedProfile ? undefined : config.defaultProfile,
       profiles,
     })
-    print({success: true, profile, removed: existed, configPath})
+    print({success: true, profile: selectedProfile, removed: existed, configPath})
     return
   }
 

@@ -17,6 +17,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: npm
+    timeout-minutes: 25
     permissions:
       contents: write
       id-token: write
@@ -39,15 +40,16 @@ jobs:
           verify_registry() {
             local spec="$1" expected="${2:-}" directory tarball
             directory=$(mktemp -d "$RUNNER_TEMP/registry.XXXXXX")
-            for attempt in {1..40}; do
-              if (cd "$directory" && env -u NODE_AUTH_TOKEN -u NPM_TOKEN NPM_CONFIG_USERCONFIG=/dev/null npm pack "$spec" --ignore-scripts --json --cache "$directory/cache" > pack.json); then
+            local deadline=$((SECONDS + 600))
+            while ((SECONDS < deadline)); do
+              if (cd "$directory" && env -u NODE_AUTH_TOKEN -u NPM_TOKEN NPM_CONFIG_USERCONFIG=/dev/null npm pack "$spec" --ignore-scripts --json --fetch-retries=0 --fetch-timeout=10000 --cache "$directory/cache" > pack.json); then
                 tarball=$(jq -r '.[0].filename' "$directory/pack.json")
                 if [ -n "$expected" ]; then
-                  cmp "$expected" "$directory/$tarball"
+                  cmp "$expected" "$directory/$tarball" || return 1
                 fi
                 return 0
               fi
-              echo "Waiting for npm distribution: $spec (attempt $attempt/40)"
+              echo "Waiting for npm distribution: $spec"
               sleep 15
             done
             echo "npm accepted publication but the package is not downloadable: $spec" >&2
