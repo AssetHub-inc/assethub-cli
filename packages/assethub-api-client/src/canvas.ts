@@ -85,6 +85,7 @@ export type CanvasExecution = {
     format?: string
   }>
   history: {status: 'recorded' | 'pending' | 'failed'; error?: string}
+  composition?: {transforms?: Record<string, number[]>}
   usage: {
     reservedCredits: number | null
     chargedCredits: number | null
@@ -98,7 +99,7 @@ export type CanvasExecution = {
   input: Record<string, unknown>
   inputAssets?: Array<{
     assetId: string
-    mediaType: 'image'
+    mediaType: 'image' | 'mesh'
     uploadId?: string
     sourceAssetId?: string
   }>

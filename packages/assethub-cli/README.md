@@ -25,8 +25,9 @@ Use the same workspace key as your CLI profile. For a different API origin, pass
 `--base-url https://your-host/prefix` (HTTP is accepted only for localhost).
 
 Explicit `--profile` uses that profile's key and origin, ahead of environment
-variables. A missing profile fails. Without an explicit profile, environment
-credentials precede the default saved profile. `--api-key` and `--base-url` remain
+variables. A missing profile fails. Without an explicit profile, a workspace selected with `workspace use` takes
+precedence over environment API credentials; otherwise the environment key
+precedes the saved default. `--api-key` and `--base-url` remain
 explicit overrides. `auth logout` removes the selected saved profile (or the
 saved default); environment credentials remain under your shell’s control.
 Diagnostics omit API keys and raw server error bodies.
@@ -401,3 +402,37 @@ Internal agent IDs are intentionally not part of the CLI interface.
 
 The CLI only uses AssetHub's public API surface and is designed so this package
 can be published independently from the private application monorepo.
+
+## Workspaces and existing parts
+
+Workspace management uses a user access token, separately from workspace API keys.
+Pass the token through standard input; never include it in command arguments.
+
+```sh
+assethub auth login --access-token-stdin
+assethub workspace list
+assethub workspace create --name "Character concepts"
+assethub workspace use <workspace-id>
+assethub canvas list
+assethub canvas use <canvas-id>
+assethub composer models
+assethub composer run --part <mesh-id> --part <mesh-id> --reference <image-id> --wait
+assethub composer run --from-run <run-id> --transforms-json @transforms.json --wait
+```
+
+Selection reuses a valid API key for that workspace or creates one when permitted.
+Membership, API key creation permissions, and workspace MFA still apply. Complete
+required MFA in AssetHub and provide its signed proof through
+`ASSETHUB_WORKSPACE_MFA`. Generation uses normal workspace credits.
+
+Existing Production outputs can be inspected and downloaded without regenerating:
+
+```sh
+assethub production status <order-id> --download --out-dir ./existing-assets
+assethub graph export --canvas <canvas-id> --out ./graph.json
+assethub graph lineage --canvas <canvas-id> --artifact <asset-id> --direction ancestors
+```
+
+The graph commands currently cover recorded CLI/API executions and evaluations.
+They do not enumerate every historical UI artifact graph or provide a workspace-wide
+mesh library search. A canvas with only older UI activity can return an empty graph.

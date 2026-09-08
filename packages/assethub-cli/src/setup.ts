@@ -142,7 +142,7 @@ export const diagnose = async ({
           code: 'AUTH_CONFIGURATION',
           message:
             'No usable credentials or API origin for the selected profile.',
-          hint: 'Check --profile and --base-url, or run assethub auth login --api-key-stdin.',
+          hint: 'Check --profile and --base-url. Select a workspace with assethub workspace use <id> after user login, or run assethub auth login --api-key-stdin.',
         } satisfies Check,
       ],
     }

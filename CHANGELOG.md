@@ -1,13 +1,23 @@
 # Changelog
 
-## CLI 0.1.9
+## CLI 0.1.10
 
 - Add `doctor` to check API access and the workspace, plus optional MCP tool discovery.
 - Add `mcp config --client cursor|codex` with environment-based credentials.
 - Add `--version` for support and installation checks.
 - Honor an explicit auth profile ahead of stale environment credentials and origin; reject missing profiles.
 - Use the saved default profile when no environment key or explicit profile is supplied; log out of that same saved profile.
+- Update the test runner to Vitest 4.1.11, resolving its reported development dependency vulnerabilities.
 - Verify actual npm tarball availability and integrity during publishing.
+
+## CLI 0.1.9 / API client 0.1.4
+
+- Add user login and workspace listing, creation, and selection.
+- Compose existing meshes, recompose saved transforms, and retain canvas history and lineage.
+- Keep workspace credentials scoped to their API origin and selected organization.
+- Replay an unacknowledged Composer dispatch with the original operation identity.
+
+These operations match the application release v1.2.1354.
 
 ## CLI 0.1.8 / API client 0.1.3
 

@@ -11,8 +11,12 @@ Usage:
   assethub mcp config --client cursor|codex [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
+  assethub auth login --access-token-stdin [--base-url <url>] [--profile <name>]
   assethub auth status [--profile <name>]
   assethub auth logout [--profile <name>]
+  assethub workspace list|get
+  assethub workspace create --name <name> [--operation-id <uuid>]
+  assethub workspace use <workspace-id>
   assethub workspace prepare|sync|analyze|verify --internal --manifest <json> --state <json>
   assethub workspace self-check --internal
   assethub workspace context put --internal --org <uuid> --actor <uuid> --canvas <id> --file <json> [--if-version <n>] [--order <uuid>]
@@ -34,6 +38,10 @@ Usage:
   assethub files upload <file> --media-type image|mesh
   assethub source create (--file <path> | --source-url <url> | --source-id <id> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) --media-type image|mesh [--file-name <name>] [--content-type <type>]
   assethub capabilities
+  assethub composer models
+  assethub composer run --part <mesh-asset-id> [--part <mesh-asset-id>...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
+  assethub composer run --from-run <run-id> [--transforms-json <json|@file>] [--mode quick|quality] [--wait]
   assethub canvas create [--name <name>] [--operation-id <uuid>]
   assethub canvas list [--cursor <cursor>] [--limit <n>]
   assethub canvas get|use|open [<id>]

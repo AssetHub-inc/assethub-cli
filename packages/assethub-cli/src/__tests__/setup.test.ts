@@ -31,7 +31,13 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
       method: rpc.method,
     })
     const status = req.url?.endsWith('/api/mcp') ? mcpStatus : apiStatus
-    if (status !== 200) {
+    if (req.url === '/api/v2/models') {
+      res.writeHead(200, {'content-type': 'application/json'})
+      res.end(JSON.stringify({success: true, data: []}))
+    } else if (req.url === '/api/workspaces') {
+      res.writeHead(200, {'content-type': 'application/json'})
+      res.end(JSON.stringify({userId: 'selected-user', workspaces: []}))
+    } else if (status !== 200) {
       res.writeHead(status, {'content-type': 'application/json'})
       res.end(
         JSON.stringify({
@@ -107,6 +113,8 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
             ...process.env,
             ASSETHUB_CLI_CONFIG: config,
             ASSETHUB_API_KEY: envKey,
+            ASSETHUB_ACCESS_TOKEN: 'stale-user-token',
+            ASSETHUB_WORKSPACE_MFA: '',
             ASSETHUB_API_BASE_URL: envOrigin,
           },
           timeout: 10_000,
@@ -224,6 +232,43 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     expect(JSON.parse(missing.stdout).ok).toBe(false)
     expect(requests).toHaveLength(0)
 
+    const saved = JSON.parse(await readFile(config, 'utf8'))
+    saved.profiles.selected.workspaceId = 'test-workspace'
+    saved.profiles.selected.accessToken = 'selected-user-token'
+    await writeFile(config, JSON.stringify(saved))
+    envOrigin = 'http://127.0.0.1:1'
+    const automaticWorkspace = await invoke('doctor')
+    expect(automaticWorkspace.code).toBe(0)
+    expect(requests.every(r => r.auth === 'Bearer selected-key')).toBe(true)
+    requests.length = 0
+    const account = await invoke('workspace', 'list', '--profile', 'selected')
+    expect(account.code).toBe(0)
+    expect(requests.every(r => r.auth === 'Bearer selected-user-token')).toBe(
+      true,
+    )
+    expect(requests).toHaveLength(1)
+    requests.length = 0
+    const status = await invoke('auth', 'status', '--profile', 'selected')
+    expect(status.code).toBe(0)
+    expect(JSON.parse(status.stdout).source).toBe('profile')
+    expect(requests.every(r => r.auth === 'Bearer selected-key')).toBe(true)
+    requests.length = 0
+    const missingAccount = await invoke(
+      'workspace',
+      'list',
+      '--profile',
+      'missing',
+    )
+    expect(missingAccount.code).toBe(2)
+    expect(requests).toHaveLength(0)
+    const wrongOrigin = await invoke(
+      'doctor',
+      '--base-url',
+      'http://127.0.0.1:1',
+    )
+    expect(wrongOrigin.code).toBe(2)
+    expect(requests).toHaveLength(0)
+    envOrigin = origin
     mcpStatus = 404
     const gated = await invoke('doctor', '--mcp', '--profile', 'selected')
     expect(gated.code).toBe(2)

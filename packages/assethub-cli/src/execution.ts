@@ -9,6 +9,7 @@ import {
   type ExecutionContext,
   type ImageGenerationRequest,
   type MeshGenerationRequest,
+  type MeshComposeRequest,
   type ProductionAnalyzeRequest,
   type ProductionExecuteRequest,
   type ProductionAutomationRequest,
@@ -18,6 +19,7 @@ import {readState, resolveCanvasSelection, writeState} from './canvas.js'
 const operations = [
   'image.generate',
   'mesh.generate',
+  'mesh.compose',
   'production.analyze',
   'production.execute',
   'production.automation',
@@ -54,6 +56,7 @@ type Session = Awaited<ReturnType<typeof openExecutionSession>>
 type RequestBody =
   | ImageGenerationRequest
   | MeshGenerationRequest
+  | Omit<MeshComposeRequest, 'executionContext'>
   | ProductionAnalyzeRequest
   | ProductionExecuteRequest
   | ProductionAutomationRequest
@@ -148,7 +151,16 @@ const submitSaved = async (
     if (saved.runId) {
       const execution = await session.client.v2.getRun(saved.runId)
       activeExecution.execution = execution
-      return {execution}
+      // An unacknowledged Composer receipt can precede a failed Trigger POST.
+      // Resume repeats its saved body/key; the server uses the same native key.
+      if (
+        !(
+          saved.operation === 'mesh.compose' &&
+          execution.status === 'queued' &&
+          execution.history.status === 'pending'
+        )
+      )
+        return {execution}
     }
     for (let attempt = 0; ; attempt++) {
       try {
@@ -163,6 +175,11 @@ const submitSaved = async (
             case 'mesh.generate':
               return session.client.v2.generateMesh(
                 saved.body as MeshGenerationRequest,
+                options,
+              )
+            case 'mesh.compose':
+              return session.client.v2.composeMesh(
+                saved.body as MeshComposeRequest,
                 options,
               )
             case 'production.analyze':

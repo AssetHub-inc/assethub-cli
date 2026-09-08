@@ -58,8 +58,9 @@ workspace key in both. `--base-url` supports custom HTTPS URLs (including path p
 
 An explicit `--profile` selects that profile's key and API origin even when the
 shell contains another workspace's environment variables. A missing explicit
-profile fails instead of switching accounts. Without `--profile`, an environment
-key still takes precedence over the default saved profile. `--api-key` and
+profile fails instead of switching accounts. Without `--profile`, a workspace selected with `workspace use` takes precedence
+over environment API credentials; otherwise the environment key precedes the
+saved default. `--api-key` and
 `--base-url` remain explicit overrides.
 
 ## TypeScript SDK
