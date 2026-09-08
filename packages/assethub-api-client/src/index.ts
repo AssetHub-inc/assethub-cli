@@ -6,6 +6,16 @@ cannot advertise an op the server rejects. Adding a hand-written variant of one
 of these types to this file defeats the gate — extend the contract instead.
 */
 export {INTERVENTION_OPS} from './generated/intervention.js'
+export {createWorkspaceClient, WorkspaceClientError} from './workspaces.js'
+export type {
+  Workspace,
+  WorkspaceListResult,
+  WorkspaceCreateResult,
+  WorkspaceSelectResult,
+  WorkspaceApiKey,
+  WorkspaceClientOptions,
+  WorkspaceClient,
+} from './workspaces.js'
 export type {
   Intervention,
   InterventionOp,
@@ -964,6 +974,31 @@ export type ProductionRunResult = {
   maxCostCredits?: number | null
   effectiveOptions: ProductionEffectiveOptions & {meshModelIds: string[]}
   credits?: CreditInfo
+}
+
+export type MeshComposeRequest = {
+  parts: Array<{
+    assetId: string
+    name?: string
+    canonicalKey?: string
+  }>
+  fullBodyImageAssetId: string
+  agentVersion?: string
+  mode?: 'quick' | 'quality'
+  /** Every part: position xyz, quaternion xyzw, scale xyz. */
+  transforms?: Record<string, number[]>
+  targetCharacterHeightM?: number
+  projectName?: string
+  executionContext: ExecutionContext
+}
+export type MeshComposerCapabilities = {
+  models: Array<{id: string; label: string; modes: Array<'quick' | 'quality'>}>
+  defaultModel: string
+  modes: Array<'quick' | 'quality'>
+}
+export type MeshComposeResult = {
+  execution: CanvasExecution
+  triggerRunId?: string
 }
 
 export type ProductionAutomationImage = RequireAtLeastOne<
@@ -2246,6 +2281,22 @@ export class AssetHubClient {
             ...idempotencyRequestInit(options),
           },
         )
+      ).data,
+
+    getMeshComposers: async (): Promise<MeshComposerCapabilities> =>
+      (await this.request<MeshComposerCapabilities>('v2', '/mesh/compose'))
+        .data,
+
+    composeMesh: async (
+      body: MeshComposeRequest,
+      options: IdempotentMutationOptions = {},
+    ): Promise<MeshComposeResult> =>
+      (
+        await this.request<MeshComposeResult>('v2', '/mesh/compose', {
+          method: 'POST',
+          body: JSON.stringify(body),
+          ...idempotencyRequestInit(options),
+        })
       ).data,
 
     generateMesh: async (

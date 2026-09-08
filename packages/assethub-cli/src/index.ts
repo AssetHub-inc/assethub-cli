@@ -21,6 +21,8 @@ import {fileURLToPath, pathToFileURL} from 'node:url'
 import {promisify} from 'node:util'
 import {
   AssetHubApiError,
+  WorkspaceClientError,
+  createWorkspaceClient,
   type AnimationRetargetRequest,
   type BlobLocation,
   type MoodboardInput,
@@ -36,6 +38,7 @@ import {
   type CanvasExecution,
   type ImageGenerationRequest,
   type MeshGenerationRequest,
+  type MeshComposeRequest,
   type ExecutionContext,
   type EvaluationReport,
   type ProductionAutomationRequest,
@@ -66,7 +69,11 @@ type ParsedArgs = {
 }
 
 type AuthProfile = {
-  apiKey: string
+  apiKey?: string
+  accessToken?: string
+  workspaceMfaToken?: string
+  userId?: string
+  workspaceId?: string
   baseUrl: string
   updatedAt: string
 }
@@ -187,8 +194,12 @@ Internal preview: canvas/context/layout and moodboards require workspace feature
 Usage:
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
+  assethub auth login --access-token-stdin [--base-url <url>] [--profile <name>]
   assethub auth status [--profile <name>]
   assethub auth logout [--profile <name>]
+  assethub workspace list|get
+  assethub workspace create --name <name> [--operation-id <uuid>]
+  assethub workspace use <workspace-id>
   assethub workspace prepare|sync|analyze|verify --internal --manifest <json> --state <json>
   assethub workspace self-check --internal
   assethub workspace context put --internal --org <uuid> --actor <uuid> --canvas <id> --file <json> [--if-version <n>] [--order <uuid>]
@@ -210,6 +221,10 @@ Usage:
   assethub files upload <file> --media-type image|mesh
   assethub source create (--file <path> | --source-url <url> | --source-id <id> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) --media-type image|mesh [--file-name <name>] [--content-type <type>]
   assethub capabilities
+  assethub composer models
+  assethub composer run --part <mesh-asset-id> [--part <mesh-asset-id>...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
+  assethub composer run --from-run <run-id> [--transforms-json <json|@file>] [--mode quick|quality] [--wait]
   assethub canvas create [--name <name>] [--operation-id <uuid>]
   assethub canvas list [--cursor <cursor>] [--limit <n>]
   assethub canvas get|use|open [<id>]
@@ -538,11 +553,12 @@ const writeAuthConfig = async (
   config: AuthConfig,
 ): Promise<void> => {
   await mkdir(dirname(configPath), {recursive: true, mode: 0o700})
-  await writeFile(`${configPath}.tmp`, `${JSON.stringify(config, null, 2)}\n`, {
+  const temporary = `${configPath}.${randomUUID()}.tmp`
+  await writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, {
     mode: 0o600,
+    flag: 'wx',
   })
-  await chmod(`${configPath}.tmp`, 0o600)
-  await rename(`${configPath}.tmp`, configPath)
+  await rename(temporary, configPath)
   await chmod(configPath, 0o600)
 }
 
@@ -587,6 +603,34 @@ const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
     }
   }
 
+  const config = await readAuthConfig(getConfigPath(flags))
+  const storedName =
+    getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
+  const storedProfile = config.profiles?.[storedName]
+  const storedAuth = storedProfile?.apiKey
+    ? {
+        apiKey: storedProfile.apiKey,
+        baseUrl:
+          baseUrlFromFlags ??
+          env.ASSETHUB_API_BASE_URL ??
+          storedProfile.baseUrl,
+        profile: storedName,
+        source: 'profile' as const,
+      }
+    : undefined
+  // An explicit profile or workspace selection must control the next command,
+  // even if the shell still contains the previous organization's key.
+  if (storedAuth && (getFlag(flags, 'profile') || storedProfile?.workspaceId)) {
+    if (
+      storedProfile?.workspaceId &&
+      new URL(storedAuth.baseUrl).origin !==
+        new URL(storedProfile.baseUrl).origin
+    )
+      throw new Error(
+        'Selected workspace belongs to another API origin; select a workspace for this origin or supply an explicit API key',
+      )
+    return storedAuth
+  }
   if (env.ASSETHUB_API_KEY != null && env.ASSETHUB_API_KEY.trim() !== '') {
     return {
       apiKey: env.ASSETHUB_API_KEY,
@@ -596,29 +640,10 @@ const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
     }
   }
 
-  const config = await readAuthConfig(getConfigPath(flags))
-  const fallbackProfileName =
-    profile === defaultProfileName ? config.defaultProfile : undefined
-  const storedProfile =
-    config.profiles?.[profile] ??
-    (fallbackProfileName != null
-      ? config.profiles?.[fallbackProfileName]
-      : undefined)
-  if (storedProfile != null) {
-    return {
-      apiKey: storedProfile.apiKey,
-      baseUrl:
-        baseUrlFromFlags ?? env.ASSETHUB_API_BASE_URL ?? storedProfile.baseUrl,
-      profile:
-        config.profiles?.[profile] != null
-          ? profile
-          : (fallbackProfileName ?? profile),
-      source: 'profile',
-    }
-  }
+  if (storedAuth) return storedAuth
 
   throw new Error(
-    'Missing API key. Run "assethub auth login --api-key-stdin", set ASSETHUB_API_KEY, or pass --api-key.',
+    'Missing workspace API key. Use "workspace use <id>" after user login, "auth login --api-key-stdin", or ASSETHUB_API_KEY.',
   )
 }
 
@@ -1696,6 +1721,155 @@ const commandModels = async (
   throw new Error('Unknown models command. Use "models list" or "models get".')
 }
 
+const workspaceAuth = async (flags: Flags) => {
+  const configPath = getConfigPath(flags)
+  const config = await readAuthConfig(configPath)
+  const profile =
+    getFlag(flags, 'profile') ?? config.defaultProfile ?? defaultProfileName
+  const stored = config.profiles?.[profile]
+  const accessToken = env.ASSETHUB_ACCESS_TOKEN?.trim() || stored?.accessToken
+  if (!accessToken)
+    throw new Error(
+      'Workspace management requires user authentication: auth login --access-token-stdin or ASSETHUB_ACCESS_TOKEN',
+    )
+  const baseUrl =
+    getFlag(flags, 'base-url') ??
+    env.ASSETHUB_API_BASE_URL ??
+    stored?.baseUrl ??
+    defaultBaseUrl
+  if (
+    !env.ASSETHUB_ACCESS_TOKEN?.trim() &&
+    stored &&
+    new URL(baseUrl).origin !== new URL(stored.baseUrl).origin
+  )
+    throw new Error(
+      'Saved user authentication belongs to another API origin; log in for this origin',
+    )
+  const workspaceMfaToken =
+    env.ASSETHUB_WORKSPACE_MFA?.trim() ||
+    (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin
+      ? stored.workspaceMfaToken
+      : undefined)
+  return {
+    configPath,
+    config,
+    profile,
+    accessToken,
+    workspaceMfaToken,
+    baseUrl,
+    client: createWorkspaceClient({accessToken, workspaceMfaToken, baseUrl}),
+  }
+}
+
+const commandWorkspace = async (
+  subcommand: string | undefined,
+  positionals: string[],
+  flags: Flags,
+) => {
+  const auth = await workspaceAuth(flags)
+  if (subcommand === 'list') {
+    print(await auth.client.list())
+    return
+  }
+  if (subcommand === 'get') {
+    const account = await auth.client.list()
+    const selected = auth.config.profiles?.[auth.profile]?.workspaceId
+    const workspace = account.workspaces.find(item =>
+      selected ? item.id === selected : item.active,
+    )
+    if (!workspace)
+      throw new Error('No workspace selected; use workspace use <id>')
+    print(workspace)
+    return
+  }
+  if (subcommand === 'create') {
+    const name = requireFlag(flags, 'name')
+    const operationId = getFlag(flags, 'operation-id') ?? randomUUID()
+    activeExecution.operationId = operationId
+    // The caller can replay the printed identity after an uncertain HTTP response.
+    stderr.write(`[workspace] operation ${operationId}\n`)
+    print({
+      ...(await auth.client.create({name}, {idempotencyKey: operationId})),
+      operationId,
+    })
+    return
+  }
+  if (subcommand !== 'use') throw new Error('Use workspace list|get|create|use')
+  const workspaceId = requirePositional(positionals, 2, 'workspace-id')
+  const selected = await auth.client.select(workspaceId)
+  if (
+    selected.mfa.status === 'setup_required' ||
+    selected.mfa.status === 'verify_required'
+  )
+    throw new Error(
+      'Workspace requires MFA. Complete verification in AssetHub, then provide the signed ah_workspace_mfa cookie through ASSETHUB_WORKSPACE_MFA together with your user access token',
+    )
+  const account = await auth.client.list()
+  const workspace = account.workspaces.find(item => item.id === workspaceId)
+  if (!workspace)
+    throw new Error('Workspace is not available to this authenticated user')
+  const profiles = auth.config.profiles ?? {}
+  const cached = Object.entries(profiles).find(
+    ([, entry]) =>
+      entry.userId === account.userId &&
+      entry.workspaceId === workspaceId &&
+      new URL(entry.baseUrl).origin === new URL(auth.baseUrl).origin &&
+      entry.apiKey,
+  )
+  let apiKey: string | undefined
+  const suppliedKey = getFlag(flags, 'api-key') ?? env.ASSETHUB_API_KEY?.trim()
+  for (const candidate of new Set([cached?.[1].apiKey, suppliedKey])) {
+    if (!candidate) continue
+    try {
+      const capabilities = await createAssetHubClient({
+        apiKey: candidate,
+        baseUrl: auth.baseUrl,
+      }).v2.getCapabilities()
+      if (capabilities.ownerId === workspaceId) {
+        apiKey = candidate
+        break
+      }
+      if (candidate === cached?.[1].apiKey)
+        throw new Error(
+          'Saved API key does not belong to the selected workspace',
+        )
+    } catch (error) {
+      if (!(error instanceof AssetHubApiError) || error.status !== 401)
+        throw error
+    }
+  }
+  if (!apiKey) {
+    const issued = await auth.client.createApiKey(workspaceId, {
+      name: 'AssetHub CLI',
+    })
+    if (issued.workspaceId !== workspaceId || !issued.key)
+      throw new Error('Workspace API returned an invalid key scope')
+    apiKey = issued.key
+  }
+  const profile = cached?.[0] ?? `workspace-${account.userId}-${workspaceId}`
+  profiles[profile] = {
+    apiKey,
+    accessToken: auth.accessToken,
+    workspaceMfaToken: auth.workspaceMfaToken,
+    userId: account.userId,
+    workspaceId,
+    baseUrl: auth.baseUrl,
+    updatedAt: new Date().toISOString(),
+  }
+  await writeAuthConfig(auth.configPath, {
+    ...auth.config,
+    defaultProfile: profile,
+    profiles,
+  })
+  print({
+    workspaceId,
+    workspace,
+    profile,
+    selected: true,
+    baseUrl: auth.baseUrl,
+  })
+}
+
 const commandAuth = async (
   subcommand: string | undefined,
   flags: Flags,
@@ -1704,6 +1878,46 @@ const commandAuth = async (
   const configPath = getConfigPath(flags)
 
   if (subcommand === 'login') {
+    if (hasFlag(flags, 'access-token-stdin')) {
+      if (hasFlag(flags, 'api-key-stdin') || getFlag(flags, 'api-key'))
+        throw new Error('Choose user access-token login or API-key login')
+      const accessToken = (await readStdin()).trim()
+      const baseUrl =
+        getFlag(flags, 'base-url') ??
+        env.ASSETHUB_API_BASE_URL ??
+        defaultBaseUrl
+      const workspaceMfaToken = env.ASSETHUB_WORKSPACE_MFA?.trim() || undefined
+      const account = await createWorkspaceClient({
+        accessToken,
+        workspaceMfaToken,
+        baseUrl,
+      }).list()
+      const config = await readAuthConfig(configPath)
+      await writeAuthConfig(configPath, {
+        ...config,
+        defaultProfile: profile,
+        profiles: {
+          ...config.profiles,
+          [profile]: {
+            accessToken,
+            workspaceMfaToken,
+            baseUrl,
+            userId: account.userId,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      })
+      print({
+        success: true,
+        authentication: 'user',
+        userId: account.userId,
+        profile,
+        baseUrl,
+        configPath,
+        verified: true,
+      })
+      return
+    }
     const apiKey = hasFlag(flags, 'api-key-stdin')
       ? (await readStdin()).trim()
       : (getFlag(flags, 'api-key') ?? env.ASSETHUB_API_KEY ?? '').trim()
@@ -1744,6 +1958,27 @@ const commandAuth = async (
   }
 
   if (subcommand === 'status') {
+    const config = await readAuthConfig(configPath)
+    const current =
+      config.profiles?.[
+        getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
+      ]
+    if (
+      env.ASSETHUB_ACCESS_TOKEN?.trim() ||
+      (current?.accessToken && !current.apiKey)
+    ) {
+      const auth = await workspaceAuth(flags)
+      const account = await auth.client.list()
+      print({
+        authenticated: true,
+        authentication: 'user',
+        userId: account.userId,
+        workspaceCount: account.workspaces.length,
+        profile: auth.profile,
+        baseUrl: auth.baseUrl,
+      })
+      return
+    }
     const auth = await resolveAuth(flags)
     const client = createAssetHubClient({
       apiKey: auth.apiKey,
@@ -1763,14 +1998,23 @@ const commandAuth = async (
   if (subcommand === 'logout') {
     const config = await readAuthConfig(configPath)
     const profiles = config.profiles ?? {}
-    const existed = profiles[profile] != null
-    delete profiles[profile]
+    const selectedProfile =
+      getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
+    const existed = profiles[selectedProfile] != null
+    delete profiles[selectedProfile]
     await writeAuthConfig(configPath, {
       defaultProfile:
-        config.defaultProfile === profile ? undefined : config.defaultProfile,
+        config.defaultProfile === selectedProfile
+          ? undefined
+          : config.defaultProfile,
       profiles,
     })
-    print({success: true, profile, removed: existed, configPath})
+    print({
+      success: true,
+      profile: selectedProfile,
+      removed: existed,
+      configPath,
+    })
     return
   }
 
@@ -2036,6 +2280,78 @@ const commandImage = async (
       {...executionOptions(ctx.flags), graphSource: graphInput?.graphSource},
     ),
   )
+}
+
+const commandComposer = async (
+  subcommand: string | undefined,
+  ctx: CommandContext,
+) => {
+  if (subcommand === 'models') {
+    print(await ctx.client.v2.getMeshComposers())
+    return
+  }
+  if (subcommand !== 'run') throw new Error('Use composer models|run')
+  const fromRun = getFlag(ctx.flags, 'from-run')
+  const json = getFlag(ctx.flags, 'input-json')
+  const parts = getFlagValues(ctx.flags, 'part')
+  if (
+    (fromRun && (json || parts.length || getFlag(ctx.flags, 'reference'))) ||
+    (json && (parts.length || getFlag(ctx.flags, 'reference')))
+  )
+    throw new Error(
+      'Choose --from-run, --input-json, or --part with --reference',
+    )
+  const previous = fromRun ? await ctx.client.v2.getRun(fromRun) : undefined
+  if (previous && previous.operation !== 'mesh.compose')
+    throw new Error('--from-run must identify a mesh.compose execution')
+  const input = previous
+    ? {...(previous.requestedInput ?? previous.input)}
+    : json
+      ? await readJsonArgument(json, '--input-json')
+      : {
+          parts: parts.map(assetId => ({
+            assetId: assertFlagHasValue(assetId, '--part <asset-id>'),
+          })),
+          fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
+        }
+  delete input.executionContext
+  if (
+    !Array.isArray(input.parts) ||
+    !input.parts.length ||
+    !input.fullBodyImageAssetId
+  )
+    throw new Error('Composer requires parts[] and fullBodyImageAssetId')
+  const mode = getFlag(ctx.flags, 'mode')
+  if (mode != null && mode !== 'quick' && mode !== 'quality')
+    throw new Error('--mode must be quick or quality')
+  if (mode) input.mode = mode
+  const model = getFlag(ctx.flags, 'model')
+  if (model) input.agentVersion = model
+  const name = getFlag(ctx.flags, 'name')
+  if (name) input.projectName = name
+  const transforms = getFlag(ctx.flags, 'transforms-json')
+  if (transforms)
+    input.transforms = await readJsonArgument(transforms, '--transforms-json')
+  const canvasId = selectedCanvasId(ctx.flags) ?? previous?.canvas.id
+  if (previous && canvasId !== previous.canvas.id)
+    throw new Error(
+      'Recomposition must use the original canvas to retain lineage',
+    )
+  const session = await openExecutionSession({
+    ...stateOptions(ctx),
+    canvasId,
+    operation: 'mesh.compose',
+  })
+  const queued = await executeRecorded(
+    session,
+    'mesh.compose',
+    input as Omit<MeshComposeRequest, 'executionContext'>,
+    {
+      ...executionOptions(ctx.flags),
+      ...(previous ? {parentRunId: previous.runId} : {}),
+    },
+  )
+  await printRecorded(ctx, queued)
 }
 
 const commandMesh = async (
@@ -4120,6 +4436,10 @@ const run = async (): Promise<void> => {
     return
   }
   if (command === 'workspace') {
+    if (['list', 'get', 'create', 'use'].includes(subcommand ?? '')) {
+      await commandWorkspace(subcommand, parsed.positionals, parsed.flags)
+      return
+    }
     if (!hasFlag(parsed.flags, 'internal')) {
       throw new Error(
         'Workspace operations currently require --internal and the AssetHub monorepo with its existing Infisical environment.',
@@ -4176,6 +4496,9 @@ const run = async (): Promise<void> => {
 
   const ctx = await createContext(parsed.flags, argv.slice(2))
   switch (command) {
+    case 'composer':
+      await commandComposer(subcommand, ctx)
+      return
     case 'language':
       await commandLanguage(subcommand, ctx)
       return
@@ -4273,7 +4596,8 @@ if (isMainModule) {
     print({
       error: {
         code:
-          error instanceof AssetHubApiError
+          error instanceof AssetHubApiError ||
+          error instanceof WorkspaceClientError
             ? error.code
             : error instanceof CliExecutionError && error.exitCode === 3
               ? 'WAIT_TIMEOUT'
