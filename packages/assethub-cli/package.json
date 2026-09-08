@@ -1,0 +1,44 @@
+{
+  "name": "@assethub/cli",
+  "version": "0.1.8",
+  "description": "Command line interface for AssetHub.",
+  "type": "module",
+  "bin": {
+    "assethub": "dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.typecheck.json --noEmit"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@assethub/api-client": "^0.1.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AssetHub-inc/assethub-cli.git",
+    "directory": "packages/assethub-cli"
+  },
+  "homepage": "https://github.com/AssetHub-inc/assethub-cli#readme",
+  "bugs": {
+    "url": "https://github.com/AssetHub-inc/assethub-cli/issues"
+  }
+}

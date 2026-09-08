@@ -1,0 +1,105 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CLI usage / --help > matches the committed help snapshot 1`] = `
+"AssetHub CLI
+
+Internal preview: canvas/context/layout and moodboards require workspace feature access.
+
+Usage:
+  assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
+  assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
+  assethub auth status [--profile <name>]
+  assethub auth logout [--profile <name>]
+  assethub workspace prepare|sync|analyze|verify --internal --manifest <json> --state <json>
+  assethub workspace self-check --internal
+  assethub workspace context put --internal --org <uuid> --actor <uuid> --canvas <id> --file <json> [--if-version <n>] [--order <uuid>]
+  assethub workspace context get --internal --org <uuid> --actor <uuid> --canvas <id> [--out <json>] [--order <uuid>]
+  assethub project ingest <source-dir> --out-dir <directory> [--exclude-dir <relative-path>...]
+  assethub language text|vision --input-json @<json> --operation-id <uuid> [--out <json>]
+  assethub canvas import --canvas <id> --file <image> [--name <name>]
+  assethub canvas context get --canvas <id> [--out <json>]
+  assethub canvas context put --canvas <id> --file <json> [--if-version <n>]
+  assethub canvas layout --canvas <id> --input-json @<json>
+  assethub canvas compare --canvas <id> --source-id <asset-id> --asset-id <asset-id> --out <html>
+  assethub moodboard create --input-json @<json> [--operation-id <uuid>]
+  assethub moodboard list|get|update|archive [<board-id>] [--input-json @<json>]
+  assethub moodboard analyze <board-id> [--revision <uuid>] [--wait]
+  assethub image generate --canvas <id> --context <id> [--context-version <n>] [--context-source <key>] [--moodboard-revision <uuid>] --prompt <text> --wait
+  assethub models list [--domain <domain>] [--ids-only] [--limit <n>]
+  assethub models get <model-id>
+  assethub files import <url> --media-type image|mesh
+  assethub files upload <file> --media-type image|mesh
+  assethub source create (--file <path> | --source-url <url> | --source-id <id> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) --media-type image|mesh [--file-name <name>] [--content-type <type>]
+  assethub capabilities
+  assethub canvas create [--name <name>] [--operation-id <uuid>]
+  assethub canvas list [--cursor <cursor>] [--limit <n>]
+  assethub canvas get|use|open [<id>]
+  assethub runs list [--canvas <id>] [--cursor <cursor>] [--limit <n>]
+  assethub runs get|watch <run-id> [--timeout-ms <n>]
+  assethub runs resume <operation-id> [--wait]
+  assethub graph show|export [--canvas <id>] [--artifact <node-id>] [--out <path>] [--allow-truncated]
+  assethub graph lineage --artifact <node-id> [--canvas <id>] [--direction ancestors|descendants|both] [--depth <n>]
+  assethub evaluate list
+  assethub evaluations submit --artifact <asset-id> --report <json|file|@file|@-> [--agent <name>] [--canvas <id>] [--reference <asset-id>...] [--run <run-id>] [--operation-id <uuid>] [--require-pass]
+  assethub evaluations list [--canvas <id>] [--artifact <asset-id>]
+  assethub evaluations get <evaluation-id>
+  assethub image generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
+  assethub mesh generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
+  assethub image generate --prompt <text> [--file <path> | --source-url <url> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard] [--file-name <name>] [--content-type <type>] [--model-id <id>] [--batch-size <n>] [--wait] [--download --out-dir <dir>] [--canvas <id>] [--operation-id <uuid>] [--api-version v2]
+  assethub image generate --prompt <text> --source-resource-id <id> --api-version v2 [--model-id <id>] [--batch-size <n>] [--wait]
+  assethub mesh generate (--file <path> | --source-url <url> | --source-resource-id <id> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri>) [--file-name <name>] [--content-type <type>] [--model-id <id>] [--name <name>] [--wait] [--download --out-dir <dir>]
+  assethub mesh retopo (--source-resource-id <id> | --source-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri>) --model-id <id> [--file-name <name>] [--content-type <type>] [--wait] [--download --out-dir <dir>]
+  assethub rig check (--file <path> | --source-url <url> | --source-resource-id <id> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri>) [--name <name>] [--wait] [--download --out-dir <dir>]
+  assethub rig create (--file <path> | --source-url <url> | --source-resource-id <id> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri>) [--model v1.0-20240301|v2.5-20260210] [--rig-type biped|quadruped|hexapod|octopod|avian|serpentine|aquatic] [--spec tripo|mixamo] [--out-format glb|fbx] [--name <name>] [--wait] [--download --out-dir <dir>]
+  assethub animate presets [--model v1.0-20240301|v2.5-20260210] [--rig-type <type>]
+  assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
+  assethub jobs get <job-id> [--download --out-dir <dir>]
+  assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--wait] [--download --out-dir <dir>]
+  assethub production agents
+  assethub production automation --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--wait]
+  assethub production status <order-id> [--wait] [--download --out-dir <dir>]
+  assethub production execute --order-id <id> --mission-id <id> --task-id <id> [--task-id <id>...] [--part-extractor <name>] [--part-extraction-mode fast|high_quality] [--wait] [--download --out-dir <dir>]
+  assethub production run --order-id <id> --mission-id <id> [--run-mode full_auto|approval] [--task-id <id>...] [--part-extractor <name>] [--part-extraction-mode fast|high_quality] [--allowed-model-id <id>...] [--max-iterations <n>] [--max-cost-credits <n>] [--wait] [--download --out-dir <dir>]
+  assethub production watch <order-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
+  assethub production intervene <order-id> (--exclude <target-id> | --include <target-id> | --add-part <name> | --rename <target-id>=<name> | --reject <target-id>[=<reason>] | --regenerate <target-id>=<mode> | --set-param <key>=<value> | --ops-json <json|@file|@->)... [--idempotency-key <key>]
+  assethub production interventions <order-id>
+  assethub runs upload <path> [--graph-id <id>] [--stream-id <id>] [--rev <n>] [--description <text>] [--tag <tag>...] [--skip-register] [--dry-run]
+  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
+  assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
+  assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
+
+Global options:
+  --api-key <key>       Overrides saved auth and ASSETHUB_API_KEY.
+  --base-url <url>      Defaults to ASSETHUB_API_BASE_URL, saved auth, or https://app.assethub.io.
+  --profile <name>      Saved auth profile name. Defaults to default.
+  --config <path>       Auth config path. Defaults to ~/.assethub/config.json.
+  --help                Show help.
+
+Examples:
+  ASSETHUB_API_KEY=ah_live_xxx assethub models list
+  assethub auth login --api-key-stdin
+  assethub models list --ids-only
+  assethub files upload ./input.png --media-type image
+  assethub source create --file ./input.png --media-type image
+  pbpaste | assethub source create --stdin-data-uri --media-type image
+  assethub source create --clipboard --media-type image --file-name clipboard.png
+  printf '{"image_url":{"url":"data:image/png;base64,..."}}' | assethub parts split --stdin-json --part-extractor "V1.5" --wait
+  base64 -i ./input.png | assethub parts split --stdin-base64 --file-name input.png --content-type image/png --part-extractor "V1.5" --wait
+  cat ./input.png | assethub parts split --stdin --file-name input.png --part-extractor "V1.5" --wait
+  assethub image generate --prompt "stylized prop concept" --wait
+  assethub mesh generate --file ./input.png --wait
+  assethub animate presets --rig-type biped
+  assethub rig create --source-resource-id mesh_x --rig-type biped --wait
+  assethub animate retarget --resource-id rig_x --animation preset:idle --wait
+  assethub production analyze --file ./input.png --part-extractor "V1.5" --wait
+  assethub production run --order-id ord_x --mission-id ms_x --run-mode full_auto --max-cost-credits 200 --wait
+  assethub production watch ord_x
+  assethub production intervene ord_x --exclude 7 --rename 3="left wing" --idempotency-key review-2026-07-29
+  assethub production interventions ord_x
+  assethub runs upload ./out/pluffy-run-2026-07-30 --dry-run
+  assethub runs upload ./out/pluffy-run-2026-07-30 --tag pluffy --description "V3 humanoid, 18 parts"
+  assethub parts split --file ./input.png --part-extractor "V1.5" --wait --all-ready
+  assethub parts compare --file ./input.png --preprocess-prompt "clean white background, centered product photo" --part-extractor "V1.5" --wait --all-ready
+"
+`;

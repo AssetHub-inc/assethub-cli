@@ -1,0 +1,52 @@
+name: Publish packages
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to publish (publish the SDK first when both change)
+        required: true
+        type: choice
+        options: [api-client, cli]
+permissions:
+  contents: read
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11.15.0
+      - run: npm ci
+      - run: npm run check
+      - name: Pack, publish, and create release
+        env:
+          PACKAGE: ${{ inputs.package }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$PACKAGE" in
+            api-client) PACKAGE_DIR=packages/assethub-api-client ;;
+            cli)
+              PACKAGE_DIR=packages/assethub-cli
+              SDK_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('packages/assethub-api-client/package.json')).version")
+              npm view "@assethub/api-client@$SDK_VERSION" version
+              ;;
+            *) exit 1 ;;
+          esac
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('$PACKAGE_DIR/package.json')).version")
+          TARBALL=$(npm pack --workspace "@assethub/$PACKAGE" --pack-destination "$RUNNER_TEMP" --json | jq -r '.[0].filename')
+          npm publish "$RUNNER_TEMP/$TARBALL" --access public --provenance --ignore-scripts
+          printf '%s\n' "Published @assethub/$PACKAGE $VERSION to npm. See CHANGELOG.md for changes." > "$RUNNER_TEMP/release-notes.md"
+          gh release create "$PACKAGE-v$VERSION" "$RUNNER_TEMP/$TARBALL" --target "$GITHUB_SHA" --title "@assethub/$PACKAGE $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
