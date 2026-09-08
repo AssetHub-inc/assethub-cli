@@ -605,7 +605,7 @@ const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
   const profile = explicitProfile ?? config?.defaultProfile ?? defaultProfileName
   const storedProfile = config?.profiles?.[profile]
   const selected = Boolean(explicitProfile || storedProfile?.workspaceId)
-  if (selected && !storedProfile?.apiKey)
+  if (selected && (!storedProfile || (!storedProfile.apiKey && !overrideKey)))
     throw new Error(
       'Selected profile has no workspace API key. Use workspace use <id> or auth login --api-key-stdin --profile <name>.',
     )
@@ -1734,7 +1734,7 @@ const workspaceAuth = async (flags: Flags) => {
       'Saved user authentication belongs to another API origin; log in for this origin',
     )
   const workspaceMfaToken =
-    env.ASSETHUB_WORKSPACE_MFA?.trim() ||
+    (!explicitProfile && env.ASSETHUB_WORKSPACE_MFA?.trim()) ||
     (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin
       ? stored.workspaceMfaToken
       : undefined)
@@ -1756,7 +1756,9 @@ const commandWorkspace = async (
 ) => {
   const suppliedKey = hasFlag(flags, 'api-key')
     ? requireFlag(flags, 'api-key')
-    : env.ASSETHUB_API_KEY?.trim()
+    : hasFlag(flags, 'profile')
+      ? undefined
+      : env.ASSETHUB_API_KEY?.trim()
   const auth = await workspaceAuth(flags)
   if (subcommand === 'list') {
     print(await auth.client.list())

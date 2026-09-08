@@ -25,7 +25,8 @@ Use the same workspace key as your CLI profile. For a different API origin, pass
 `--base-url https://your-host/prefix` (HTTP is accepted only for localhost).
 
 Explicit `--profile` uses that profile's key and origin, ahead of environment
-variables. A missing profile fails. Without an explicit profile, a workspace selected with `workspace use` takes
+variables, including user tokens and workspace MFA proofs. A missing profile fails.
+Without an explicit profile, a workspace selected with `workspace use` takes
 precedence over environment API credentials; otherwise the environment key
 precedes the saved default. `--api-key` and `--base-url` remain
 explicit overrides. `auth logout` removes the selected saved profile (or the
@@ -423,7 +424,10 @@ assethub composer run --from-run <run-id> --transforms-json @transforms.json --w
 Selection reuses a valid API key for that workspace or creates one when permitted.
 Membership, API key creation permissions, and workspace MFA still apply. Complete
 required MFA in AssetHub and provide its signed proof through
-`ASSETHUB_WORKSPACE_MFA`. Generation uses normal workspace credits.
+`ASSETHUB_WORKSPACE_MFA` during user login to save it with the profile. Renew an
+expired proof by logging in again. Explicit `--profile` uses its saved proof and
+ignores environment credentials; an explicit `--api-key` can supply the workspace
+key. Generation uses normal workspace credits.
 
 Existing Production outputs can be inspected and downloaded without regenerating:
 

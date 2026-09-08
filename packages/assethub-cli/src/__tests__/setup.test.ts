@@ -11,7 +11,12 @@ import {expect, test} from 'vitest'
 test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'assethub-setup-'))
   const executable = resolve('packages/assethub-cli/dist/index.js')
-  const requests: {path: string; auth?: string; method?: string}[] = []
+  const requests: {
+    path: string
+    auth?: string
+    cookie?: string
+    method?: string
+  }[] = []
   let apiStatus = 200
   let mcpStatus = 200
   let hang = false
@@ -28,6 +33,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     requests.push({
       path: req.url!,
       auth: req.headers.authorization,
+      cookie: req.headers.cookie,
       method: rpc.method,
     })
     const status = req.url?.endsWith('/api/mcp') ? mcpStatus : apiStatus
@@ -36,7 +42,42 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
       res.end(JSON.stringify({success: true, data: {models: []}}))
     } else if (req.url === '/api/workspaces') {
       res.writeHead(200, {'content-type': 'application/json'})
-      res.end(JSON.stringify({userId: 'selected-user', workspaces: []}))
+      res.end(
+        JSON.stringify({
+          userId: 'selected-user',
+          workspaces: [
+            {
+              id: 'test-workspace',
+              name: 'Test',
+              type: 'team',
+              role: 'admin',
+              active: false,
+            },
+          ],
+        }),
+      )
+    } else if (req.url === '/api/workspaces/select') {
+      res.writeHead(200, {'content-type': 'application/json'})
+      res.end(
+        JSON.stringify({
+          workspaceId: 'test-workspace',
+          selected: true,
+          mfa: {status: 'not_required'},
+        }),
+      )
+    } else if (req.url === '/api/workspaces/test-workspace/api-keys') {
+      res.writeHead(200, {'content-type': 'application/json'})
+      res.end(
+        JSON.stringify({
+          apiKey: {
+            id: 'test-key',
+            key: 'account-key',
+            name: 'Test key',
+            lastFour: '-key',
+            workspaceId: 'test-workspace',
+          },
+        }),
+      )
     } else if (status !== 200) {
       res.writeHead(status, {'content-type': 'application/json'})
       res.end(
@@ -85,7 +126,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
       )
     }
   })
-  await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   const address = server.address()
   if (!address || typeof address === 'string')
     throw new Error('Missing test address')
@@ -98,6 +139,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
       profiles: {
         selected: {apiKey: 'selected-key', baseUrl: origin},
         default: {apiKey: 'default-key', baseUrl: origin},
+        account: {accessToken: 'account-user-token', baseUrl: origin},
       },
     }),
   )
@@ -114,7 +156,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
             ASSETHUB_CLI_CONFIG: config,
             ASSETHUB_API_KEY: envKey,
             ASSETHUB_ACCESS_TOKEN: 'stale-user-token',
-            ASSETHUB_WORKSPACE_MFA: '',
+            ASSETHUB_WORKSPACE_MFA: 'stale-environment-proof',
             ASSETHUB_API_BASE_URL: envOrigin,
           },
           timeout: 10_000,
@@ -166,7 +208,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     )
     expect(mounted.code).toBe(0)
     expect(requests.length).toBeGreaterThan(0)
-    expect(requests.every(r => r.path.startsWith('/mounted/'))).toBe(true)
+    expect(requests.every((r) => r.path.startsWith('/mounted/'))).toBe(true)
     requests.length = 0
 
     envOrigin = 'http://127.0.0.1:1'
@@ -175,7 +217,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
       code: healthy.code,
       stdout: healthy.stdout,
       stderr: healthy.stderr,
-      methods: requests.map(r => r.method),
+      methods: requests.map((r) => r.method),
     }).toMatchObject({code: 0})
     const report = JSON.parse(healthy.stdout)
     expect(report.ok).toBe(true)
@@ -189,8 +231,8 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
         expect.objectContaining({name: 'mcp', status: 'pass', toolCount: 1}),
       ]),
     )
-    expect(requests.every(r => r.auth === 'Bearer selected-key')).toBe(true)
-    expect(requests.some(r => r.method === 'tools/call')).toBe(false)
+    expect(requests.every((r) => r.auth === 'Bearer selected-key')).toBe(true)
+    expect(requests.some((r) => r.method === 'tools/call')).toBe(false)
     expect(healthy.stdout + healthy.stderr).not.toMatch(
       /selected-key|stale-environment-key/,
     )
@@ -203,7 +245,18 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
       'explicit-key',
     )
     expect(overridden.code).toBe(0)
-    expect(requests.every(r => r.auth === 'Bearer explicit-key')).toBe(true)
+    expect(requests.every((r) => r.auth === 'Bearer explicit-key')).toBe(true)
+    expect(requests.length).toBeGreaterThan(0)
+    requests.length = 0
+    const accountOverride = await invoke(
+      'doctor',
+      '--profile',
+      'account',
+      '--api-key',
+      'explicit-key',
+    )
+    expect(accountOverride.code).toBe(0)
+    expect(requests.every((r) => r.auth === 'Bearer explicit-key')).toBe(true)
     expect(requests.length).toBeGreaterThan(0)
     requests.length = 0
     const missingOverride = await invoke(
@@ -219,7 +272,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     envOrigin = origin
     const selected = await invoke('capabilities')
     expect(selected.code).toBe(0)
-    expect(requests.every(r => r.auth === 'Bearer selected-key')).toBe(true)
+    expect(requests.every((r) => r.auth === 'Bearer selected-key')).toBe(true)
     requests.length = 0
     envKey = 'stale-environment-key'
     for (const flag of ['--api-key', '--profile']) {
@@ -235,23 +288,48 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     const saved = JSON.parse(await readFile(config, 'utf8'))
     saved.profiles.selected.workspaceId = 'test-workspace'
     saved.profiles.selected.accessToken = 'selected-user-token'
+    saved.profiles.selected.workspaceMfaToken = 'selected-proof'
     await writeFile(config, JSON.stringify(saved))
     envOrigin = 'http://127.0.0.1:1'
     const automaticWorkspace = await invoke('doctor')
     expect(automaticWorkspace.code).toBe(0)
-    expect(requests.every(r => r.auth === 'Bearer selected-key')).toBe(true)
+    expect(requests.every((r) => r.auth === 'Bearer selected-key')).toBe(true)
     requests.length = 0
     const account = await invoke('workspace', 'list', '--profile', 'selected')
     expect(account.code).toBe(0)
-    expect(requests.every(r => r.auth === 'Bearer selected-user-token')).toBe(
+    expect(requests.every((r) => r.auth === 'Bearer selected-user-token')).toBe(
       true,
     )
     expect(requests).toHaveLength(1)
+    expect(requests[0].cookie).toBe('ah_workspace_mfa=selected-proof')
+    requests.length = 0
+    const useAccount = await invoke(
+      'workspace',
+      'use',
+      'test-workspace',
+      '--profile',
+      'account',
+    )
+    expect(useAccount.code, useAccount.stderr).toBe(0)
+    expect(requests.length).toBeGreaterThan(0)
+    expect(
+      requests.every(
+        (r) => r.auth === 'Bearer account-user-token' && !r.cookie,
+      ),
+    ).toBe(true)
+    const accountConfig = JSON.parse(await readFile(config, 'utf8'))
+    expect(accountConfig.profiles[accountConfig.defaultProfile].apiKey).toBe(
+      'account-key',
+    )
+    expect(
+      accountConfig.profiles[accountConfig.defaultProfile].workspaceMfaToken,
+    ).toBeUndefined()
+    await writeFile(config, JSON.stringify(saved))
     requests.length = 0
     const status = await invoke('auth', 'status', '--profile', 'selected')
     expect(status.code).toBe(0)
     expect(JSON.parse(status.stdout).source).toBe('profile')
-    expect(requests.every(r => r.auth === 'Bearer selected-key')).toBe(true)
+    expect(requests.every((r) => r.auth === 'Bearer selected-key')).toBe(true)
     requests.length = 0
     const missingAccount = await invoke(
       'workspace',
@@ -316,7 +394,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     ).toBe(true)
   } finally {
     server.closeAllConnections()
-    await new Promise<void>(done => server.close(() => done()))
+    await new Promise<void>((done) => server.close(() => done()))
     await rm(dir, {recursive: true, force: true})
   }
 })
