@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.11 / API client 0.1.5
+
+- Search historical UI meshes, including parts and revisions, and download owned mesh assets.
+- List and export stored artifact graphs; inspect ancestors and descendants by graph ID.
+- Preserve canvas execution history commands and workspace ownership boundaries.
+
 ## CLI 0.1.10
 
 - Add `doctor` to check API access and the workspace, plus optional MCP tool discovery.
