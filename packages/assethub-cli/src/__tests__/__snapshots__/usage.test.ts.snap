@@ -8,6 +8,7 @@ Internal preview: canvas/context/layout and moodboards require workspace feature
 Usage:
   assethub --version
   assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
+  assethub mcp tools [tool-name] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]

@@ -236,6 +236,15 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     expect(healthy.stdout + healthy.stderr).not.toMatch(
       /selected-key|stale-environment-key/,
     )
+    const inventory = await invoke('mcp', 'tools', '--profile', 'selected')
+    expect(inventory.code).toBe(0)
+    expect(JSON.parse(inventory.stdout)).toMatchObject({total: 1, tools: [{name: 'model_list'}]})
+    expect(inventory.stdout).not.toContain('inputSchema')
+    const tool = await invoke('mcp', 'tools', 'model_list', '--profile', 'selected')
+    expect(tool.code).toBe(0)
+    expect(JSON.parse(tool.stdout).tool).toMatchObject({name: 'model_list', inputSchema: {type: 'object'}})
+    expect((await invoke('mcp', 'tools', 'missing', '--profile', 'selected')).code).toBe(2)
+    expect(requests.some(r => r.method === 'tools/call')).toBe(false)
     requests.length = 0
     const overridden = await invoke(
       'doctor',
@@ -348,6 +357,9 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     expect(requests).toHaveLength(0)
     envOrigin = origin
     mcpStatus = 404
+    const unavailableTools = await invoke('mcp', 'tools', '--profile', 'selected')
+    expect(unavailableTools.code).toBe(2)
+    expect(unavailableTools.stdout + unavailableTools.stderr).not.toContain('sensitive-server-text')
     const gated = await invoke('doctor', '--mcp', '--profile', 'selected')
     expect(gated.code).toBe(2)
     expect(JSON.parse(gated.stdout).checks).toContainEqual(

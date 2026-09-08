@@ -195,6 +195,7 @@ Internal preview: canvas/context/layout and moodboards require workspace feature
 Usage:
   assethub --version
   assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
+  assethub mcp tools [tool-name] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
@@ -4463,9 +4464,34 @@ const run = async (): Promise<void> => {
   }
 
   const [command, subcommand] = parsed.positionals
+  if (command === 'mcp' && subcommand === 'tools') {
+    stderr.write('Discovering AssetHub MCP tools…\n')
+    const report = await diagnose({
+      resolveAuth: () => resolveAuth(parsed.flags),
+      includeMcp: true,
+      includeTools: true,
+      timeoutMs: parsePositiveIntegerFlag(parsed.flags, 'timeout-ms', 15000),
+    })
+    if (!report.ok) {
+      print(report)
+      process.exitCode = 2
+      return
+    }
+    const check = report.checks.find(check => check.name === 'mcp')
+    const tools = check && 'tools' in check ? check.tools ?? [] : []
+    const name = parsed.positionals[2]
+    if (name) {
+      const tool = tools.find(tool => tool.name === name)
+      if (!tool) throw new Error(`Unknown MCP tool: ${name}. Use mcp tools to list available names.`)
+      print({tool})
+    } else {
+      print({total: tools.length, tools: tools.map(({name, title, annotations}) => ({name, title, annotations}))})
+    }
+    return
+  }
   if (command === 'mcp') {
     if (subcommand !== 'config')
-      throw new Error('Use mcp config --client cursor|codex')
+      throw new Error('Use mcp tools [tool-name] or mcp config --client cursor|codex')
     stdout.write(
       mcpConfig(
         requireFlag(parsed.flags, 'client'),

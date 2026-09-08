@@ -463,3 +463,16 @@ assethub graph lineage --canvas <canvas-id> --artifact <asset-id> --direction an
 The graph commands currently cover recorded CLI/API executions and evaluations.
 They do not enumerate every historical UI artifact graph or provide a workspace-wide
 mesh library search. A canvas with only older UI activity can return an empty graph.
+
+## Inspect available MCP operations
+
+```sh
+assethub mcp tools --profile my-workspace
+assethub mcp tools image_generate --profile my-workspace
+```
+
+The first command returns a compact list of tools and their action annotations.
+The second returns the live description and input schema for one tool, including
+required fields. Both use the selected profile and the same bounded checks as
+`doctor --mcp`; they do not invoke tools or spend credits. Hosted MCP requires
+Internal access. Discover names first because server capabilities can change.

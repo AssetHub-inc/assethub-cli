@@ -1,5 +1,6 @@
 import {readFile} from 'node:fs/promises'
 import {AssetHubApiError, createAssetHubClient} from '@assethub/api-client'
+import type {Tool} from '@modelcontextprotocol/sdk/types.js'
 
 export const cliVersion = async (): Promise<string> =>
   (
@@ -56,6 +57,7 @@ type Check = {
   workspaceId?: string
   executionStatus?: string
   toolCount?: number
+  tools?: Tool[]
 }
 
 type Auth = {apiKey: string; baseUrl: string; profile: string; source: string}
@@ -120,10 +122,12 @@ export const diagnose = async ({
   resolveAuth,
   includeMcp,
   timeoutMs,
+  includeTools = false,
 }: {
   resolveAuth: () => Promise<Auth>
   includeMcp: boolean
   timeoutMs: number
+  includeTools?: boolean
 }) => {
   const version = await cliVersion()
   let auth: Auth
@@ -193,6 +197,7 @@ export const diagnose = async ({
         {signal, timeout: timeoutMs},
       )
       let toolCount = 0
+      const tools: Tool[] = []
       let cursor: string | undefined
       const cursors = new Set<string>()
       do {
@@ -201,13 +206,14 @@ export const diagnose = async ({
           timeout: timeoutMs,
         })
         toolCount += page.tools.length
+        if (includeTools) tools.push(...page.tools)
         cursor = page.nextCursor
         if (cursor && cursors.has(cursor))
           throw new Error('Repeated tool cursor')
         if (cursor) cursors.add(cursor)
       } while (cursor)
       if (!toolCount) throw new Error('No MCP tools')
-      return {name: 'mcp', status: 'pass', toolCount}
+      return {name: 'mcp', status: 'pass', toolCount, ...(includeTools ? {tools} : {})}
     } catch (error) {
       return failedCheck(
         'mcp',
