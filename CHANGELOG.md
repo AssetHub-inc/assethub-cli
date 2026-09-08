@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.11
+
+- Discover live MCP tools with `mcp tools` and inspect input schemas with `mcp tools <name>`.
+- Reuse bounded, authenticated discovery without invoking tools or generating assets.
+
 ## CLI 0.1.10
 
 - Add `doctor` to check API access and the workspace, plus optional MCP tool discovery.

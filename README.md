@@ -110,3 +110,16 @@ are unavailable in the standalone distribution, as in CLI 0.1.7.
 [Contributing and releases](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
 [Report an issue](https://github.com/AssetHub-inc/assethub-cli/issues) ·
 [MIT license](LICENSE)
+
+## Inspect available MCP operations
+
+```sh
+assethub mcp tools --profile my-workspace
+assethub mcp tools image_generate --profile my-workspace
+```
+
+The first command returns a compact list of tools and their action annotations.
+The second returns the live description and input schema for one tool, including
+required fields. Both use the selected profile and the same bounded checks as
+`doctor --mcp`; they do not invoke tools or spend credits. Hosted MCP requires
+Internal access. Discover names first because server capabilities can change.
