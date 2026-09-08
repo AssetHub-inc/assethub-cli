@@ -1,5 +1,14 @@
 # Changelog
 
+## CLI 0.1.9 / API client 0.1.4
+
+- Add user login and workspace listing, creation, and selection.
+- Compose existing meshes, recompose saved transforms, and retain canvas history and lineage.
+- Keep workspace credentials scoped to their API origin and selected organization.
+- Replay an unacknowledged Composer dispatch with the original operation identity.
+
+These operations match the application release v1.2.1354.
+
 ## CLI 0.1.8 / API client 0.1.3
 
 - Publish the CLI and TypeScript SDK sources in their own GitHub repository.

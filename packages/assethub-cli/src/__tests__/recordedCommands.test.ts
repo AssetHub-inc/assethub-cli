@@ -62,6 +62,130 @@ const cli = (baseUrl: string, stateDir: string, args: string[]) =>
   })
 
 describe('built recorded CLI', () => {
+  it.each([false, true])(
+    'composes, resumes an unacknowledged receipt=%s, and derives transformed parts',
+    async pending => {
+      const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-compose-'))
+      cleanup.push(() => rm(dir, {recursive: true, force: true}))
+      const posted: Record<string, unknown>[] = []
+      const executions = new Map<string, CanvasExecution>()
+      const server = createServer(async (req, res) => {
+        const canvas = {
+          id: 42,
+          name: 'Composition',
+          ownerId: 'org-a',
+          url: `http://${req.headers.host}/workflow/42`,
+        }
+        let data: unknown
+        if (req.url === '/api/v2/capabilities')
+          data = {
+            ownerId: 'org-a',
+            executionContext: {
+              status: 'available',
+              operations: ['mesh.compose'],
+            },
+            evaluators: [],
+          }
+        else if (req.url === '/api/v2/canvases/42') data = canvas
+        else if (req.url === '/api/v2/mesh/compose' && req.method === 'POST') {
+          const input = await bodyOf(req)
+          expect(req.headers['idempotency-key']).toBe(
+            input.executionContext.clientOperationId,
+          )
+          posted.push(input)
+          const runId = input.executionContext.clientOperationId
+          const execution: CanvasExecution = {
+            schemaVersion: 'assethub.execution.v1',
+            runId,
+            operation: 'mesh.compose',
+            status: 'completed',
+            canvas,
+            jobIds: [],
+            orderIds: [],
+            graphRefs: [],
+            outputs: [{assetId: 'composed-mesh', mediaType: 'mesh'}],
+            history: {status: 'recorded'},
+            usage: {reservedCredits: null, chargedCredits: null},
+            createdAt: '2026-09-08T00:00:00Z',
+            input,
+            resolvedInput: input,
+            context: input.executionContext,
+          }
+          executions.set(runId, execution)
+          data = {execution}
+        } else if (req.url?.startsWith('/api/v2/runs/'))
+          data = executions.get(req.url.split('/').at(-1)!)
+        else {
+          res.writeHead(404)
+          res.end()
+          return
+        }
+        res.writeHead(200, {'content-type': 'application/json'})
+        res.end(JSON.stringify({success: true, data}))
+      })
+      await new Promise<void>(ready => server.listen(0, '127.0.0.1', ready))
+      cleanup.push(() => new Promise<void>(done => server.close(() => done())))
+      const address = server.address()
+      if (!address || typeof address === 'string')
+        throw new Error('Missing server address')
+      const baseUrl = `http://127.0.0.1:${address.port}`
+      const op = 'a4e8530b-b362-45c7-9064-2b03b6f95b24'
+      const first = await cli(baseUrl, dir, [
+        'composer',
+        'run',
+        '--part',
+        'mesh-a',
+        '--part',
+        'mesh-b',
+        '--reference',
+        'reference',
+        '--canvas',
+        '42',
+        '--operation-id',
+        op,
+        '--wait',
+      ])
+      expect(first.code, first.stderr).toBe(0)
+      expect(posted[0]).toMatchObject({
+        parts: [{assetId: 'mesh-a'}, {assetId: 'mesh-b'}],
+        fullBodyImageAssetId: 'reference',
+      })
+      if (pending)
+        executions.set(op, {
+          ...executions.get(op)!,
+          status: 'queued',
+          history: {status: 'pending'},
+        })
+      const resumed = await cli(baseUrl, dir, ['runs', 'resume', op, '--wait'])
+      expect(resumed.code, resumed.stderr).toBe(0)
+      expect(resumed.json.execution.runId).toBe(first.json.execution.runId)
+      expect(posted).toHaveLength(pending ? 2 : 1)
+      if (pending) expect(posted[1]).toEqual(posted[0])
+      const transforms = {
+        'mesh-a': [1, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+        'mesh-b': [0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+      }
+      const recomposed = await cli(baseUrl, dir, [
+        'composer',
+        'run',
+        '--from-run',
+        op,
+        '--transforms-json',
+        JSON.stringify(transforms),
+        '--wait',
+      ])
+      expect(recomposed.code, recomposed.stderr).toBe(0)
+      expect(posted).toHaveLength(pending ? 3 : 2)
+      expect(posted.at(-1)).toMatchObject({
+        transforms,
+        executionContext: {canvasId: 42, parentRunId: op},
+      })
+      expect(recomposed.json.execution.runId).not.toBe(
+        first.json.execution.runId,
+      )
+    },
+  )
+
   it('runs and replays V3.6.1 graph splitting through one analyze receipt', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))
