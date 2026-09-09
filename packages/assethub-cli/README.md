@@ -57,7 +57,7 @@ with `--graph`. Mesh IDs returned by search can be passed to `composer run`.
 
 ## Agent generation with canvas history
 
-Canvas execution is available to all authenticated users. Run `assethub capabilities`
+Canvas execution is available to authenticated users with access to the selected workspace. Run `assethub capabilities`
 first. Image, mesh, parts split, and production analyze/execute/automation refuse to dispatch if canvas history is unavailable.
 The current public API remains compatible with clients that omit `executionContext`.
 
@@ -459,9 +459,10 @@ assethub graph export --canvas <canvas-id> --out ./graph.json
 assethub graph lineage --canvas <canvas-id> --artifact <asset-id> --direction ancestors
 ```
 
-The graph commands currently cover recorded CLI/API executions and evaluations.
-They do not enumerate every historical UI artifact graph or provide a workspace-wide
-mesh library search. A canvas with only older UI activity can return an empty graph.
+Graph commands with `--canvas` cover recorded CLI/API executions and evaluations.
+A canvas with only older UI activity can return an empty graph. Use `graph list`
+and `graph show --graph <id>` for historical graphs, or `mesh list` to search
+the workspace mesh library.
 
 ## Inspect available MCP operations
 
