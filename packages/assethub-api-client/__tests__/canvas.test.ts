@@ -7,6 +7,64 @@ const ok = (data: unknown) =>
   })
 
 describe('canvas execution API', () => {
+  it('discovers native Composer refinement modes', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      ok({
+        defaultMode: 'standard',
+        modes: [
+          {
+            id: 'standard',
+            available: true,
+            maxRounds: 2,
+            budgetMs: 30_000,
+          },
+        ],
+      }),
+    )
+    const client = createAssetHubClient({apiKey: 'test-key', fetch: request})
+    const modes = await client.v2.getMeshRefinementModes()
+    expect(modes.defaultMode).toBe('standard')
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      'https://app.assethub.io/api/v2/mesh/refine',
+    )
+  })
+
+  it('posts a native Composer refinement with the idempotency key', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      ok({execution: {runId: 'refine-run', operation: 'mesh.refine'}}),
+    )
+    const client = createAssetHubClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://api.test',
+      fetch: request,
+    })
+    const body = {
+      parts: [{assetId: 'mesh-a', canonicalKey: 'body'}],
+      fullBodyImageAssetId: 'reference',
+      transforms: {
+        'mesh-a': [1, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+      },
+      mode: 'placement' as const,
+      instruction: 'align the feet to the ground',
+      maxRounds: 1,
+      executionContext: {
+        canvasId: 42,
+        clientOperationId: '84e8530b-b362-45c7-9064-2b03b6f95b24',
+        source: 'cli' as const,
+      },
+    }
+    const result = await client.v2.refineMesh(body, {
+      idempotencyKey: body.executionContext.clientOperationId,
+    })
+    expect(result.execution.runId).toBe('refine-run')
+    const [url, init] = request.mock.calls[0]!
+    expect(url).toBe('https://api.test/api/v2/mesh/refine')
+    expect(JSON.parse(String(init?.body))).toEqual(body)
+    expect(new Headers(init?.headers).get('Idempotency-Key')).toBe(
+      body.executionContext.clientOperationId,
+    )
+  })
+
   it('sends the same canvas creation operation in its body and header', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(ok({id: 42}))
     const client = createAssetHubClient({apiKey: 'test-key', fetch: request})

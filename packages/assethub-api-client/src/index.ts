@@ -40,6 +40,8 @@ import type {
   ExecutionContext,
   Page,
   PageOptions,
+  MeshComposerPart,
+  MeshVolumeCentroid,
 } from './canvas.js'
 import type {
   GraphListResult,
@@ -72,6 +74,8 @@ export type {
   ExecutionContext,
   Page,
   PageOptions,
+  MeshComposerPart,
+  MeshVolumeCentroid,
 } from './canvas.js'
 
 export type ProjectContext = {
@@ -996,11 +1000,7 @@ export type ProductionRunResult = {
 }
 
 export type MeshComposeRequest = {
-  parts: Array<{
-    assetId: string
-    name?: string
-    canonicalKey?: string
-  }>
+  parts: MeshComposerPart[]
   fullBodyImageAssetId: string
   agentVersion?: string
   mode?: 'quick' | 'quality'
@@ -1009,6 +1009,49 @@ export type MeshComposeRequest = {
   targetCharacterHeightM?: number
   projectName?: string
   executionContext: ExecutionContext
+}
+export type MeshTransform = [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+]
+export type MeshRefinementMode =
+  | 'standard'
+  | 'thorough'
+  | 'placement'
+  | 'workshop'
+  | 'blender'
+export type MeshRefinementModeInfo = {
+  id: MeshRefinementMode
+  available: boolean
+  reason?: string
+  maxRounds: number
+  budgetMs: number
+}
+export type MeshRefinementCapabilities = {
+  defaultMode: 'standard'
+  modes: MeshRefinementModeInfo[]
+}
+export type MeshRefineRequest = {
+  parts: MeshComposerPart[]
+  fullBodyImageAssetId: string
+  transforms: Record<string, MeshTransform>
+  referenceTransform?: MeshTransform
+  mode?: MeshRefinementMode
+  instruction: string
+  maxRounds?: number
+  executionContext: ExecutionContext
+}
+export type MeshRefineResult = {
+  execution: CanvasExecution
+  triggerRunId?: string
 }
 export type MeshComposerCapabilities = {
   models: Array<{id: string; label: string; modes: Array<'quick' | 'quality'>}>
@@ -2349,12 +2392,28 @@ export class AssetHubClient {
       (await this.request<MeshComposerCapabilities>('v2', '/mesh/compose'))
         .data,
 
+    getMeshRefinementModes: async (): Promise<MeshRefinementCapabilities> =>
+      (await this.request<MeshRefinementCapabilities>('v2', '/mesh/refine'))
+        .data,
+
     composeMesh: async (
       body: MeshComposeRequest,
       options: IdempotentMutationOptions = {},
     ): Promise<MeshComposeResult> =>
       (
         await this.request<MeshComposeResult>('v2', '/mesh/compose', {
+          method: 'POST',
+          body: JSON.stringify(body),
+          ...idempotencyRequestInit(options),
+        })
+      ).data,
+
+    refineMesh: async (
+      body: MeshRefineRequest,
+      options: IdempotentMutationOptions = {},
+    ): Promise<MeshRefineResult> =>
+      (
+        await this.request<MeshRefineResult>('v2', '/mesh/refine', {
           method: 'POST',
           body: JSON.stringify(body),
           ...idempotencyRequestInit(options),

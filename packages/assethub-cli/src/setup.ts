@@ -1,6 +1,23 @@
 import {readFile} from 'node:fs/promises'
 import {AssetHubApiError, createAssetHubClient} from '@assethub/api-client'
-import type {Tool} from '@modelcontextprotocol/sdk/types.js'
+
+type Tool = {name: string; [key: string]: unknown}
+type McpClient = {
+  connect: (transport: unknown, options: {signal: AbortSignal; timeout: number}) => Promise<void>
+  listTools: (
+    params: {cursor?: string},
+    options: {signal: AbortSignal; timeout: number},
+  ) => Promise<{tools: Tool[]; nextCursor?: string}>
+  close: () => Promise<void>
+}
+type McpClientConstructor = new (options: {name: string; version: string}) => McpClient
+type McpTransportConstructor = new (
+  url: URL,
+  options: {fetch: typeof fetch; requestInit: {headers: Record<string, string>}},
+) => unknown
+
+const loadMcpModule = async (specifier: string): Promise<Record<string, unknown>> =>
+  (await import(specifier)) as Record<string, unknown>
 
 export const cliVersion = async (): Promise<string> =>
   (
@@ -184,9 +201,13 @@ export const diagnose = async ({
     }
   }
   const mcpCheck = async (): Promise<Check> => {
-    const {Client} = await import('@modelcontextprotocol/sdk/client/index.js')
-    const {StreamableHTTPClientTransport, StreamableHTTPError} =
-      await import('@modelcontextprotocol/sdk/client/streamableHttp.js')
+    const clientModule = await loadMcpModule('@modelcontextprotocol/sdk/client/index.js')
+    const transportModule = await loadMcpModule(
+      '@modelcontextprotocol/sdk/client/streamableHttp.js',
+    )
+    const Client = clientModule.Client as McpClientConstructor
+    const StreamableHTTPClientTransport =
+      transportModule.StreamableHTTPClientTransport as McpTransportConstructor
     const client = new Client({name: 'assethub-cli-doctor', version})
     try {
       await client.connect(
@@ -215,9 +236,16 @@ export const diagnose = async ({
       if (!toolCount) throw new Error('No MCP tools')
       return {name: 'mcp', status: 'pass', toolCount, ...(includeTools ? {tools} : {})}
     } catch (error) {
+      const status =
+        typeof error === 'object' &&
+        error != null &&
+        'code' in error &&
+        typeof error.code === 'number'
+          ? error.code
+          : undefined
       return failedCheck(
         'mcp',
-        error instanceof StreamableHTTPError ? error.code : undefined,
+        status,
         signal.aborted,
       )
     } finally {
