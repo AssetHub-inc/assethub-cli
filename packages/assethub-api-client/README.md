@@ -23,7 +23,7 @@ durable outputs; `listCanvasRuns`, `getCanvasGraph`, and the evaluation submissi
 list/get methods use the same owner-scoped records. `getRun` accepts an AbortSignal.
 
 Existing generation requests without context keep their previous behavior.
-Canvas execution is available to all authenticated users; unavailable evaluators
+Canvas execution is available to authenticated users with access to the selected workspace; unavailable evaluators
 are explicitly reported by capability discovery. External evaluation reports are agent submissions,
 not human approval or server-verified judgments.
 
