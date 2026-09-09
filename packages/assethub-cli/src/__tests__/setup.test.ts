@@ -22,7 +22,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
   let hang = false
   const server = createServer(async (req, res) => {
     if (hang) return
-    if (req.method === 'GET' && req.url?.endsWith('/api/mcp')) {
+    if (req.method === 'GET' && req.url?.endsWith('/mcp')) {
       res.writeHead(405)
       res.end()
       return
@@ -36,7 +36,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
       cookie: req.headers.cookie,
       method: rpc.method,
     })
-    const status = req.url?.endsWith('/api/mcp') ? mcpStatus : apiStatus
+    const status = req.url?.endsWith('/mcp') ? mcpStatus : apiStatus
     if (req.url === '/api/v2/models') {
       res.writeHead(200, {'content-type': 'application/json'})
       res.end(JSON.stringify({success: true, data: {models: []}}))
@@ -86,7 +86,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
           error: {code: 'TEST_ERROR', message: 'sensitive-server-text'},
         }),
       )
-    } else if (req.url?.endsWith('/api/mcp')) {
+    } else if (req.url?.endsWith('/mcp')) {
       if (rpc.id == null) {
         res.writeHead(202)
         res.end()
@@ -186,6 +186,17 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     const codex = await invoke('mcp', 'config', '--client', 'codex')
     expect(codex.stdout).toContain('bearer_token_env_var = "ASSETHUB_API_KEY"')
     expect(requests).toHaveLength(0)
+    const memberMcpConfig = await invoke('mcp', 'config', '--client', 'codex', '--account')
+    expect(memberMcpConfig.stdout).toContain('/api/workspaces/mcp')
+    expect(memberMcpConfig.stdout).toContain('bearer_token_env_var = "ASSETHUB_ACCESS_TOKEN"')
+    expect(memberMcpConfig.stdout).toContain('ASSETHUB_WORKSPACE_MFA_COOKIE')
+    expect(memberMcpConfig.stdout).not.toContain('account-user-token')
+    const accountTools = await invoke('mcp', 'tools', '--account', '--profile', 'account')
+    expect(accountTools.code, accountTools.stderr).toBe(0)
+    expect(requests.some(request => request.path === '/api/workspaces/mcp')).toBe(true)
+    expect(requests.every(request => request.auth === 'Bearer account-user-token')).toBe(true)
+    expect(requests.some(request => request.path.includes('/api/v2/'))).toBe(false)
+    requests.length = 0
     const mountedConfig = await invoke(
       'mcp',
       'config',

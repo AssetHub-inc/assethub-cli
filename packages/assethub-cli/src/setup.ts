@@ -1,23 +1,6 @@
 import {readFile} from 'node:fs/promises'
-import {AssetHubApiError, createAssetHubClient} from '@assethub/api-client'
-
-type Tool = {name: string; [key: string]: unknown}
-type McpClient = {
-  connect: (transport: unknown, options: {signal: AbortSignal; timeout: number}) => Promise<void>
-  listTools: (
-    params: {cursor?: string},
-    options: {signal: AbortSignal; timeout: number},
-  ) => Promise<{tools: Tool[]; nextCursor?: string}>
-  close: () => Promise<void>
-}
-type McpClientConstructor = new (options: {name: string; version: string}) => McpClient
-type McpTransportConstructor = new (
-  url: URL,
-  options: {fetch: typeof fetch; requestInit: {headers: Record<string, string>}},
-) => unknown
-
-const loadMcpModule = async (specifier: string): Promise<Record<string, unknown>> =>
-  (await import(specifier)) as Record<string, unknown>
+import {AssetHubApiError, createAssetHubClient, createWorkspaceClient, WorkspaceClientError} from '@assethub/api-client'
+import type {Tool} from '@modelcontextprotocol/sdk/types.js'
 
 export const cliVersion = async (): Promise<string> =>
   (
@@ -43,16 +26,18 @@ const validatedBaseUrl = (baseUrl: string): string => {
   return url.href.replace(/\/+$/, '')
 }
 
-export const mcpConfig = (client: string, baseUrl: string): string => {
-  const url = `${validatedBaseUrl(baseUrl)}/api/mcp`
+export const mcpConfig = (client: string, baseUrl: string, account = false): string => {
+  const url = `${validatedBaseUrl(baseUrl)}${account ? '/api/workspaces/mcp' : '/api/mcp'}`
+  const name = account ? 'assethub-workspaces' : 'assethub'
+  const token = account ? 'ASSETHUB_ACCESS_TOKEN' : 'ASSETHUB_API_KEY'
   if (client === 'cursor')
     return (
       JSON.stringify(
         {
           mcpServers: {
-            assethub: {
+            [name]: {
               url,
-              headers: {Authorization: 'Bearer ${env:ASSETHUB_API_KEY}'},
+              headers: {Authorization: `Bearer \${env:${token}}`, ...(account ? {Cookie: '${env:ASSETHUB_WORKSPACE_MFA_COOKIE}'} : {})},
             },
           },
         },
@@ -61,7 +46,7 @@ export const mcpConfig = (client: string, baseUrl: string): string => {
       ) + '\n'
     )
   if (client === 'codex')
-    return `[mcp_servers.assethub]\nurl = ${JSON.stringify(url)}\nbearer_token_env_var = "ASSETHUB_API_KEY"\n`
+    return `[mcp_servers.${name}]\nurl = ${JSON.stringify(url)}\nbearer_token_env_var = "${token}"\n${account ? 'env_http_headers = { Cookie = "ASSETHUB_WORKSPACE_MFA_COOKIE" }\n' : ''}`
   throw new Error('Use mcp config --client cursor|codex')
 }
 
@@ -77,12 +62,13 @@ type Check = {
   tools?: Tool[]
 }
 
-type Auth = {apiKey: string; baseUrl: string; profile: string; source: string}
+type Auth = {apiKey: string; baseUrl: string; profile: string; source: string; workspaceMfaToken?: string}
 
 const failedCheck = (
   name: 'api' | 'mcp',
   status: number | undefined,
   timedOut: boolean,
+  account = false,
 ): Check => {
   if (timedOut)
     return {
@@ -97,8 +83,8 @@ const failedCheck = (
       name,
       status: 'fail',
       code: 'UNAUTHORIZED',
-      message: 'The API key was rejected.',
-      hint: 'Run assethub auth login --api-key-stdin with a current workspace key.',
+      message: account ? 'The user access token was rejected.' : 'The API key was rejected.',
+      hint: account ? 'Run assethub auth login --access-token-stdin with a current user token.' : 'Run assethub auth login --api-key-stdin with a current workspace key.',
     }
   if (status === 403)
     return {
@@ -114,7 +100,7 @@ const failedCheck = (
       status: 'fail',
       code: 'MCP_UNAVAILABLE',
       message: 'Hosted MCP is unavailable for this account or API origin.',
-      hint: 'Hosted MCP is in Internal preview. Check access for the account that created the API key.',
+      hint: account ? 'Workspace MCP is in Internal preview. Check access for the signed-in user.' : 'Hosted MCP is in Internal preview. Check access for the account that created the API key.',
     }
   if (status === 429)
     return {
@@ -140,11 +126,13 @@ export const diagnose = async ({
   includeMcp,
   timeoutMs,
   includeTools = false,
+  account = false,
 }: {
   resolveAuth: () => Promise<Auth>
   includeMcp: boolean
   timeoutMs: number
   includeTools?: boolean
+  account?: boolean
 }) => {
   const version = await cliVersion()
   let auth: Auth
@@ -179,6 +167,10 @@ export const diagnose = async ({
     })
   const apiCheck = async (): Promise<Check> => {
     try {
+      if (account) {
+        await createWorkspaceClient({accessToken: auth.apiKey, workspaceMfaToken: auth.workspaceMfaToken, baseUrl: auth.baseUrl, fetch: boundedFetch}).list()
+        return {name: 'api', status: 'pass'}
+      }
       const capabilities = await createAssetHubClient({
         apiKey: auth.apiKey,
         baseUrl: auth.baseUrl,
@@ -195,25 +187,22 @@ export const diagnose = async ({
     } catch (error) {
       return failedCheck(
         'api',
-        error instanceof AssetHubApiError ? error.status : undefined,
+        error instanceof AssetHubApiError || error instanceof WorkspaceClientError ? error.status : undefined,
         signal.aborted,
+        account,
       )
     }
   }
   const mcpCheck = async (): Promise<Check> => {
-    const clientModule = await loadMcpModule('@modelcontextprotocol/sdk/client/index.js')
-    const transportModule = await loadMcpModule(
-      '@modelcontextprotocol/sdk/client/streamableHttp.js',
-    )
-    const Client = clientModule.Client as McpClientConstructor
-    const StreamableHTTPClientTransport =
-      transportModule.StreamableHTTPClientTransport as McpTransportConstructor
+    const {Client} = await import('@modelcontextprotocol/sdk/client/index.js')
+    const {StreamableHTTPClientTransport, StreamableHTTPError} =
+      await import('@modelcontextprotocol/sdk/client/streamableHttp.js')
     const client = new Client({name: 'assethub-cli-doctor', version})
     try {
       await client.connect(
-        new StreamableHTTPClientTransport(new URL(`${auth.baseUrl}/api/mcp`), {
+        new StreamableHTTPClientTransport(new URL(`${auth.baseUrl}${account ? '/api/workspaces/mcp' : '/api/mcp'}`), {
           fetch: boundedFetch,
-          requestInit: {headers: {Authorization: `Bearer ${auth.apiKey}`}},
+          requestInit: {headers: {Authorization: `Bearer ${auth.apiKey}`, ...(account && auth.workspaceMfaToken ? {Cookie: `ah_workspace_mfa=${encodeURIComponent(auth.workspaceMfaToken)}`} : {})}},
         }),
         {signal, timeout: timeoutMs},
       )
@@ -236,17 +225,11 @@ export const diagnose = async ({
       if (!toolCount) throw new Error('No MCP tools')
       return {name: 'mcp', status: 'pass', toolCount, ...(includeTools ? {tools} : {})}
     } catch (error) {
-      const status =
-        typeof error === 'object' &&
-        error != null &&
-        'code' in error &&
-        typeof error.code === 'number'
-          ? error.code
-          : undefined
       return failedCheck(
         'mcp',
-        status,
+        error instanceof StreamableHTTPError ? error.code : undefined,
         signal.aborted,
+        account,
       )
     } finally {
       await client.close()

@@ -489,3 +489,43 @@ The second returns the live description and input schema for one tool, including
 required fields. Both use the selected profile and the same bounded checks as
 `doctor --mcp`; they do not invoke tools or spend credits. Hosted MCP requires
 Internal access. Discover names first because server capabilities can change.
+
+
+### Team members (Internal preview)
+
+Use a **user access token** with `auth login --access-token-stdin`. A workspace
+API key cannot invite people or change membership. Commands use the selected
+workspace; `--workspace <id>` explicitly selects a target without changing your
+saved selection. Membership reads require team membership; changes require admin
+permission. The target workspace's MFA and IP restrictions apply.
+
+```sh
+assethub workspace members --workspace <workspace-id>
+assethub workspace invite --workspace <workspace-id> --email colleague@example.com
+assethub workspace set-role <user-id> --role admin --workspace <workspace-id>
+assethub workspace remove-member <user-id> --workspace <workspace-id>
+```
+
+Invite defaults to `user`; use `--role admin` deliberately. Invitations grant
+membership and send email. An existing member returns `already_member`, preserving
+their role and avoiding another email. Use `workspace invite --email ... --resend`
+only to explicitly resend or recover failed delivery. If a request is interrupted,
+check `workspace members` first. Removal revokes workspace membership, not the
+user's account. The final admin cannot be demoted or removed.
+
+For MCP account operations, add a separate server using:
+
+```sh
+assethub mcp config --client codex --account
+assethub mcp config --client cursor --account
+assethub mcp tools --account --profile <user-profile>
+```
+
+The generated configuration references `ASSETHUB_ACCESS_TOKEN` and
+`ASSETHUB_WORKSPACE_MFA_COOKIE` without printing credentials. Set the latter to
+`ah_workspace_mfa=<signed-cookie-value>` from the same verified browser session
+(or an empty string if workspace MFA is not required). Pass these environment
+variables to your MCP client and reconnect. This server uses
+`https://app.assethub.io/api/workspaces/mcp` and exposes `workspace_list`,
+`workspace_members_list`, `workspace_member_invite`, `workspace_member_set_role`,
+and `workspace_member_remove`. Keep the existing API-key MCP server for generation.
