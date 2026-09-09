@@ -1005,7 +1005,7 @@ export type ProductionRunResult = {
 }
 
 export type MeshComposeRequest = {
-  parts: MeshComposerPart[]
+  parts: Omit<MeshComposerPart, 'volumeCentroid'>[]
   fullBodyImageAssetId: string
   agentVersion?: string
   mode?: 'quick' | 'quality'
