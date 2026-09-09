@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.17
+
+- Synchronize the existing Internal V3.6.4 Fast Analysis API and CLI aliases.
+- Cover graph splitting, recovery and classic-flag rejection for V3.6.1, V3.6.3 and V3.6.4.
+- Preserve version aliases and defaults; use the API catalog to discover availability.
+
 ## CLI 0.1.16
 
 - Accept the existing Internal V3.6.3 Fast Analysis graph split through `parts split` and `production analyze`.
