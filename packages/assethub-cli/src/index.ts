@@ -2382,11 +2382,19 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     : previous
       ? {
           ...(previous.requestedInput ?? previous.input),
+          ...(previous.operation === 'mesh.refine' &&
+          (previous.requestedInput?.mode ?? previous.input.mode)
+            ? {mode: previous.requestedInput?.mode ?? previous.input.mode}
+            : {mode: undefined}),
           parts:
             previous.composition?.parts ??
             previous.requestedInput?.parts ??
             previous.input.parts,
           transforms: previous.composition?.transforms,
+          referenceTransform:
+            previous.composition?.referenceTransform ??
+            previous.requestedInput?.referenceTransform ??
+            previous.input.referenceTransform,
         }
       : {
           parts: parts.map(assetId => ({

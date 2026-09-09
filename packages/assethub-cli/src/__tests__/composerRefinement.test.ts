@@ -147,15 +147,19 @@ describe('composer refine CLI', () => {
       parts: [{assetId: 'requested-mesh'}],
       fullBodyImageAssetId: 'reference',
       transforms: {'requested-mesh': [1, 0, 0, 0, 0, 0, 1, 1, 1, 1]},
+      mode: 'quick',
+      referenceTransform: [9, 9, 9, 9, 9, 9, 1, 1, 1, 1],
     }
+    const actualReferenceTransform = [3, 3, 3, 3, 3, 3, 1, 1, 1, 1]
     const previous: CanvasExecution = {
       ...execution('compose-run', sourceInput, 'completed'),
       operation: 'mesh.compose',
-      requestedInput: sourceInput,
+      requestedInput: undefined,
       input: sourceInput,
       composition: {
         parts: [{assetId: 'mesh-new', canonicalKey: 'body', volumeCentroid: [0.1, 0.2, 0.3]}],
         transforms: {'mesh-new': [2, 0, 0, 0, 0, 0, 1, 1, 1, 1]},
+        referenceTransform: actualReferenceTransform,
       },
     }
     const final = execution('refine-run', sourceInput, 'needs_review')
@@ -180,8 +184,6 @@ describe('composer refine CLI', () => {
       'compose-run',
       '--instruction',
       'align the feet to the ground',
-      '--mode',
-      'placement',
       '--max-rounds',
       '1',
       '--agent',
@@ -195,9 +197,10 @@ describe('composer refine CLI', () => {
       parts: [{assetId: 'mesh-new', canonicalKey: 'body', volumeCentroid: [0.1, 0.2, 0.3]}],
       fullBodyImageAssetId: 'reference',
       transforms: {'mesh-new': [2, 0, 0, 0, 0, 0, 1, 1, 1, 1]},
-      mode: 'placement',
+      mode: 'standard',
       instruction: 'align the feet to the ground',
       maxRounds: 1,
+      referenceTransform: actualReferenceTransform,
       executionContext: {canvasId: 42, parentRunId: 'compose-run', agent: {name: 'codex'}},
     })
   })
