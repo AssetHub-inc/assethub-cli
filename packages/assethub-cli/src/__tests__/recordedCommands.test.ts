@@ -186,7 +186,10 @@ describe('built recorded CLI', () => {
     },
   )
 
-  it('runs and replays V3.6.1 graph splitting through one analyze receipt', async () => {
+  it.each([
+    ['V3.6.1', 'ah_agent_graph_v3_6_1', 'V3.6.1 Primary Images First'],
+    ['V3.6.3', 'ah_agent_graph_v3_6_3', 'V3.6.3 Fast Analysis'],
+  ])('splits and replays %s graphs', async (name, apiValue, label) => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))
     const posted: Array<{path: string; body: Record<string, unknown>}> = []
@@ -224,13 +227,13 @@ describe('built recorded CLI', () => {
         history: {status: 'recorded'},
         usage: {reservedCredits: 25, chargedCredits: 25},
         createdAt: '2026-09-08T00:00:00Z',
-        resolvedInput: {agentVersion: 'ah_agent_graph_v3_6_1'},
+        resolvedInput: {agentVersion: apiValue},
         context: {
           canvasId: 42,
           clientOperationId: '84e8530b-b362-45c7-9064-2b03b6f95b24',
           source: 'cli',
         },
-        input: {agentVersion: 'ah_agent_graph_v3_6_1'},
+        input: {agentVersion: apiValue},
       }
 
       let data: unknown
@@ -246,9 +249,7 @@ describe('built recorded CLI', () => {
       else if (path.endsWith('/canvases/42')) data = canvas
       else if (path.endsWith('/production/agents'))
         data = {
-          agents: [
-            {value: 'ah_agent_graph_v3_6_1', supportedOnGraphEndpoint: true},
-          ],
+          agents: [{value: apiValue, supportedOnGraphEndpoint: true}],
         }
       else if (path.endsWith('/production/analyze')) {
         const body = await bodyOf(req)
@@ -258,7 +259,7 @@ describe('built recorded CLI', () => {
           graphId: 'graph-1',
           orderId: 'graph-1',
           runId: 'graph-1',
-          agentVersion: 'V3.6.1 Primary Images First',
+          agentVersion: label,
           status: 'analyzing',
           execution,
         }
@@ -298,7 +299,7 @@ describe('built recorded CLI', () => {
       '--canvas',
       '42',
       '--part-extractor',
-      'V3.6.1',
+      name,
       '--all-ready',
       '--wait',
       '--interval-ms',
@@ -325,7 +326,7 @@ describe('built recorded CLI', () => {
     expect(posted).toHaveLength(1)
     expect(posted[0]).toMatchObject({
       path: '/api/v1/production/analyze',
-      body: {agentVersion: 'ah_agent_graph_v3_6_1'},
+      body: {agentVersion: apiValue},
     })
     expect(classicRequests).toEqual([])
     expect(await readFile(split.json.downloads!.files[0].path, 'utf8')).toBe(
@@ -350,7 +351,7 @@ describe('built recorded CLI', () => {
       ])
       expect(rejected.code).not.toBe(0)
       expect(rejected.json.error?.message).toContain(
-        `${unsupported[0]} is not supported with V3.6.1`,
+        `${unsupported[0]} is not supported with ${name}`,
       )
     }
     const continued = await cli(baseUrl, dir, [
@@ -359,11 +360,11 @@ describe('built recorded CLI', () => {
       '--order-id',
       'classic-order',
       '--part-extractor',
-      'V3.6.1 Primary Images First',
+      label,
     ])
     expect(continued.code).not.toBe(0)
     expect(continued.json.error?.message).toContain(
-      '--order-id is not supported with V3.6.1',
+      `--order-id is not supported with ${name}`,
     )
     expect(posted).toHaveLength(1)
   })

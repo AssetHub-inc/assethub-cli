@@ -141,7 +141,7 @@ Existing parts commands use the same canvas and durable operation storage:
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V1.5 --wait
 # Select only the parts to execute; --all-ready selects all ready tasks.
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V1.5 --all-ready --wait
-# Internal V3.6.1 runs the complete graph split through one analyze receipt.
+# Internal V3.6.1 and V3.6.3 run the complete graph split through one analyze receipt.
 assethub production agents
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V3.6.1 --all-ready --wait
 assethub production automation --canvas "$CANVAS_ID" --input-json @batch.json --wait
@@ -149,7 +149,8 @@ assethub production automation --canvas "$CANVAS_ID" --input-json @batch.json --
 
 `parts split` keeps separate analysis and selected-part execution phases. Each phase
 has its own saved operation ID, with the execution linked to the analysis run.
-For Internal `V3.6.1` (`V3.6.1 Primary Images First`), analysis runs the complete
+For Internal `V3.6.1` (`V3.6.1 Primary Images First`) and `V3.6.3`
+(`V3.6.3 Fast Analysis`, CLI 0.1.16+), analysis runs the complete
 Artifact Graph split. `--all-ready` waits for that one receipt and does not start a
 second production execution. Resume an interrupted graph split with
 `runs resume <operation-id>`; `--task-id`, `--mission-id`,
@@ -419,8 +420,11 @@ Image generation uses the `v2` endpoint with mandatory canvas history.
 `--api-version v1` is rejected; run `assethub capabilities` to check availability.
 
 Part extraction uses the same names shown in the AssetHub product: `V1.5`,
-`V2.0 alpha`, `V2.1 alpha`, and the Internal-only `V3.6.1` alias for
-`V3.6.1 Primary Images First`. Retired names are no longer accepted by the CLI.
+`V2.0 alpha`, `V2.1 alpha`, and the Internal-only aliases `V3.6.1`
+(`V3.6.1 Primary Images First`) and `V3.6.3` (`V3.6.3 Fast Analysis`).
+Run `production agents` to check availability and `supportedOnGraphEndpoint`
+before selecting a graph version. These aliases do not change the default.
+Retired names are no longer accepted by the CLI.
 Internal agent IDs are intentionally not part of the CLI interface.
 
 The CLI only uses AssetHub's public API surface and is designed so this package
@@ -463,6 +467,13 @@ silently restart from the original requested input. New requests can use
 and each mode's `--max-rounds` policy come from `composer refine --list-modes`.
 Incomplete native results remain `needs_review` and return exit code 3, so inspect
 the execution and its new geometry asset IDs before continuing.
+
+Native refinement `completed` or `reviewed` means execution finished; it is not
+creator approval. Read `execution.refinement.report` and inspect the actual
+`execution.composition` and downloaded meshes. Structured unresolved issues or
+incomplete refinement can return `needs_review` (exit 3). Review narrative issues
+even on completed runs, using overlays and oblique/side views before claiming
+visual improvement.
 
 Existing Production outputs can be inspected and downloaded without regenerating:
 
