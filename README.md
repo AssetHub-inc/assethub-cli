@@ -86,8 +86,8 @@ The API key belongs in a trusted server or local process. See the
 AssetHub provides a hosted MCP endpoint at `https://app.assethub.io/api/mcp`.
 There is no local MCP package to install. The
 [CLI & MCP setup page](https://app.assethub.io/developer-tools) includes Cursor
-and Codex configuration. That page and hosted MCP access are currently in
-Internal preview; the API key creator must have MCP access.
+and Codex configuration. CLI and hosted MCP are available to all AssetHub users;
+workspace ownership, permissions, and credit requirements apply.
 
 ## Development
 
@@ -121,5 +121,5 @@ assethub mcp tools image_generate --profile my-workspace
 The first command returns a compact list of tools and their action annotations.
 The second returns the live description and input schema for one tool, including
 required fields. Both use the selected profile and the same bounded checks as
-`doctor --mcp`; they do not invoke tools or spend credits. Hosted MCP requires
-Internal access. Discover names first because server capabilities can change.
+`doctor --mcp`; they do not invoke tools or spend credits. Discover names first
+because server capabilities can change.

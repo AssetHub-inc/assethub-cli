@@ -15,8 +15,8 @@ assethub mcp config --client codex
 MCP initialization and tool discovery, without invoking any tool or generating
 assets. It returns JSON and exit 0 when checks pass, or exit 2 with a diagnostic
 and next step when a check fails. The default total timeout is 15 seconds; change
-it with `--timeout-ms`. Hosted MCP currently requires Internal access for the key
-creator, independently of regular API access.
+it with `--timeout-ms`. Hosted MCP accepts a workspace API key from any AssetHub
+user; account operations use a separate user access token.
 
 `mcp config` outputs a Cursor JSON object or Codex TOML section to merge into
 existing user settings. It does not write files or read your saved API key.
@@ -35,8 +35,7 @@ Diagnostics omit API keys and raw server error bodies.
 
 ## Historical meshes and artifact graphs
 
-Internal preview: these reads require workspace feature access. Lists are scoped
-to the selected workspace, including assets created in the UI. Mesh search
+Lists are scoped to the selected workspace, including assets created in the UI. Mesh search
 includes parts, revisions, and archived meshes, and excludes samples.
 
 ```sh
@@ -58,7 +57,7 @@ with `--graph`. Mesh IDs returned by search can be passed to `composer run`.
 
 ## Agent generation with canvas history
 
-This release uses the Internal `api_canvas_execution` gate. Run `assethub capabilities`
+Canvas execution is available to all authenticated users. Run `assethub capabilities`
 first. Image, mesh, parts split, and production analyze/execute/automation refuse to dispatch if canvas history is unavailable.
 The current public API remains compatible with clients that omit `executionContext`.
 
@@ -487,11 +486,11 @@ assethub mcp tools image_generate --profile my-workspace
 The first command returns a compact list of tools and their action annotations.
 The second returns the live description and input schema for one tool, including
 required fields. Both use the selected profile and the same bounded checks as
-`doctor --mcp`; they do not invoke tools or spend credits. Hosted MCP requires
-Internal access. Discover names first because server capabilities can change.
+`doctor --mcp`; they do not invoke tools or spend credits. Discover names first
+because server capabilities can change.
 
 
-### Team members (Internal preview)
+### Team members
 
 Use a **user access token** with `auth login --access-token-stdin`. A workspace
 API key cannot invite people or change membership. Commands use the selected
