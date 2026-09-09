@@ -7,6 +7,13 @@ export type ExecutionContext = {
   parentRunId?: string | null
   graphSource?: {graphId: string; nodeId: string; revision: string}
 }
+export type MeshVolumeCentroid = [number, number, number]
+export type MeshComposerPart = {
+  assetId: string
+  name?: string
+  canonicalKey?: string
+  volumeCentroid?: MeshVolumeCentroid
+}
 
 export type Canvas = {
   id: number
@@ -85,7 +92,16 @@ export type CanvasExecution = {
     format?: string
   }>
   history: {status: 'recorded' | 'pending' | 'failed'; error?: string}
-  composition?: {transforms?: Record<string, number[]>}
+  composition?: {
+    transforms?: Record<string, number[]>
+    parts?: MeshComposerPart[]
+    referenceTransform?: number[]
+  }
+  refinement?: {
+    mode: 'standard' | 'thorough' | 'placement' | 'workshop' | 'blender'
+    report?: Record<string, unknown>
+    message?: string
+  }
   usage: {
     reservedCredits: number | null
     chargedCredits: number | null

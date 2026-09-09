@@ -10,6 +10,7 @@ import {
   type ImageGenerationRequest,
   type MeshGenerationRequest,
   type MeshComposeRequest,
+  type MeshRefineRequest,
   type ProductionAnalyzeRequest,
   type ProductionExecuteRequest,
   type ProductionAutomationRequest,
@@ -20,6 +21,7 @@ const operations = [
   'image.generate',
   'mesh.generate',
   'mesh.compose',
+  'mesh.refine',
   'production.analyze',
   'production.execute',
   'production.automation',
@@ -57,6 +59,7 @@ type RequestBody =
   | ImageGenerationRequest
   | MeshGenerationRequest
   | Omit<MeshComposeRequest, 'executionContext'>
+  | Omit<MeshRefineRequest, 'executionContext'>
   | ProductionAnalyzeRequest
   | ProductionExecuteRequest
   | ProductionAutomationRequest
@@ -155,7 +158,8 @@ const submitSaved = async (
       // Resume repeats its saved body/key; the server uses the same native key.
       if (
         !(
-          saved.operation === 'mesh.compose' &&
+          (saved.operation === 'mesh.compose' ||
+            saved.operation === 'mesh.refine') &&
           execution.status === 'queued' &&
           execution.history.status === 'pending'
         )
@@ -180,6 +184,11 @@ const submitSaved = async (
             case 'mesh.compose':
               return session.client.v2.composeMesh(
                 saved.body as MeshComposeRequest,
+                options,
+              )
+            case 'mesh.refine':
+              return session.client.v2.refineMesh(
+                saved.body as MeshRefineRequest,
                 options,
               )
             case 'production.analyze':

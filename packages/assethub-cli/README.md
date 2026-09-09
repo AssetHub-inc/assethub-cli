@@ -441,6 +441,9 @@ assethub canvas use <canvas-id>
 assethub composer models
 assethub composer run --part <mesh-id> --part <mesh-id> --reference <image-id> --wait
 assethub composer run --from-run <run-id> --transforms-json @transforms.json --wait
+assethub composer refine --list-modes
+assethub composer refine --from-run <run-id> --instruction "align the feet" \
+  --mode placement --max-rounds 2 --wait --download --out-dir ./refined
 ```
 
 Selection reuses a valid API key for that workspace or creates one when permitted.
@@ -450,6 +453,16 @@ required MFA in AssetHub and provide its signed proof through
 expired proof by logging in again. Explicit `--profile` uses its saved proof and
 ignores environment credentials; an explicit `--api-key` can supply the workspace
 key. Generation uses normal workspace credits.
+
+`composer refine --from-run` accepts a `mesh.compose` or prior `mesh.refine` run
+and uses that receipt's final `composition.transforms` and any replacement
+`composition.parts` on the same canvas, preserving `parentRunId` lineage. If the
+receipt has no actual transforms, provide `--transforms-json`; the CLI refuses to
+silently restart from the original requested input. New requests can use
+`--input-json` or `--part`/`--reference` with `--transforms-json`. Mode availability
+and each mode's `--max-rounds` policy come from `composer refine --list-modes`.
+Incomplete native results remain `needs_review` and return exit code 3, so inspect
+the execution and its new geometry asset IDs before continuing.
 
 Existing Production outputs can be inspected and downloaded without regenerating:
 

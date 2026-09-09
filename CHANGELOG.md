@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.15 / API client 0.1.8
+
+- Run native Composer Standard, Thorough, Placement, Workshop and Blender refinement through the CLI/API.
+- Resume from actual mesh revisions, transforms and volume centroids; record each round in canvas history.
+- Discover mode availability and enforce native round limits; preserve incomplete results as needing review.
+
 ## CLI 0.1.14 / API client 0.1.7
 
 - Document public access to CLI, hosted MCP, canvas history, and team management.

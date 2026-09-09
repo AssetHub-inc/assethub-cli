@@ -27,6 +27,14 @@ Canvas execution is available to authenticated users with access to the selected
 are explicitly reported by capability discovery. External evaluation reports are agent submissions,
 not human approval or server-verified judgments.
 
+Native Composer refinement uses `client.v2.getMeshRefinementModes()` for the
+available mode policies and `client.v2.refineMesh({...}, {idempotencyKey})` for
+durable execution. Supply every part's ten-number transform and an instruction;
+the returned `execution.operation` is `mesh.refine`, and incomplete native results
+use `status: 'needs_review'`. A refinement receipt can carry the final
+`composition.parts`, `composition.transforms`, `composition.referenceTransform`,
+and a `refinement` report.
+
 ```ts
 import {createAssetHubClient} from '@assethub/api-client'
 

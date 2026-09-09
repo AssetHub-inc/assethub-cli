@@ -40,6 +40,10 @@ import {
   type ImageGenerationRequest,
   type MeshGenerationRequest,
   type MeshComposeRequest,
+  type MeshRefineRequest,
+  type MeshRefinementCapabilities,
+  type MeshRefinementMode,
+  type MeshTransform,
   type ExecutionContext,
   type EvaluationReport,
   type ProductionAutomationRequest,
@@ -231,6 +235,9 @@ Usage:
   assethub source create (--file <path> | --source-url <url> | --source-id <id> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) --media-type image|mesh [--file-name <name>] [--content-type <type>]
   assethub capabilities
   assethub composer models
+  assethub composer refine --list-modes
+  assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
+  assethub composer refine --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --part <mesh-asset-id> [--part <mesh-asset-id>...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --from-run <run-id> [--transforms-json <json|@file>] [--mode quick|quality] [--wait]
@@ -2292,12 +2299,206 @@ const commandImage = async (
   )
 }
 
+const meshRefinementModes = [
+  'standard',
+  'thorough',
+  'placement',
+  'workshop',
+  'blender',
+] as const satisfies readonly MeshRefinementMode[]
+
+const refinementTransforms = (value: unknown, flag: string) => {
+  if (value == null || typeof value !== 'object' || Array.isArray(value))
+    throw new Error(`${flag} must be an object keyed by part asset ID`)
+  const result: Record<string, MeshTransform> = {}
+  for (const [assetId, transform] of Object.entries(value)) {
+    if (
+      !Array.isArray(transform) ||
+      transform.length !== 10 ||
+      transform.some(entry => typeof entry !== 'number' || !Number.isFinite(entry))
+    )
+      throw new Error(`${flag} must contain ten finite numbers for ${assetId}`)
+    result[assetId] = transform as MeshTransform
+  }
+  if (Object.keys(result).length === 0)
+    throw new Error(`${flag} must contain at least one part transform`)
+  return result
+}
+
+const refinementTransform = (value: unknown, flag: string) => {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 10 ||
+    value.some(entry => typeof entry !== 'number' || !Number.isFinite(entry))
+  )
+    throw new Error(`${flag} must contain ten finite numbers`)
+  return value as MeshTransform
+}
+
+const refinementModeInfo = (
+  capabilities: MeshRefinementCapabilities,
+  mode: MeshRefinementMode,
+) => {
+  const info = capabilities.modes.find(item => item.id === mode)
+  if (!info) throw new Error(`Unknown refinement mode: ${mode}`)
+  if (!info.available)
+    throw new Error(
+      `Refinement mode ${mode} is unavailable${info.reason ? `: ${info.reason}` : ''}`,
+    )
+  return info
+}
+
+const commandComposerRefine = async (ctx: CommandContext) => {
+  const capabilities = await ctx.client.v2.getMeshRefinementModes()
+  if (hasFlag(ctx.flags, 'list-modes')) {
+    print(capabilities)
+    return
+  }
+  const fromRun = getFlag(ctx.flags, 'from-run')
+  const json = getFlag(ctx.flags, 'input-json')
+  const parts = getFlagValues(ctx.flags, 'part')
+  const reference = getFlag(ctx.flags, 'reference')
+  if (
+    (fromRun && (json || parts.length || reference)) ||
+    (json && (parts.length || reference))
+  )
+    throw new Error(
+      'Choose --from-run, --input-json, or --part with --reference',
+    )
+  const previous = fromRun ? await ctx.client.v2.getRun(fromRun) : undefined
+  if (
+    previous &&
+    previous.operation !== 'mesh.compose' &&
+    previous.operation !== 'mesh.refine'
+  )
+    throw new Error('--from-run must identify a mesh.compose or mesh.refine execution')
+  if (previous && ['queued', 'running'].includes(previous.status))
+    throw new Error(
+      '--from-run must identify a finished mesh.compose or mesh.refine checkpoint',
+    )
+
+  const input = json
+    ? await readJsonArgument(json, '--input-json')
+    : previous
+      ? {
+          ...(previous.requestedInput ?? previous.input),
+          ...(previous.operation === 'mesh.refine' &&
+          (previous.requestedInput?.mode ?? previous.input.mode)
+            ? {mode: previous.requestedInput?.mode ?? previous.input.mode}
+            : {mode: undefined}),
+          parts:
+            previous.composition?.parts ??
+            previous.requestedInput?.parts ??
+            previous.input.parts,
+          transforms: previous.composition?.transforms,
+          referenceTransform:
+            previous.composition?.referenceTransform ??
+            previous.requestedInput?.referenceTransform ??
+            previous.input.referenceTransform,
+        }
+      : {
+          parts: parts.map(assetId => ({
+            assetId: assertFlagHasValue(assetId, '--part <asset-id>'),
+          })),
+          fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
+        }
+  delete input.executionContext
+  if (!Array.isArray(input.parts) || input.parts.length === 0)
+    throw new Error('Composer refinement requires parts[]')
+  const refinementParts = input.parts.map((part, index) => {
+    if (
+      !part ||
+      typeof part !== 'object' ||
+      typeof (part as {assetId?: unknown}).assetId !== 'string' ||
+      !(part as {assetId: string}).assetId
+    )
+      throw new Error(`Composer refinement part ${index + 1} requires assetId`)
+    return part as MeshRefineRequest['parts'][number]
+  })
+  if (
+    typeof input.fullBodyImageAssetId !== 'string' ||
+    input.fullBodyImageAssetId.length === 0
+  )
+    throw new Error('Composer refinement requires fullBodyImageAssetId')
+  const instruction = getFlag(ctx.flags, 'instruction') ?? input.instruction
+  if (typeof instruction !== 'string' || !instruction.trim())
+    throw new Error('Composer refinement requires --instruction')
+  const mode =
+    parseEnumFlag(ctx.flags, 'mode', meshRefinementModes) ??
+    (input.mode as MeshRefinementMode | undefined) ??
+    capabilities.defaultMode
+  if (!meshRefinementModes.includes(mode))
+    throw new Error(`--mode must be one of: ${meshRefinementModes.join(', ')}`)
+  const modeInfo = refinementModeInfo(capabilities, mode)
+  const maxRoundsFlag = getFlag(ctx.flags, 'max-rounds')
+  const inputMaxRounds = input.maxRounds
+  if (
+    inputMaxRounds != null &&
+    (typeof inputMaxRounds !== 'number' ||
+      !Number.isInteger(inputMaxRounds) ||
+      inputMaxRounds <= 0)
+  )
+    throw new Error('maxRounds must be a positive integer')
+  const maxRounds =
+    maxRoundsFlag == null
+      ? inputMaxRounds
+      : parsePositiveIntegerFlag(ctx.flags, 'max-rounds', 1)
+  if (maxRounds != null && (!Number.isInteger(maxRounds) || maxRounds <= 0))
+    throw new Error('--max-rounds must be a positive integer')
+  if (maxRounds != null && maxRounds > modeInfo.maxRounds)
+    throw new Error(
+      `--max-rounds must be at most ${modeInfo.maxRounds} for ${mode}`,
+    )
+  const transformsFlag = getFlag(ctx.flags, 'transforms-json')
+  const transforms = transformsFlag
+    ? refinementTransforms(
+        await readJsonArgument(transformsFlag, '--transforms-json'),
+        '--transforms-json',
+      )
+    : refinementTransforms(input.transforms, 'refinement transforms')
+  const referenceTransform =
+    input.referenceTransform == null
+      ? undefined
+      : refinementTransform(input.referenceTransform, 'referenceTransform')
+  const explicitCanvas = selectedCanvasId(ctx.flags)
+  const canvasId = explicitCanvas ?? previous?.canvas.id
+  if (previous && canvasId !== previous.canvas.id)
+    throw new Error(
+      'Refinement must use the original canvas to retain lineage',
+    )
+  const session = await openExecutionSession({
+    ...stateOptions(ctx),
+    canvasId,
+    operation: 'mesh.refine',
+  })
+  const body: Omit<MeshRefineRequest, 'executionContext'> = {
+    parts: refinementParts,
+    fullBodyImageAssetId: input.fullBodyImageAssetId,
+    transforms,
+    ...(referenceTransform ? {referenceTransform} : {}),
+    mode,
+    instruction,
+    ...(maxRounds != null ? {maxRounds} : {}),
+  }
+  await printRecorded(
+    ctx,
+    await executeRecorded(session, 'mesh.refine', body, {
+      ...executionOptions(ctx.flags),
+      ...(previous ? {parentRunId: previous.runId} : {}),
+    }),
+  )
+}
+
 const commandComposer = async (
   subcommand: string | undefined,
   ctx: CommandContext,
 ) => {
   if (subcommand === 'models') {
     print(await ctx.client.v2.getMeshComposers())
+    return
+  }
+  if (subcommand === 'refine') {
+    await commandComposerRefine(ctx)
     return
   }
   if (subcommand !== 'run') throw new Error('Use composer models|run')
