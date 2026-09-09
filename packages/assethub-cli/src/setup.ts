@@ -100,7 +100,7 @@ const failedCheck = (
       status: 'fail',
       code: 'MCP_UNAVAILABLE',
       message: 'Hosted MCP is unavailable for this account or API origin.',
-      hint: account ? 'Workspace MCP is in Internal preview. Check access for the signed-in user.' : 'Hosted MCP is in Internal preview. Check access for the account that created the API key.',
+      hint: 'Check the API origin and service status, then retry the MCP connection.',
     }
   if (status === 429)
     return {
