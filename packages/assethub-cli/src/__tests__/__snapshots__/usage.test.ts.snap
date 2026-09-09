@@ -3,7 +3,7 @@
 exports[`CLI usage / --help > matches the committed help snapshot 1`] = `
 "AssetHub CLI
 
-Internal preview: canvas/context/layout, moodboards and member management require workspace feature access.
+CLI and MCP are available to all AssetHub users. Workspace permissions and feature availability apply.
 
 Usage:
   assethub --version
