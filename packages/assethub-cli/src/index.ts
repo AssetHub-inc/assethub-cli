@@ -190,13 +190,13 @@ const execFileAsync = promisify(execFile)
 
 export const usage = `AssetHub CLI
 
-Internal preview: canvas/context/layout and moodboards require workspace feature access.
+Internal preview: canvas/context/layout, moodboards and member management require workspace feature access.
 
 Usage:
   assethub --version
   assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
-  assethub mcp tools [tool-name] [--profile <name>] [--timeout-ms <n>]
-  assethub mcp config --client cursor|codex [--base-url <url>]
+  assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
+  assethub mcp config --client cursor|codex [--account] [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
   assethub auth login --access-token-stdin [--base-url <url>] [--profile <name>]
@@ -205,6 +205,10 @@ Usage:
   assethub workspace list|get
   assethub workspace create --name <name> [--operation-id <uuid>]
   assethub workspace use <workspace-id>
+  assethub workspace members [--workspace <id>]
+  assethub workspace invite --email <email> [--role user|admin] [--resend] [--workspace <id>]
+  assethub workspace set-role <user-id> --role user|admin [--workspace <id>]
+  assethub workspace remove-member <user-id> [--workspace <id>]
   assethub workspace prepare|sync|analyze|verify --internal --manifest <json> --state <json>
   assethub workspace self-check --internal
   assethub workspace context put --internal --org <uuid> --actor <uuid> --canvas <id> --file <json> [--if-version <n>] [--order <uuid>]
@@ -1765,6 +1769,22 @@ const commandWorkspace = async (
       ? undefined
       : env.ASSETHUB_API_KEY?.trim()
   const auth = await workspaceAuth(flags)
+  if (['members', 'invite', 'set-role', 'remove-member'].includes(subcommand ?? '')) {
+    let workspaceId = getFlag(flags, 'workspace') ?? auth.config.profiles?.[auth.profile]?.workspaceId
+    if (!workspaceId) workspaceId = (await auth.client.list()).workspaces.find(item => item.active)?.id
+    if (!workspaceId) throw new Error('Specify --workspace <id> or select one with workspace use <id>')
+    if (subcommand === 'members') {
+      print(await auth.client.listMembers(workspaceId))
+      return
+    }
+    const role = subcommand === 'invite' ? getFlag(flags, 'role') ?? 'user' : subcommand === 'set-role' ? requireFlag(flags, 'role') : undefined
+    if (role !== undefined && role !== 'user' && role !== 'admin') throw new Error('--role must be user or admin')
+    stderr.write(`[workspace] ${subcommand} in ${workspaceId}…\n`)
+    if (subcommand === 'invite') print(await auth.client.inviteMember(workspaceId, {email: requireFlag(flags, 'email'), role: role as 'user' | 'admin', ...(hasFlag(flags, 'resend') ? {resend: true} : {})}))
+    else if (subcommand === 'set-role') print(await auth.client.setMemberRole(workspaceId, {userId: requirePositional(positionals, 2, 'user-id'), role: role as 'user' | 'admin'}))
+    else print(await auth.client.removeMember(workspaceId, requirePositional(positionals, 2, 'user-id')))
+    return
+  }
   if (subcommand === 'list') {
     print(await auth.client.list())
     return
@@ -4467,7 +4487,12 @@ const run = async (): Promise<void> => {
   if (command === 'mcp' && subcommand === 'tools') {
     stderr.write('Discovering AssetHub MCP tools…\n')
     const report = await diagnose({
-      resolveAuth: () => resolveAuth(parsed.flags),
+      resolveAuth: async () => {
+        if (!hasFlag(parsed.flags, 'account')) return resolveAuth(parsed.flags)
+        const auth = await workspaceAuth(parsed.flags)
+        return {apiKey: auth.accessToken, workspaceMfaToken: auth.workspaceMfaToken, baseUrl: auth.baseUrl, profile: auth.profile, source: 'user'}
+      },
+      account: hasFlag(parsed.flags, 'account'),
       includeMcp: true,
       includeTools: true,
       timeoutMs: parsePositiveIntegerFlag(parsed.flags, 'timeout-ms', 15000),
@@ -4496,6 +4521,7 @@ const run = async (): Promise<void> => {
       mcpConfig(
         requireFlag(parsed.flags, 'client'),
         getFlag(parsed.flags, 'base-url') ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl,
+        hasFlag(parsed.flags, 'account'),
       ),
     )
     return
@@ -4529,7 +4555,7 @@ const run = async (): Promise<void> => {
     return
   }
   if (command === 'workspace') {
-    if (['list', 'get', 'create', 'use'].includes(subcommand ?? '')) {
+    if (['list', 'get', 'create', 'use', 'members', 'invite', 'set-role', 'remove-member'].includes(subcommand ?? '')) {
       await commandWorkspace(subcommand, parsed.positionals, parsed.flags)
       return
     }

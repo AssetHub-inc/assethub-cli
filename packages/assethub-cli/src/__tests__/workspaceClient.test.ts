@@ -27,6 +27,28 @@ const close = async (server: Server): Promise<void> => {
 }
 
 describe('workspace client', () => {
+  it('manages members with user authentication and preserves server rejections', async () => {
+    const member = {userId: 'user-2', email: 'member@example.com', name: 'Member', role: 'user'}
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(json({workspaceId: 'workspace-1', members: [member]}))
+      .mockResolvedValueOnce(json({workspaceId: 'workspace-1', ...member, status: 'invited'}))
+      .mockResolvedValueOnce(json({workspaceId: 'workspace-1', userId: 'user-2', role: 'admin', updated: true}))
+      .mockResolvedValueOnce(json({workspaceId: 'workspace-1', userId: 'user-2', removed: true}))
+      .mockResolvedValueOnce(json({error: {code: 'MEMBER_OPERATION_REJECTED', message: 'Last admin'}}, 409))
+    const client = createWorkspaceClient({accessToken: 'user-token', workspaceMfaToken: 'proof', fetch: request})
+    expect(await client.listMembers('workspace-1')).toEqual({workspaceId: 'workspace-1', members: [member]})
+    expect(await client.inviteMember('workspace-1', {email: member.email, role: 'user'})).toMatchObject({status: 'invited'})
+    expect(await client.setMemberRole('workspace-1', {userId: member.userId, role: 'admin'})).toMatchObject({updated: true})
+    expect(await client.removeMember('workspace-1', member.userId)).toMatchObject({removed: true})
+    await expect(client.removeMember('workspace-1', member.userId)).rejects.toMatchObject({status: 409, code: 'MEMBER_OPERATION_REJECTED'})
+    expect(request.mock.calls.map(([, init]) => init?.method)).toEqual(['GET', 'POST', 'PATCH', 'DELETE', 'DELETE'])
+    for (const [url, init] of request.mock.calls) {
+      expect(String(url)).toBe('https://app.assethub.io/api/workspaces/workspace-1/members')
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer user-token')
+      expect(new Headers(init?.headers).get('Cookie')).toBe('ah_workspace_mfa=proof')
+    }
+  })
+
   it('lists workspaces with the user bearer token', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       json({

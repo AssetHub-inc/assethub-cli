@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.13 / API client 0.1.6
+
+- Invite, list, change roles, and remove team members using user authentication.
+- Preserve existing roles on invitations; provide explicit email resend and MFA/IP enforcement.
+- Configure and discover the account-authenticated MCP workspace server with `--account`.
+
 ## CLI 0.1.12 / API client 0.1.5
 
 - Search historical UI meshes, including parts and revisions, and download owned mesh assets.

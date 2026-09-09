@@ -39,6 +39,35 @@ export type WorkspaceApiKey = {
 
 export type WorkspaceApiKeyCreateResult = {apiKey: WorkspaceApiKey}
 
+export type WorkspaceMember = {
+  userId: string
+  name: string | null
+  email: string | null
+  role: Workspace['role']
+}
+export type WorkspaceMembersResult = {
+  workspaceId: string
+  members: WorkspaceMember[]
+}
+export type WorkspaceInviteResult = {
+  workspaceId: string
+  userId: string
+  email: string
+  role: Workspace['role']
+  status: 'invited' | 'already_member'
+}
+export type WorkspaceMemberRoleResult = {
+  workspaceId: string
+  userId: string
+  role: 'admin' | 'user'
+  updated: true
+}
+export type WorkspaceMemberRemoveResult = {
+  workspaceId: string
+  userId: string
+  removed: true
+}
+
 export type WorkspaceClientOptions = {
   accessToken: string
   /** Signed `ah_workspace_mfa` proof issued by the AssetHub browser flow. */
@@ -50,6 +79,19 @@ export type WorkspaceClientOptions = {
 export type WorkspaceCreateOptions = {idempotencyKey?: string}
 
 export type WorkspaceClient = {
+  listMembers(workspaceId: string): Promise<WorkspaceMembersResult>
+  inviteMember(
+    workspaceId: string,
+    input: {email: string; role: 'admin' | 'user'; resend?: boolean},
+  ): Promise<WorkspaceInviteResult>
+  setMemberRole(
+    workspaceId: string,
+    input: {userId: string; role: 'admin' | 'user'},
+  ): Promise<WorkspaceMemberRoleResult>
+  removeMember(
+    workspaceId: string,
+    userId: string,
+  ): Promise<WorkspaceMemberRemoveResult>
   list(): Promise<WorkspaceListResult>
   create(
     input: {name: string},
@@ -137,6 +179,79 @@ const workspaceList = (value: unknown): WorkspaceListResult | null => {
     result.workspaces.every(workspace)
     ? {userId: result.userId, workspaces: result.workspaces}
     : null
+}
+
+const memberRole = (value: unknown): value is Workspace['role'] =>
+  value === 'admin' || value === 'user' || value === 'owner'
+const workspaceMembers = (value: unknown): WorkspaceMembersResult | null => {
+  const result = object(value)
+  if (!string(result.workspaceId) || !Array.isArray(result.members)) return null
+  const members: WorkspaceMember[] = []
+  for (const raw of result.members) {
+    const item = object(raw)
+    if (
+      !string(item.userId) ||
+      !memberRole(item.role) ||
+      !(item.name === null || typeof item.name === 'string') ||
+      !(item.email === null || typeof item.email === 'string')
+    )
+      return null
+    members.push({
+      userId: item.userId,
+      name: item.name,
+      email: item.email,
+      role: item.role,
+    })
+  }
+  return {workspaceId: result.workspaceId, members}
+}
+const workspaceInvitation = (value: unknown): WorkspaceInviteResult | null => {
+  const item = object(value)
+  if (
+    !string(item.workspaceId) ||
+    !string(item.userId) ||
+    !string(item.email) ||
+    !memberRole(item.role) ||
+    !(item.status === 'invited' || item.status === 'already_member')
+  )
+    return null
+  return {
+    workspaceId: item.workspaceId,
+    userId: item.userId,
+    email: item.email,
+    role: item.role,
+    status: item.status,
+  }
+}
+const workspaceMemberRole = (
+  value: unknown,
+): WorkspaceMemberRoleResult | null => {
+  const item = object(value)
+  if (
+    !string(item.workspaceId) ||
+    !string(item.userId) ||
+    !(item.role === 'admin' || item.role === 'user') ||
+    item.updated !== true
+  )
+    return null
+  return {
+    workspaceId: item.workspaceId,
+    userId: item.userId,
+    role: item.role,
+    updated: true,
+  }
+}
+const workspaceMemberRemoval = (
+  value: unknown,
+): WorkspaceMemberRemoveResult | null => {
+  const item = object(value)
+  if (
+    !string(item.workspaceId) ||
+    !string(item.userId) ||
+    item.removed !== true
+  )
+    return null
+  return {workspaceId: item.workspaceId, userId: item.userId, removed: true}
 }
 
 const workspaceCreate = (value: unknown): WorkspaceCreateResult | null => {
@@ -292,6 +407,30 @@ export const createWorkspaceClient = (
   }
 
   return {
+    listMembers: workspaceId =>
+      request(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
+        {method: 'GET'},
+        workspaceMembers,
+      ),
+    inviteMember: (workspaceId, input) =>
+      request(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
+        {method: 'POST', body: JSON.stringify(input)},
+        workspaceInvitation,
+      ),
+    setMemberRole: (workspaceId, input) =>
+      request(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
+        {method: 'PATCH', body: JSON.stringify(input)},
+        workspaceMemberRole,
+      ),
+    removeMember: (workspaceId, userId) =>
+      request(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
+        {method: 'DELETE', body: JSON.stringify({userId})},
+        workspaceMemberRemoval,
+      ),
     list: () => request('/api/workspaces', {method: 'GET'}, workspaceList),
     create: (input, createOptions = {}) =>
       request(

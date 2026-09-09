@@ -3,13 +3,13 @@
 exports[`CLI usage / --help > matches the committed help snapshot 1`] = `
 "AssetHub CLI
 
-Internal preview: canvas/context/layout and moodboards require workspace feature access.
+Internal preview: canvas/context/layout, moodboards and member management require workspace feature access.
 
 Usage:
   assethub --version
   assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
-  assethub mcp tools [tool-name] [--profile <name>] [--timeout-ms <n>]
-  assethub mcp config --client cursor|codex [--base-url <url>]
+  assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
+  assethub mcp config --client cursor|codex [--account] [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
   assethub auth login --access-token-stdin [--base-url <url>] [--profile <name>]
@@ -18,6 +18,10 @@ Usage:
   assethub workspace list|get
   assethub workspace create --name <name> [--operation-id <uuid>]
   assethub workspace use <workspace-id>
+  assethub workspace members [--workspace <id>]
+  assethub workspace invite --email <email> [--role user|admin] [--resend] [--workspace <id>]
+  assethub workspace set-role <user-id> --role user|admin [--workspace <id>]
+  assethub workspace remove-member <user-id> [--workspace <id>]
   assethub workspace prepare|sync|analyze|verify --internal --manifest <json> --state <json>
   assethub workspace self-check --internal
   assethub workspace context put --internal --org <uuid> --actor <uuid> --canvas <id> --file <json> [--if-version <n>] [--order <uuid>]

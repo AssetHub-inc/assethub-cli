@@ -69,6 +69,12 @@ it.each([false, true])(
             selected: true,
             mfa: {status: requireMfa ? 'complete' : 'not_required'},
           }
+        else if (req.url.endsWith('/members')) {
+          if (req.method === 'GET') data = {workspaceId, members: [{userId: workspaceId, email: 'member@example.com', name: 'Member', role: 'user'}]}
+          if (req.method === 'POST') data = {workspaceId, userId: workspaceId, email: body.email, role: body.role, status: 'invited'}
+          if (req.method === 'PATCH') data = {workspaceId, userId: body.userId, role: body.role, updated: true}
+          if (req.method === 'DELETE') data = {workspaceId, userId: body.userId, removed: true}
+        }
         else if (req.url.endsWith('/api-keys')) {
           keysCreated++
           data = {
@@ -174,6 +180,11 @@ it.each([false, true])(
       })
       await cli(['workspace', 'use', workspaceId])
       expect(keysCreated).toBe(suppliedKey ? 0 : 1)
+      expect(await cli(['workspace', 'members'])).toMatchObject({workspaceId, members: [{userId: workspaceId}]})
+      expect(await cli(['workspace', 'invite', '--email', 'new@example.com'])).toMatchObject({workspaceId, role: 'user', status: 'invited'})
+      expect(await cli(['workspace', 'set-role', workspaceId, '--role', 'admin'])).toMatchObject({workspaceId, role: 'admin', updated: true})
+      expect(await cli(['workspace', 'remove-member', workspaceId])).toMatchObject({workspaceId, removed: true})
+
       expect(await cli(['canvas', 'use', '42'])).toMatchObject({
         ownerId: workspaceId,
       })
