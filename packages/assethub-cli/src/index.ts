@@ -136,7 +136,8 @@ const defaultImageModelId = 'imageGen.nanoBanana2.openrouter'
 const defaultMeshModelId = 'meshGen.hunyuan31'
 const defaultProfileName = 'default'
 const defaultPartExtractorName = 'V1.5'
-const artifactGraphPartExtractorApiValue = 'ah_agent_graph_v3_6_1'
+const isArtifactGraphPartExtractor = (value: unknown): boolean =>
+  value === 'ah_agent_graph_v3_6_1' || value === 'ah_agent_graph_v3_6_3'
 
 type PartExtractorOption = {
   publicName: string
@@ -162,8 +163,13 @@ const partExtractorOptions = [
   },
   {
     publicName: 'V3.6.1',
-    apiValue: artifactGraphPartExtractorApiValue,
+    apiValue: 'ah_agent_graph_v3_6_1',
     aliases: ['v3.6.1', '3.6.1', 'v3.6.1 primary images first'],
+  },
+  {
+    publicName: 'V3.6.3',
+    apiValue: 'ah_agent_graph_v3_6_3',
+    aliases: ['v3.6.3', '3.6.3', 'v3.6.3 fast analysis'],
   },
 ] as const satisfies readonly PartExtractorOption[]
 
@@ -3697,7 +3703,7 @@ const isArtifactGraphPartSplit = (
     typeof value === 'object' &&
     'engine' in value &&
     value.engine === 'artifact-graph') ||
-  execution.resolvedInput?.agentVersion === artifactGraphPartExtractorApiValue
+  isArtifactGraphPartExtractor(execution.resolvedInput?.agentVersion)
 
 const commandParts = async (
   subcommand: string | undefined,
@@ -3718,14 +3724,15 @@ const commandParts = async (
             partExtractorFlag ?? defaultPartExtractorName,
           )
         : undefined
-    if (requestedAgentVersion === artifactGraphPartExtractorApiValue) {
+    if (isArtifactGraphPartExtractor(requestedAgentVersion)) {
+      const name = partExtractorPublicNameByApiValue.get(requestedAgentVersion!)
       for (const flag of ['task-id', 'mission-id', 'part-extraction-mode']) {
         if (hasFlag(ctx.flags, flag))
-          throw new Error(`--${flag} is not supported with V3.6.1`)
+          throw new Error(`--${flag} is not supported with ${name}`)
       }
       if (orderId != null)
         throw new Error(
-          '--order-id is not supported with V3.6.1; use runs resume <operation-id> to resume a graph split',
+          `--order-id is not supported with ${name}; use runs resume <operation-id> to resume a graph split`,
         )
     }
     const session = await productionSession(

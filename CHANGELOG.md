@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.16
+
+- Accept the existing Internal V3.6.3 Fast Analysis graph split through `parts split` and `production analyze`.
+- Retain V3.6.1, existing defaults, graph history, operation recovery and rejection of classic-only continuation flags.
+- Clarify that completed native refinement still requires visual review.
+
 ## CLI 0.1.15 / API client 0.1.8
 
 - Run native Composer Standard, Thorough, Placement, Workshop and Blender refinement through the CLI/API.
