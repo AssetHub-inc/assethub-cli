@@ -472,9 +472,9 @@ assethub graph export --canvas <canvas-id> --out ./graph.json
 assethub graph lineage --canvas <canvas-id> --artifact <asset-id> --direction ancestors
 ```
 
-The graph commands currently cover recorded CLI/API executions and evaluations.
-They do not enumerate every historical UI artifact graph or provide a workspace-wide
-mesh library search. A canvas with only older UI activity can return an empty graph.
+`graph show --canvas` reads recorded CLI/API executions and evaluations.
+Use `graph list` and `graph show --graph <graph-id>` for stored UI artifact graphs,
+and `mesh list` to search historical meshes across the selected workspace.
 
 ## Inspect available MCP operations
 
