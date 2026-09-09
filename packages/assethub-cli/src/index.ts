@@ -1754,6 +1754,7 @@ const workspaceAuth = async (flags: Flags) => {
     accessToken,
     workspaceMfaToken,
     baseUrl,
+    selectedWorkspaceId: environmentToken ? undefined : stored?.workspaceId,
     client: createWorkspaceClient({accessToken, workspaceMfaToken, baseUrl}),
   }
 }
@@ -1770,7 +1771,7 @@ const commandWorkspace = async (
       : env.ASSETHUB_API_KEY?.trim()
   const auth = await workspaceAuth(flags)
   if (['members', 'invite', 'set-role', 'remove-member'].includes(subcommand ?? '')) {
-    let workspaceId = getFlag(flags, 'workspace') ?? auth.config.profiles?.[auth.profile]?.workspaceId
+    let workspaceId = getFlag(flags, 'workspace') ?? auth.selectedWorkspaceId
     if (!workspaceId) workspaceId = (await auth.client.list()).workspaces.find(item => item.active)?.id
     if (!workspaceId) throw new Error('Specify --workspace <id> or select one with workspace use <id>')
     if (subcommand === 'members') {
@@ -1791,7 +1792,7 @@ const commandWorkspace = async (
   }
   if (subcommand === 'get') {
     const account = await auth.client.list()
-    const selected = auth.config.profiles?.[auth.profile]?.workspaceId
+    const selected = auth.selectedWorkspaceId
     const workspace = account.workspaces.find(item =>
       selected ? item.id === selected : item.active,
     )
