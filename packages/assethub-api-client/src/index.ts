@@ -9,6 +9,11 @@ export {INTERVENTION_OPS} from './generated/intervention.js'
 export {createWorkspaceClient, WorkspaceClientError} from './workspaces.js'
 export type {
   Workspace,
+  WorkspaceMember,
+  WorkspaceMembersResult,
+  WorkspaceInviteResult,
+  WorkspaceMemberRoleResult,
+  WorkspaceMemberRemoveResult,
   WorkspaceListResult,
   WorkspaceCreateResult,
   WorkspaceSelectResult,

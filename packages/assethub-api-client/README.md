@@ -99,3 +99,10 @@ references and versioned context. `generateImage` accepts `projectContext` and
 the context hash and reference IDs. Native moodboard CRUD/analysis methods remain
 internal actor gated. `languageText` and `languageVision` use the existing public
 text/vision routes and accept an idempotency key for safe response recovery.
+
+
+Account-authenticated team membership is available through `createWorkspaceClient`:
+`listMembers(workspaceId)`, `inviteMember(workspaceId, {email, role, resend?})`,
+`setMemberRole(workspaceId, {userId, role})`, and `removeMember(workspaceId, userId)`.
+These calls use a user access token, preserve workspace MFA proofs, and never
+retry mutations automatically. See the CLI README for permissions and email recovery.
