@@ -22,6 +22,7 @@ const cli = (baseUrl: string, stateDir: string, args: string[]) =>
         ASSETHUB_API_KEY: 'test-key',
         ASSETHUB_API_BASE_URL: baseUrl,
         ASSETHUB_CLI_STATE_DIR: stateDir,
+        ASSETHUB_CLI_CONFIG: join(stateDir, 'auth.json'),
       },
     },
   )

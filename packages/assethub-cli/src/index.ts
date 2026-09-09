@@ -136,8 +136,11 @@ const defaultImageModelId = 'imageGen.nanoBanana2.openrouter'
 const defaultMeshModelId = 'meshGen.hunyuan31'
 const defaultProfileName = 'default'
 const defaultPartExtractorName = 'V1.5'
-const isArtifactGraphPartExtractor = (value: unknown): boolean =>
-  value === 'ah_agent_graph_v3_6_1' || value === 'ah_agent_graph_v3_6_3'
+const artifactGraphPartExtractorApiValues = new Set([
+  'ah_agent_graph_v3_6_1',
+  'ah_agent_graph_v3_6_3',
+  'ah_agent_graph_v3_6_4',
+])
 
 type PartExtractorOption = {
   publicName: string
@@ -167,9 +170,14 @@ const partExtractorOptions = [
     aliases: ['v3.6.1', '3.6.1', 'v3.6.1 primary images first'],
   },
   {
-    publicName: 'V3.6.3',
+    publicName: 'V3.6.3 Fast Analysis',
     apiValue: 'ah_agent_graph_v3_6_3',
-    aliases: ['v3.6.3', '3.6.3', 'v3.6.3 fast analysis'],
+    aliases: ['v3.6.3', '3.6.3'],
+  },
+  {
+    publicName: 'V3.6.4 Fast Analysis',
+    apiValue: 'ah_agent_graph_v3_6_4',
+    aliases: ['v3.6.4', '3.6.4'],
   },
 ] as const satisfies readonly PartExtractorOption[]
 
@@ -3703,7 +3711,9 @@ const isArtifactGraphPartSplit = (
     typeof value === 'object' &&
     'engine' in value &&
     value.engine === 'artifact-graph') ||
-  isArtifactGraphPartExtractor(execution.resolvedInput?.agentVersion)
+  artifactGraphPartExtractorApiValues.has(
+    String(execution.resolvedInput?.agentVersion),
+  )
 
 const commandParts = async (
   subcommand: string | undefined,
@@ -3724,15 +3734,18 @@ const commandParts = async (
             partExtractorFlag ?? defaultPartExtractorName,
           )
         : undefined
-    if (isArtifactGraphPartExtractor(requestedAgentVersion)) {
-      const name = partExtractorPublicNameByApiValue.get(requestedAgentVersion!)
+    if (
+      requestedAgentVersion != null &&
+      artifactGraphPartExtractorApiValues.has(requestedAgentVersion)
+    ) {
+      const publicName = publicPartExtractorName(requestedAgentVersion)
       for (const flag of ['task-id', 'mission-id', 'part-extraction-mode']) {
         if (hasFlag(ctx.flags, flag))
-          throw new Error(`--${flag} is not supported with ${name}`)
+          throw new Error(`--${flag} is not supported with ${publicName}`)
       }
       if (orderId != null)
         throw new Error(
-          `--order-id is not supported with ${name}; use runs resume <operation-id> to resume a graph split`,
+          `--order-id is not supported with ${publicName}; use runs resume <operation-id> to resume a graph split`,
         )
     }
     const session = await productionSession(

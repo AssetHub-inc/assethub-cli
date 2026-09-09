@@ -141,7 +141,7 @@ Existing parts commands use the same canvas and durable operation storage:
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V1.5 --wait
 # Select only the parts to execute; --all-ready selects all ready tasks.
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V1.5 --all-ready --wait
-# Internal V3.6.1 and V3.6.3 run the complete graph split through one analyze receipt.
+# Internal V3.6.1, V3.6.3 and V3.6.4 run the complete graph split through one analyze receipt.
 assethub production agents
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V3.6.1 --all-ready --wait
 assethub production automation --canvas "$CANVAS_ID" --input-json @batch.json --wait
@@ -150,7 +150,8 @@ assethub production automation --canvas "$CANVAS_ID" --input-json @batch.json --
 `parts split` keeps separate analysis and selected-part execution phases. Each phase
 has its own saved operation ID, with the execution linked to the analysis run.
 For Internal `V3.6.1` (`V3.6.1 Primary Images First`) and `V3.6.3`
-(`V3.6.3 Fast Analysis`, CLI 0.1.16+), analysis runs the complete
+(`V3.6.3 Fast Analysis`, CLI 0.1.16+), and `V3.6.4`
+(`V3.6.4 Fast Analysis`, CLI 0.1.17+), analysis runs the complete
 Artifact Graph split. `--all-ready` waits for that one receipt and does not start a
 second production execution. Resume an interrupted graph split with
 `runs resume <operation-id>`; `--task-id`, `--mission-id`,
@@ -421,7 +422,8 @@ Image generation uses the `v2` endpoint with mandatory canvas history.
 
 Part extraction uses the same names shown in the AssetHub product: `V1.5`,
 `V2.0 alpha`, `V2.1 alpha`, and the Internal-only aliases `V3.6.1`
-(`V3.6.1 Primary Images First`) and `V3.6.3` (`V3.6.3 Fast Analysis`).
+(`V3.6.1 Primary Images First`), `V3.6.3` (`V3.6.3 Fast Analysis`),
+and `V3.6.4` (`V3.6.4 Fast Analysis`).
 Run `production agents` to check availability and `supportedOnGraphEndpoint`
 before selecting a graph version. These aliases do not change the default.
 Retired names are no longer accepted by the CLI.

@@ -121,6 +121,7 @@ test('runs the project workflow through the built standalone CLI', async () => {
           ASSETHUB_API_KEY: 'test-key',
           ASSETHUB_API_BASE_URL: `http://127.0.0.1:${address.port}`,
           ASSETHUB_CLI_STATE_DIR: dir,
+          ASSETHUB_CLI_CONFIG: join(dir, 'auth.json'),
         },
       },
     )

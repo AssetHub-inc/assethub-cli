@@ -39,6 +39,7 @@ const cli = (baseUrl: string, stateDir: string, args: string[]) =>
           ASSETHUB_API_KEY: 'test-key-not-secret',
           ASSETHUB_API_BASE_URL: baseUrl,
           ASSETHUB_CLI_STATE_DIR: stateDir,
+          ASSETHUB_CLI_CONFIG: join(stateDir, 'auth.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
@@ -189,6 +190,7 @@ describe('built recorded CLI', () => {
   it.each([
     ['V3.6.1', 'ah_agent_graph_v3_6_1', 'V3.6.1 Primary Images First'],
     ['V3.6.3', 'ah_agent_graph_v3_6_3', 'V3.6.3 Fast Analysis'],
+    ['V3.6.4', 'ah_agent_graph_v3_6_4', 'V3.6.4 Fast Analysis'],
   ])('splits and replays %s graphs', async (name, apiValue, label) => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))
