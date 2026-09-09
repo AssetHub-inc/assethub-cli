@@ -190,7 +190,7 @@ const execFileAsync = promisify(execFile)
 
 export const usage = `AssetHub CLI
 
-Internal preview: canvas/context/layout, moodboards and member management require workspace feature access.
+CLI and MCP are available to all AssetHub users. Workspace permissions and feature availability apply.
 
 Usage:
   assethub --version

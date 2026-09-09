@@ -4,7 +4,7 @@ Typed client for the public AssetHub API.
 
 ## Historical assets
 
-Internal preview, scoped to the API key workspace:
+Scoped to the API key workspace:
 `client.v2.listMeshes({query, cursor, limit})`, `listGraphs({cursor, limit})`,
 and `getGraph(graphId, {source, artifactId, direction, depth})` read existing UI
 assets and graphs. Use `getAsset(assetId)` for a signed mesh download URL.
@@ -23,8 +23,8 @@ durable outputs; `listCanvasRuns`, `getCanvasGraph`, and the evaluation submissi
 list/get methods use the same owner-scoped records. `getRun` accepts an AbortSignal.
 
 Existing generation requests without context keep their previous behavior.
-Canvas execution is currently Internal-gated; unavailable evaluators are explicitly
-reported by capability discovery. External evaluation reports are agent submissions,
+Canvas execution is available to all authenticated users; unavailable evaluators
+are explicitly reported by capability discovery. External evaluation reports are agent submissions,
 not human approval or server-verified judgments.
 
 ```ts

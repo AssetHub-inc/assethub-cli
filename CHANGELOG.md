@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.14 / API client 0.1.7
+
+- Document public access to CLI, hosted MCP, canvas history, and team management.
+- Retain workspace ownership, admin permissions, MFA, and feature-specific availability.
+
 ## CLI 0.1.13 / API client 0.1.6
 
 - Invite, list, change roles, and remove team members using user authentication.
