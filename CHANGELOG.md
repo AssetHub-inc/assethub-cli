@@ -1,5 +1,12 @@
 # Changelog
 
+## CLI 0.1.18 / API client 0.1.9
+
+- Download owned canvas images, meshes, and available generation/edit history with `canvas download`, optionally scoped to a mesh.
+- Preserve recorded generation inputs and distinguish missing evidence from current canvas connections.
+- Write local HTML, Markdown, and a JSON manifest with file hashes; retain successful files and report individual download failures.
+- Require the canvas handoff feature to be enabled for the authenticated account.
+
 ## CLI 0.1.17
 
 - Synchronize the existing Internal V3.6.4 Fast Analysis API and CLI aliases.

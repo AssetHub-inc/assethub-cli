@@ -2,6 +2,7 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
 import {ingestProjectSources} from './projectSources.js'
+import {downloadCanvas} from './canvasDownload.js'
 import {writeCanvasComparison} from './canvasComparison.js'
 import {importCanvasAssetWithState} from './canvasAssetImport.js'
 import {execFile, spawn} from 'node:child_process'
@@ -233,6 +234,7 @@ Usage:
   assethub workspace context get --internal --org <uuid> --actor <uuid> --canvas <id> [--out <json>] [--order <uuid>]
   assethub project ingest <source-dir> --out-dir <directory> [--exclude-dir <relative-path>...]
   assethub language text|vision --input-json @<json> --operation-id <uuid> [--out <json>]
+  assethub canvas download --canvas <id> --out-dir <directory> [--mesh <mesh_asset_id>]
   assethub canvas import --canvas <id> --file <image> [--name <name>]
   assethub canvas context get --canvas <id> [--out <json>]
   assethub canvas context put --canvas <id> --file <json> [--if-version <n>]
@@ -4110,6 +4112,23 @@ const commandCanvas = async (
   positionals: string[],
   ctx: CommandContext,
 ) => {
+  if (subcommand === 'download') {
+    const outDir = requireFlag(ctx.flags, 'out-dir')
+    const {canvas} = await canvasForRead(ctx)
+    const mesh = getFlag(ctx.flags, 'mesh')
+    if (mesh && !/^mesh_[1-9]\d*$/.test(mesh))
+      throw new Error('--mesh must be a mesh_<id> asset ID')
+    const result = await downloadCanvas({
+      client: ctx.client,
+      canvasId: canvas.id,
+      mesh,
+      outDir,
+      progress: message => process.stderr.write(`${message}\n`),
+    })
+    print(result)
+    process.exitCode = result.exitCode
+    return
+  }
   if (
     subcommand === 'context' ||
     subcommand === 'import' ||
