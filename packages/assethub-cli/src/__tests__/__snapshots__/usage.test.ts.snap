@@ -28,6 +28,7 @@ Usage:
   assethub workspace context get --internal --org <uuid> --actor <uuid> --canvas <id> [--out <json>] [--order <uuid>]
   assethub project ingest <source-dir> --out-dir <directory> [--exclude-dir <relative-path>...]
   assethub language text|vision --input-json @<json> --operation-id <uuid> [--out <json>]
+  assethub canvas download --canvas <id> --out-dir <directory> [--mesh <mesh_asset_id>]
   assethub canvas import --canvas <id> --file <image> [--name <name>]
   assethub canvas context get --canvas <id> [--out <json>]
   assethub canvas context put --canvas <id> --file <json> [--if-version <n>]

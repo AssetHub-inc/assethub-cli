@@ -542,3 +542,30 @@ variables to your MCP client and reconnect. This server uses
 `https://app.assethub.io/api/workspaces/mcp` and exposes `workspace_list`,
 `workspace_members_list`, `workspace_member_invite`, `workspace_member_set_role`,
 and `workspace_member_remove`. Keep the existing API-key MCP server for generation.
+
+## Download a canvas handoff
+
+```sh
+assethub canvas download --canvas 42 --out-dir ./client-handoff
+assethub canvas download --canvas 42 --mesh mesh_123 --out-dir ./mesh-handoff
+```
+
+This staged feature uses the selected workspace API key. A canvas invitation does
+not grant API-key or workspace access. Use an empty output directory. The bundle
+contains image files, final mesh files, `manifest.json`, `index.html`, and
+`history.md`. Open `index.html` locally to review images and recorded steps.
+
+The export follows the actual recorded mesh inputs and image-edit ancestors,
+including intermediate assets removed from the canvas. Current canvas connections
+are not generation evidence. UI `mesh_generation` / `projected_image_gen`, API
+execution receipts, and associated Production / Artifact Graph records are read
+without dispatching new work. Prompts and models appear when recorded. Missing
+or ambiguous history is reported explicitly; this is the available recorded
+history, not a reconstruction of unrecorded editing gestures.
+
+Downloads stream to temporary files and are renamed only after completion. The
+manifest records local paths, byte counts and SHA-256 hashes; signed URL tokens
+and API credentials are not saved. Download failures retain the successful files
+and manifest and exit 1. Truncated exports exit 3. Individual files are limited to
+1 GiB, and bounded server traversal reports any omitted history. History warnings
+can remain even when all available files download successfully.

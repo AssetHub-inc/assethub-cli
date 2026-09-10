@@ -114,3 +114,15 @@ Account-authenticated team membership is available through `createWorkspaceClien
 `setMemberRole(workspaceId, {userId, role})`, and `removeMember(workspaceId, userId)`.
 These calls use a user access token, preserve workspace MFA proofs, and never
 retry mutations automatically. See the CLI README for permissions and email recovery.
+
+### Canvas handoff export (staged)
+
+```ts
+const handoff = await client.v2.exportCanvas(42, {mesh: 'mesh_123'})
+```
+
+Omit `mesh` to include the owned canvas's visible assets and recorded ancestors.
+`CanvasExport` supplies signed file URLs, safe generation steps, missing-evidence
+warnings and an explicit `truncated` indicator. This reads UI and API history;
+canvas wiring does not establish actual mesh inputs. URLs expire after one hour.
+The `workflow_canvas_handoff_enabled` gate controls the additive route.

@@ -33,6 +33,12 @@ export type {
   PartRenameIntervention,
 } from './generated/intervention.js'
 
+export type {
+  CanvasExport,
+  CanvasExportAsset,
+  CanvasExportStep,
+} from './canvasExport.js'
+import type {CanvasExport} from './canvasExport.js'
 import type {Intervention, InterventionOp} from './generated/intervention.js'
 import type {
   ApiCapabilities,
@@ -1946,6 +1952,20 @@ export class AssetHubClient {
         await this.request<Canvas>(
           'v2',
           `/canvases/${encodeURIComponent(canvasId)}`,
+          {method: 'GET'},
+        )
+      ).data,
+
+    exportCanvas: async (
+      canvasId: number,
+      options: {mesh?: string} = {},
+    ): Promise<CanvasExport> =>
+      (
+        await this.request<CanvasExport>(
+          'v2',
+          withQuery(`/canvases/${encodeURIComponent(canvasId)}/export`, {
+            ...options,
+          }),
           {method: 'GET'},
         )
       ).data,
