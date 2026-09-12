@@ -4076,7 +4076,7 @@ const commandParts = async (
           ...stateOptions(ctx),
           operationId: executeOperationId,
           expectedCanvasId: session.canvas.id,
-          expectedBody: {
+          expectedBodySubset: {
             partExtractionMode: getFlag(ctx.flags, 'part-extraction-mode'),
             ...(getFlagValues(ctx.flags, 'task-id').length
               ? {confirmedTaskIds: getFlagValues(ctx.flags, 'task-id')}

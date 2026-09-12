@@ -636,8 +636,18 @@ export type MeshGenerationRequest = {
   params?: Record<string, string | number | boolean>
   strictOptions?: boolean
 } & (
-  | {modelId: string; source: Source; sources?: never}
-  | {modelId: string; source?: never; sources: [Source, ...Source[]]}
+  | {
+      modelId: string
+      source: Source
+      sources?: never
+      executionContext?: ExecutionContext & {canvasNode?: never}
+    }
+  | {
+      modelId: string
+      source?: never
+      sources: [Source, ...Source[]]
+      executionContext?: ExecutionContext & {canvasNode?: never}
+    }
   | {
       modelId?: string
       source?: never
@@ -1030,6 +1040,7 @@ export type MeshComposeRequest = {
   executionContext: ExecutionContext
 } & (
   | {
+      executionContext: ExecutionContext & {canvasNode?: never}
       parts: Omit<MeshComposerPart, 'volumeCentroid'>[]
       fullBodyImageAssetId: string
     }
@@ -1039,6 +1050,7 @@ export type MeshComposeRequest = {
       executionContext: ExecutionContext & {canvasNode: {nodeId: string}}
     }
 )
+
 export type MeshTransform = [
   number,
   number,

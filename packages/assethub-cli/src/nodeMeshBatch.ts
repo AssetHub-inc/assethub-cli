@@ -1,11 +1,10 @@
-import {mkdir, writeFile} from 'node:fs/promises'
-import {dirname, join} from 'node:path'
+import {join} from 'node:path'
 import type {
   CanvasExecution,
   ExecutionContext,
   MeshGenerationRequest,
 } from '@assethub/api-client'
-import {readState} from './canvas.js'
+import {readState, writeState} from './canvas.js'
 import {
   activeExecution,
   childOperationId,
@@ -108,10 +107,29 @@ export const executeNodeMeshBatch = async (
     }),
   ) as NodeMeshBatch
   const path = batchPath(session.stateDir, batch.operationId)
-  await mkdir(dirname(path), {recursive: true, mode: 0o700})
   // Pin the entire target set before any paid dispatch. Per-child receipts retain
   // resolved server inputs; a retry never discovers a changed split again.
-  await writeFile(path, JSON.stringify(batch), {mode: 0o600, flag: 'wx'})
+  try {
+    await writeState(path, batch, {exclusive: true})
+  } catch (error) {
+    if (
+      !error ||
+      typeof error !== 'object' ||
+      !('code' in error) ||
+      error.code !== 'EEXIST'
+    )
+      throw error
+    const existing = await resumeNodeMeshBatch({
+      ...session,
+      operationId: input.operationId,
+      expectedCanvasId: session.canvas.id,
+      expectedCanvasNodeId: input.nodeId,
+      expectedOperation: 'mesh.generate',
+      expectedBody: input.body,
+    })
+    if (!existing) throw new Error('Saved node batch not found')
+    return existing
+  }
   return submitBatch(session, batch)
 }
 
