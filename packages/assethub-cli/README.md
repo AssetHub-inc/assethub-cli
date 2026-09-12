@@ -91,13 +91,13 @@ state directory private. `--operation-id <uuid>` supplies an operation identity;
 retries and `runs resume <operation-id>` reuse its identical body and key. A new
 candidate needs a new operation ID. `runs watch <run-id>` only reads status.
 
-Continue mesh generation and composition on saved UI nodes without uploading
+Internal preview: continue mesh generation and composition on native canvas nodes without uploading
 their source images or parts again:
 
 ```sh
 assethub canvas nodes --canvas 42
 assethub mesh generate --canvas 42 --node shape:production --wait
-assethub composer run --canvas 42 --node shape:production --mode quality --wait
+assethub composer run --canvas 42 --node shape:production --wait
 ```
 
 Use the exact `nodeId` returned by discovery. `--node` resolves saved inputs and
@@ -114,6 +114,10 @@ under `state/node-batches`. Resume a partial batch with `runs resume <operation-
 or repeat the command with the same `--operation-id`; this reuses the original
 targets and request keys even if the canvas changes. Composer accepts either the
 Production3D node or its Part Composer node and reuses the linked parts/reference.
+CLI-created graph Productions are discoverable before a browser opens the canvas.
+Composer uses its saved Quick, Quick + Agent, Agent only or Turntable setting.
+Agent completion returns an editable scene as `needs_review`; it does not export
+a new combined mesh until the user reviews and exports it.
 Native node actions require the server's `api_canvas_native_nodes` feature gate.
 
 stdout contains final JSON; stderr contains progress. Exceptions: `--version` prints the version, and `mcp config` prints the requested configuration. Exit codes are 0 for accepted/
