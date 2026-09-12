@@ -2385,7 +2385,10 @@ const commandNodeMesh = async (ctx: CommandContext, nodeId: string) => {
   }
   if (!['mesh-gen', 'preview-asset', 'part-group'].includes(target.type))
     throw new Error('This canvas node cannot generate a mesh')
-  if (finishedOrBusy(target.meshStatus)) {
+  if (
+    target.meshStatus === 'generating' ||
+    (target.type !== 'mesh-gen' && finishedOrBusy(target.meshStatus))
+  ) {
     print({nodeId, skipped: true, meshStatus: target.meshStatus})
     return
   }
@@ -2554,27 +2557,54 @@ const composerInputFromRun = (
   previous: CanvasExecution,
   operation: 'mesh.compose' | 'mesh.refine',
 ): Record<string, unknown> => {
-  const source = previous.resolvedInput ?? previous.input ?? previous.requestedInput ?? {}
-  const fields = operation === 'mesh.compose'
-    ? ['fullBodyImageAssetId', 'agentVersion', 'mode', 'targetCharacterHeightM', 'projectName', 'decimateRatio', 'quickRunId', 'quickScene']
-    : ['fullBodyImageAssetId', 'mode', 'instruction', 'maxRounds']
+  const source =
+    previous.resolvedInput ?? previous.input ?? previous.requestedInput ?? {}
+  const fields =
+    operation === 'mesh.compose'
+      ? [
+          'fullBodyImageAssetId',
+          'agentVersion',
+          'mode',
+          'targetCharacterHeightM',
+          'projectName',
+          'decimateRatio',
+          'quickRunId',
+          'quickScene',
+        ]
+      : ['fullBodyImageAssetId', 'mode', 'instruction', 'maxRounds']
   const input: Record<string, unknown> = Object.fromEntries(
-    fields.filter(key => source[key] !== undefined).map(key => [key, source[key]]),
+    fields
+      .filter(key => source[key] !== undefined)
+      .map(key => [key, source[key]]),
   )
   const parts = previous.composition?.parts ?? source.parts
-  const partFields = operation === 'mesh.compose'
-    ? ['assetId', 'name', 'canonicalKey', 'partImageAssetId', 'partTaskId']
-    : ['assetId', 'name', 'canonicalKey', 'volumeCentroid', 'sourceAssetId', 'transform']
+  const partFields =
+    operation === 'mesh.compose'
+      ? ['assetId', 'name', 'canonicalKey', 'partImageAssetId', 'partTaskId']
+      : [
+          'assetId',
+          'name',
+          'canonicalKey',
+          'volumeCentroid',
+          'sourceAssetId',
+          'transform',
+        ]
   input.parts = Array.isArray(parts)
-    ? parts.map(part => part && typeof part === 'object'
-      ? Object.fromEntries(Object.entries(part).filter(([key]) => partFields.includes(key)))
-      : part)
+    ? parts.map(part =>
+        part && typeof part === 'object'
+          ? Object.fromEntries(
+              Object.entries(part).filter(([key]) => partFields.includes(key)),
+            )
+          : part,
+      )
     : parts
   const transforms = previous.composition?.transforms ?? source.transforms
   if (transforms != null) input.transforms = transforms
   if (operation === 'mesh.refine') {
-    const referenceTransform = previous.composition?.referenceTransform ?? source.referenceTransform
-    if (referenceTransform != null) input.referenceTransform = referenceTransform
+    const referenceTransform =
+      previous.composition?.referenceTransform ?? source.referenceTransform
+    if (referenceTransform != null)
+      input.referenceTransform = referenceTransform
     // Compose modes are not refinement modes; preserve a prior refinement's mode only.
     if (previous.operation !== 'mesh.refine') delete input.mode
   }

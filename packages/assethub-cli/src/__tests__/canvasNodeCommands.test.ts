@@ -447,3 +447,69 @@ it.each([
     expect(f.requests).toEqual([])
   },
 )
+
+// @testdoc Completed mesh-gen nodes can regenerate like the UI, but in-flight nodes and completed Production batch children remain skipped.
+it('regenerates completed standalone mesh-gen nodes without changing Production batch skips', async () => {
+  const f = await fixture()
+  const node = {
+    nodeId: 'shape:repeatable',
+    type: 'mesh-gen',
+    sourceNodeId: 'shape:production',
+    meshStatus: 'complete',
+    actions: ['mesh.generate'],
+  }
+  f.nodes.push(node)
+  for (const status of ['complete', 'completed']) {
+    node.meshStatus = status
+    const result = await f.run([
+      'mesh',
+      'generate',
+      '--node',
+      node.nodeId,
+      '--canvas',
+      '42',
+    ])
+    expect(result.code, result.stderr).toBe(0)
+    expect(JSON.parse(result.output).execution.context.canvasNode).toEqual({
+      nodeId: node.nodeId,
+    })
+  }
+  expect(f.posted).toHaveLength(2)
+  node.meshStatus = 'generating'
+  const busy = await f.run([
+    'mesh',
+    'generate',
+    '--node',
+    node.nodeId,
+    '--canvas',
+    '42',
+  ])
+  expect(JSON.parse(busy.output)).toMatchObject({
+    skipped: true,
+    meshStatus: 'generating',
+  })
+  expect(f.posted).toHaveLength(2)
+  node.meshStatus = 'completed'
+  const batch = await f.run([
+    'mesh',
+    'generate',
+    '--node',
+    'shape:production',
+    '--canvas',
+    '42',
+  ])
+  expect(batch.code, batch.stderr).toBe(0)
+  expect(JSON.parse(batch.output).skipped).toContainEqual({
+    nodeId: node.nodeId,
+    meshStatus: 'completed',
+  })
+  expect(
+    f.posted
+      .slice(2)
+      .map(
+        item =>
+          (item.body.executionContext as CanvasExecution['context']).canvasNode
+            ?.nodeId,
+      ),
+  ).toEqual(['shape:part-a', 'shape:part-b'])
+})
