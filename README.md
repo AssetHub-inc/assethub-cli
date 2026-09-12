@@ -18,10 +18,15 @@ assethub auth login --api-key-stdin
 assethub doctor
 ```
 
-Create a workspace API key in [AssetHub](https://app.assethub.io), run the login
+Create an API key in [AssetHub](https://app.assethub.io), run the login
 command, paste the key, and finish standard input with Ctrl+D on macOS/Linux or
 Ctrl+Z then Enter on Windows. The key selects the workspace for API operations.
 Do not put keys in issue reports, committed files, or command arguments.
+
+CLI 0.1.21 discovers personal access for eligible existing `sk_` keys as well as
+`ah_pat_` keys. Use `workspace list --profile <saved-profile>` and `workspace use
+<workspace-id>` to select an allowed workspace while keeping the same key and
+profile. Existing workspace keys retain their current behavior.
 
 `capabilities` reports the operations available to your account. Some features
 are in Internal preview. Generation and analysis use workspace credits.

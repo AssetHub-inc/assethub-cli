@@ -4,7 +4,7 @@ Command line interface for AssetHub.
 
 ## Personal API keys
 
-Log in once with a personal key (`ah_pat_`), then select its workspace:
+Log in once with a personal key, then select its workspace:
 
 ```sh
 assethub auth login --api-key-stdin --profile personal
@@ -18,6 +18,13 @@ Login verifies account identity through workspace discovery, including when
 `--skip-verify` is supplied. `workspace use` validates access and saves the workspace
 in the same profile with the same key. It does not issue keys or change browser
 sessions. Pass `--cursor <nextCursor>` for another workspace list page.
+
+CLI 0.1.21 also discovers existing `sk_` keys enabled for personal access by the
+server. Run `workspace list --profile <saved-profile>` to discover a saved key
+without logging in again. Verified personal identity is saved in that profile;
+workspace selection keeps its original key. The `assethub-UUID` format is not
+eligible for this discovery. Unregistered workspace keys retain the existing
+user-token flow; rejected personal keys never fall back to another identity.
 
 `--workspace` overrides the saved selection for one command, including diagnostics,
 MCP discovery, history, and run recovery. Recovery still rejects an operation saved
