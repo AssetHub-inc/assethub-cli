@@ -631,7 +631,6 @@ export type MeshGenerationRequest = {
   name?: string
   faceLimit?: number
   isLowPoly?: boolean
-  isPrivate?: boolean
   inputMode?: 'image' | 'multiview'
   params?: Record<string, string | number | boolean>
   strictOptions?: boolean

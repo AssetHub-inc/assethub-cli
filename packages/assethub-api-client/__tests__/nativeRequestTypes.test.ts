@@ -7,8 +7,8 @@ import {fileURLToPath} from 'node:url'
 import {promisify} from 'node:util'
 import {expect, it} from 'vitest'
 
-// @testdoc The published SDK accepts explicit sources or a saved-node pointer, while mixed source/node and parts/node requests fail TypeScript checking.
-it('keeps explicit source and saved-node mesh contracts mutually exclusive', async () => {
+// @testdoc The SDK rejects mixed source/node requests and privacy overrides; native mesh privacy comes from the saved node.
+it('rejects mixed native requests and public mesh privacy overrides', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'assethub-native-request-types-'))
   try {
     const path = join(dir, 'requests.ts')
@@ -26,6 +26,10 @@ const unrecorded: MeshGenerationRequest = {modelId: 'model', source}
 const node: MeshGenerationRequest = {executionContext: native}
 const compose: MeshComposeRequest = {parts: [{assetId: 'mesh_1'}], fullBodyImageAssetId: 'image', executionContext: context}
 const nativeCompose: MeshComposeRequest = {executionContext: native}
+// @ts-expect-error: Mesh privacy is not a public explicit-source override.
+const privateSource: MeshGenerationRequest = {modelId: 'model', source, isPrivate: true}
+// @ts-expect-error: Native mesh privacy must come from the saved node.
+const privateNode: MeshGenerationRequest = {executionContext: native, isPrivate: true}
 // @ts-expect-error: Source requests cannot also resolve a native node.
 const mixedImage: MeshGenerationRequest = {modelId: 'model', source, executionContext: native}
 // @ts-expect-error: Multiview requests cannot also resolve a native node.
