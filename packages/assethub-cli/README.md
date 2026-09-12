@@ -122,6 +122,35 @@ state directory private. `--operation-id <uuid>` supplies an operation identity;
 retries and `runs resume <operation-id>` reuse its identical body and key. A new
 candidate needs a new operation ID. `runs watch <run-id>` only reads status.
 
+Internal preview: continue mesh generation and composition on native canvas nodes without uploading
+their source images or parts again:
+
+```sh
+assethub canvas nodes --canvas 42
+assethub mesh generate --canvas 42 --node shape:production --wait
+assethub composer run --canvas 42 --node shape:production --wait
+```
+
+Use the exact `nodeId` returned by discovery. `--node` resolves saved inputs and
+settings on the server and writes results to that node's UI history. Mesh nodes
+accept optional `--model-id` and `--params-json` overrides; composition accepts
+`--model` and `--mode`. Explicit source/part/reference flags and `--input-json`
+cannot accompany `--node`. The existing `--from-node` flag reads Artifact Graph
+lineage and does not select a UI node.
+
+For a Production3D node, mesh generation submits its eligible saved child nodes,
+skipping parts already complete or generating. Each child has its own receipt.
+The batch operation ID is printed before submission and its target list is saved
+under `state/node-batches`. Resume a partial batch with `runs resume <operation-id>`
+or repeat the command with the same `--operation-id`; this reuses the original
+targets and request keys even if the canvas changes. Composer accepts either the
+Production3D node or its Part Composer node and reuses the linked parts/reference.
+CLI-created graph Productions are discoverable before a browser opens the canvas.
+Composer uses its saved Quick, Quick + Agent, Agent only or Turntable setting.
+Agent completion returns an editable scene as `needs_review`; it does not export
+a new combined mesh until the user reviews and exports it.
+Native node actions require the server's `api_canvas_native_nodes` feature gate.
+
 stdout contains final JSON; stderr contains progress. Exceptions: `--version` prints the version, and `mcp config` prints the requested configuration. Exit codes are 0 for accepted/
 completed, 1 for terminal failure/partial, 2 for input/auth/capability/budget errors,
 3 for timeout/history pending/needs review, and 130 for Ctrl-C. Timeout and Ctrl-C

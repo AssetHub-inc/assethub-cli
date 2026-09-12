@@ -30,6 +30,7 @@ Usage:
   assethub project ingest <source-dir> --out-dir <directory> [--exclude-dir <relative-path>...]
   assethub language text|vision --input-json @<json> --operation-id <uuid> [--out <json>]
   assethub canvas download --canvas <id> --out-dir <directory> [--mesh <mesh_asset_id>]
+  assethub canvas nodes --canvas <id>
   assethub canvas import --canvas <id> --file <image> [--name <name>]
   assethub canvas context get --canvas <id> [--out <json>]
   assethub canvas context put --canvas <id> --file <json> [--if-version <n>]
@@ -52,6 +53,7 @@ Usage:
   assethub composer run --part <mesh-asset-id> [--part <mesh-asset-id>...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --from-run <run-id> [--transforms-json <json|@file>] [--mode quick|quality] [--wait]
+  assethub composer run --node <shape:id> --canvas <id> [--model <id>] [--mode quick|quality] [--operation-id <uuid>] [--wait]
   assethub canvas create [--name <name>] [--operation-id <uuid>]
   assethub canvas list [--cursor <cursor>] [--limit <n>]
   assethub canvas get|use|open [<id>]
@@ -67,6 +69,7 @@ Usage:
   assethub evaluations get <evaluation-id>
   assethub image generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
   assethub mesh generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
+  assethub mesh generate --node <shape:id> --canvas <id> [--model-id <id>] [--params-json <json|@file>] [--operation-id <uuid>] [--wait]
   assethub mesh list [--query <text>] [--cursor <cursor>] [--limit <n>]
   assethub mesh get <mesh-asset-id>
   assethub mesh download <mesh-asset-id> --out-dir <directory>

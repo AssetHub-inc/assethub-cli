@@ -1,6 +1,7 @@
-import {randomUUID} from 'node:crypto'
-import {mkdir, writeFile} from 'node:fs/promises'
-import {dirname, join} from 'node:path'
+import {createHash, randomUUID} from 'node:crypto'
+import {stat} from 'node:fs/promises'
+import {isDeepStrictEqual} from 'node:util'
+import {join} from 'node:path'
 import {setTimeout as delay} from 'node:timers/promises'
 import {
   AssetHubApiError,
@@ -83,6 +84,7 @@ type SubmitOptions = {
   parentRunId?: string
   source?: ExecutionContext['source']
   graphSource?: ExecutionContext['graphSource']
+  canvasNode?: ExecutionContext['canvasNode']
 }
 
 export class CliExecutionError extends Error {
@@ -100,9 +102,17 @@ export class CliExecutionError extends Error {
 /** Kept only for SIGINT reporting; interrupting the client never cancels server work. */
 export const activeExecution: {
   operationId?: string
+  batchOperationId?: string
   runId?: string
   execution?: CanvasExecution
 } = {}
+
+export const childOperationId = (parent: string, step: string) => {
+  const hash = createHash('sha256')
+    .update(JSON.stringify([parent, step]))
+    .digest('hex')
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`
+}
 
 const operationPath = (stateDir: string, id: string): string => {
   if (
@@ -283,6 +293,21 @@ export const executeRecorded = async (
     )
   const operationId = options.operationId ?? randomUUID()
   const path = operationPath(session.stateDir, operationId)
+  const batchReserved = await stat(
+    join(session.stateDir, 'node-batches', `${operationId}.json`),
+  ).then(
+    () => true,
+    error => {
+      if (error.code === 'ENOENT') return false
+      throw error
+    },
+  )
+  if (batchReserved)
+    throw new CliExecutionError(
+      'Operation ID belongs to a different node batch; use runs resume or a new operation ID',
+      2,
+      operationId,
+    )
   const saved: SavedOperation = JSON.parse(
     JSON.stringify({
       operation,
@@ -298,14 +323,14 @@ export const executeRecorded = async (
           agent: options.agent,
           parentRunId: options.parentRunId,
           graphSource: options.graphSource,
+          canvasNode: options.canvasNode,
         },
       },
     }),
   ) as SavedOperation
-  await mkdir(dirname(path), {recursive: true, mode: 0o700})
   try {
     // Exclusive creation prevents concurrent use of one key with different inputs.
-    await writeFile(path, JSON.stringify(saved), {mode: 0o600, flag: 'wx'})
+    await writeState(path, saved, {exclusive: true})
   } catch (error) {
     if (
       !error ||
@@ -335,7 +360,11 @@ export const resumeRecorded = async (
     operationId: string
     retryDelayMs?: number
     expectedCanvasId?: number
+    expectedCanvasNodeId?: string
+    expectedOperation?: Operation
     expectedBody?: Record<string, unknown>
+    /** Selected flags for existing non-native Production continuation. */
+    expectedBodySubset?: Record<string, unknown>
   },
 ) => {
   const saved = await loadOperation(
@@ -346,15 +375,38 @@ export const resumeRecorded = async (
   if (saved.baseUrl !== options.client.baseUrl)
     throw new Error('Saved operation belongs to a different API origin')
   if (
+    options.expectedOperation !== undefined &&
+    saved.operation !== options.expectedOperation
+  )
+    throw new Error('Saved operation has a different operation type')
+  if (
+    options.expectedCanvasNodeId !== undefined &&
+    saved.body.executionContext.canvasNode?.nodeId !==
+      options.expectedCanvasNodeId
+  )
+    throw new Error('Saved operation belongs to a different canvas node')
+  if (
     options.expectedCanvasId !== undefined &&
     saved.body.executionContext.canvasId !== options.expectedCanvasId
   )
     throw new Error('Saved operation belongs to a different canvas')
-  for (const [key, value] of Object.entries(options.expectedBody ?? {})) {
+  if (
+    options.expectedBody !== undefined ||
+    options.expectedBodySubset !== undefined
+  ) {
+    const {executionContext: _savedContext, ...savedBody} = saved.body
+    const {executionContext: _expectedContext, ...expectedBody} =
+      options.expectedBody ?? {}
     if (
-      JSON.stringify(
-        (saved.body as unknown as Record<string, unknown>)[key],
-      ) !== JSON.stringify(value)
+      (options.expectedBody !== undefined &&
+        !isDeepStrictEqual(savedBody, expectedBody)) ||
+      Object.entries(options.expectedBodySubset ?? {}).some(
+        ([key, value]) =>
+          !isDeepStrictEqual(
+            (savedBody as Record<string, unknown>)[key],
+            value,
+          ),
+      )
     )
       throw new CliExecutionError(
         'Operation ID already belongs to different inputs; use runs resume or a new operation ID',

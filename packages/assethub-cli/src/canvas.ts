@@ -1,5 +1,6 @@
 import {createHash, randomUUID} from 'node:crypto'
 import {
+  link,
   mkdir,
   readFile,
   realpath,
@@ -29,12 +30,14 @@ type CanvasClient = {
 export const writeState = async (
   path: string,
   value: unknown,
+  options: {exclusive?: boolean} = {},
 ): Promise<void> => {
   await mkdir(dirname(path), {recursive: true, mode: 0o700})
   const temporary = `${path}.${randomUUID()}.tmp`
   try {
     await writeFile(temporary, JSON.stringify(value), {mode: 0o600, flag: 'wx'})
-    await rename(temporary, path)
+    if (options.exclusive) await link(temporary, path)
+    else await rename(temporary, path)
   } finally {
     await unlink(temporary).catch(error => {
       if (error.code !== 'ENOENT') throw error
