@@ -26,11 +26,11 @@ const unrecorded: MeshGenerationRequest = {modelId: 'model', source}
 const node: MeshGenerationRequest = {executionContext: native}
 const compose: MeshComposeRequest = {parts: [{assetId: 'mesh_1'}], fullBodyImageAssetId: 'image', executionContext: context}
 const nativeCompose: MeshComposeRequest = {executionContext: native}
-// @ts-expect-error A source request cannot also resolve a native node.
+// @ts-expect-error: A source request cannot also resolve a native node.
 const mixedImage: MeshGenerationRequest = {modelId: 'model', source, executionContext: native}
-// @ts-expect-error A multiview request cannot also resolve a native node.
+// @ts-expect-error: A multiview request cannot also resolve a native node.
 const mixedViews: MeshGenerationRequest = {modelId: 'model', sources: [source], executionContext: native}
-// @ts-expect-error Explicit parts cannot be combined with a native node context.
+// @ts-expect-error: Explicit parts cannot be combined with a native node context.
 const mixedCompose: MeshComposeRequest = {parts: [{assetId: 'mesh_1'}], fullBodyImageAssetId: 'image', executionContext: native}
 `,
     )
