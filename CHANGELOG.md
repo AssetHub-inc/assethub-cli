@@ -1,5 +1,12 @@
 # Changelog
 
+## CLI 0.1.21
+
+- Discover server-registered personal access for existing `sk_` keys during login, workspace discovery, and authentication status.
+- Preserve the same key and profile across workspace selection, including saved keys without a user-token login.
+- Fail closed on personal-key policy errors; permit legacy fallback only for the exact unregistered-key response.
+- Keep API client 0.1.10 unchanged.
+
 ## CLI 0.1.20
 
 - Accept the existing Internal V3.6.5 Primary Images and Chibi Character (Pluffy) v3.1 models by product name or short alias.
