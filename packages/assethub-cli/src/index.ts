@@ -656,6 +656,10 @@ const readStdinBlob = async (type?: string): Promise<Blob> =>
 const isPersonalProfile = (profile?: Pick<AuthProfile, 'apiKey' | 'authentication'>) =>
   profile?.authentication === 'personal' || Boolean(profile?.apiKey?.startsWith('ah_pat_'))
 
+const personalProfileAuthentication = (apiKey: string, baseUrl: string, profile?: AuthProfile) =>
+  profile?.apiKey === apiKey && new URL(profile.baseUrl).origin === new URL(baseUrl).origin
+    ? profile.authentication : undefined
+
 const canDiscoverPersonalKey = (key?: string) =>
   Boolean(key && (key.startsWith('ah_pat_') || /^sk_[a-f0-9]{64}$/i.test(key)))
 
@@ -1814,6 +1818,7 @@ const workspaceAuth = async (flags: Flags, allowPersonal = false) => {
   const preferredKey = preferredApiKey(flags, stored)
   if (allowPersonal && (canDiscoverPersonalKey(preferredKey) || (preferredKey === stored?.apiKey && isPersonalProfile(stored)))) {
     const auth = await resolveAuth(flags)
+    auth.authentication = personalProfileAuthentication(auth.apiKey, auth.baseUrl, stored)
     const knownPersonal = isPersonalProfile(auth)
     const account = knownPersonal ? undefined : await personalAccount(auth)
     if (knownPersonal || account) {
@@ -2077,9 +2082,7 @@ const commandAuth = async (
     const baseUrl =
       getFlag(flags, 'base-url') ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl
     const config = await readAuthConfig(configPath)
-    const previous = config.profiles?.[profile]
-    const authentication = previous?.apiKey === apiKey && new URL(previous.baseUrl).origin === new URL(baseUrl).origin
-      ? previous.authentication : undefined
+    const authentication = personalProfileAuthentication(apiKey, baseUrl, config.profiles?.[profile])
     const account = await personalAccount({apiKey, baseUrl, authentication})
     const personal = account !== undefined
     if (!personal && !hasFlag(flags, 'skip-verify')) {
@@ -2121,6 +2124,7 @@ const commandAuth = async (
     const preferredKey = preferredApiKey(flags, current)
     if (canDiscoverPersonalKey(preferredKey) || (preferredKey === current?.apiKey && isPersonalProfile(current))) {
       apiAuth = await resolveAuth(flags)
+      apiAuth.authentication = personalProfileAuthentication(apiAuth.apiKey, apiAuth.baseUrl, current)
       const account = await personalAccount(apiAuth)
       if (account) {
         if (apiAuth.workspaceId) await createAssetHubClient(apiAuth).v2.getCapabilities()

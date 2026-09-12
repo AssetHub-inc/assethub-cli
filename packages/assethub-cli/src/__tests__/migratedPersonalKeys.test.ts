@@ -116,6 +116,16 @@ it('never falls back from a previously verified personal profile even for an unr
   expect(f.requests.every(request => request.path.startsWith('/api/workspaces'))).toBe(true)
 })
 
+it('retains verified personal identity when the same saved key is explicitly supplied again', async () => {
+  const f = await fixture({status: 401, code: 'PERSONAL_KEY_NOT_REGISTERED'})
+  await f.save('personal')
+  for (const args of [['workspace', 'list'], ['workspace', 'use', 'workspace-b'], ['auth', 'status']]) {
+    const result = await f.run([...args, '--api-key', key], '', {ASSETHUB_ACCESS_TOKEN: userToken})
+    expect(result.code).not.toBe(0)
+  }
+  expect(f.requests.every(request => request.auth === `Bearer ${key}` && request.path.startsWith('/api/workspaces'))).toBe(true)
+})
+
 it('rejects a successful workspace response that does not attest personal authentication', async () => {
   const f = await fixture(undefined, false)
   await f.save()
