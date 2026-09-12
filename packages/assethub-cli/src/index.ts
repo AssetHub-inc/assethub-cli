@@ -91,6 +91,7 @@ type AuthConfig = {
 
 type ResolvedAuth = {
   apiKey: string
+  workspaceId?: string
   baseUrl: string
   profile: string
   source: 'flag' | 'env' | 'profile'
@@ -221,7 +222,8 @@ Usage:
   assethub auth login --access-token-stdin [--base-url <url>] [--profile <name>]
   assethub auth status [--profile <name>]
   assethub auth logout [--profile <name>]
-  assethub workspace list|get
+  assethub workspace list [--query <text>] [--limit <1-100>] [--cursor <cursor>]
+  assethub workspace get
   assethub workspace create --name <name> [--operation-id <uuid>]
   assethub workspace use <workspace-id>
   assethub workspace members [--workspace <id>]
@@ -303,6 +305,7 @@ Global options:
   --api-key <key>       Overrides saved auth and ASSETHUB_API_KEY.
   --base-url <url>      Override the selected API origin. Default: ${defaultBaseUrl}.
   --profile <name>      Select this saved profile ahead of environment credentials and origin.
+  --workspace <id>      Select workspace scope for this command without changing saved selection.
   --config <path>       Auth config path. Defaults to ~/.assethub/config.json.
   --version             Show installed package version.
   --help                Show help.
@@ -636,7 +639,7 @@ const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
       : undefined
   const profile = explicitProfile ?? config?.defaultProfile ?? defaultProfileName
   const storedProfile = config?.profiles?.[profile]
-  const selected = Boolean(explicitProfile || storedProfile?.workspaceId)
+  const selected = Boolean(explicitProfile || storedProfile?.workspaceId || storedProfile?.apiKey?.startsWith('ah_pat_'))
   if (selected && (!storedProfile || (!storedProfile.apiKey && !overrideKey)))
     throw new Error(
       'Selected profile has no workspace API key. Use workspace use <id> or auth login --api-key-stdin --profile <name>.',
@@ -647,21 +650,21 @@ const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
       ? storedProfile!.baseUrl
       : env.ASSETHUB_API_BASE_URL ?? storedProfile?.baseUrl ?? defaultBaseUrl)
   if (overrideKey)
-    return {apiKey: overrideKey, baseUrl, profile, source: 'flag'}
+    return {apiKey: overrideKey, baseUrl, profile, source: 'flag', workspaceId: getFlag(flags, 'workspace')}
   if (selected && storedProfile?.apiKey) {
     if (
-      storedProfile.workspaceId &&
+      (storedProfile.workspaceId || storedProfile.apiKey.startsWith('ah_pat_')) &&
       new URL(baseUrl).origin !== new URL(storedProfile.baseUrl).origin
     )
       throw new Error(
         'Selected workspace belongs to another API origin; select a workspace for this origin or supply an explicit API key',
       )
-    return {apiKey: storedProfile.apiKey, baseUrl, profile, source: 'profile'}
+    return {apiKey: storedProfile.apiKey, baseUrl, profile, source: 'profile', workspaceId: getFlag(flags, 'workspace') ?? storedProfile.workspaceId}
   }
   if (env.ASSETHUB_API_KEY?.trim())
-    return {apiKey: env.ASSETHUB_API_KEY, baseUrl, profile, source: 'env'}
+    return {apiKey: env.ASSETHUB_API_KEY, baseUrl, profile, source: 'env', workspaceId: getFlag(flags, 'workspace')}
   if (storedProfile?.apiKey)
-    return {apiKey: storedProfile.apiKey, baseUrl, profile, source: 'profile'}
+    return {apiKey: storedProfile.apiKey, baseUrl, profile, source: 'profile', workspaceId: getFlag(flags, 'workspace') ?? storedProfile.workspaceId}
   throw new Error(
     'Missing workspace API key. Use "workspace use <id>" after user login, "auth login --api-key-stdin", or ASSETHUB_API_KEY.',
   )
@@ -679,6 +682,7 @@ const createContext = async (
     client: createAssetHubClient({
       apiKey: auth.apiKey,
       baseUrl: auth.baseUrl,
+      workspaceId: auth.workspaceId,
     }),
   }
 }
@@ -1741,12 +1745,25 @@ const commandModels = async (
   throw new Error('Unknown models command. Use "models list" or "models get".')
 }
 
-const workspaceAuth = async (flags: Flags) => {
+const workspaceAuth = async (flags: Flags, allowPersonal = false) => {
   const configPath = getConfigPath(flags)
   const config = await readAuthConfig(configPath)
   const explicitProfile = hasFlag(flags, 'profile') ? requireFlag(flags, 'profile') : undefined
   const profile = explicitProfile ?? config.defaultProfile ?? defaultProfileName
   const stored = config.profiles?.[profile]
+  const preferredKey = getFlag(flags, 'api-key') ??
+    (explicitProfile || stored?.workspaceId || stored?.apiKey?.startsWith('ah_pat_')
+      ? stored?.apiKey
+      : env.ASSETHUB_API_KEY?.trim() || stored?.apiKey)
+  if (allowPersonal && preferredKey?.startsWith('ah_pat_')) {
+    const auth = await resolveAuth(flags)
+    return {
+      configPath, config, profile, accessToken: auth.apiKey,
+      workspaceMfaToken: undefined, baseUrl: auth.baseUrl,
+      selectedWorkspaceId: auth.workspaceId, personal: true,
+      client: createWorkspaceClient({accessToken: auth.apiKey, baseUrl: auth.baseUrl}),
+    }
+  }
   const environmentToken = explicitProfile ? undefined : env.ASSETHUB_ACCESS_TOKEN?.trim()
   const accessToken = environmentToken || stored?.accessToken
   if (!accessToken)
@@ -1778,6 +1795,7 @@ const workspaceAuth = async (flags: Flags) => {
     workspaceMfaToken,
     baseUrl,
     selectedWorkspaceId: environmentToken ? undefined : stored?.workspaceId,
+    personal: false,
     client: createWorkspaceClient({accessToken, workspaceMfaToken, baseUrl}),
   }
 }
@@ -1792,7 +1810,7 @@ const commandWorkspace = async (
     : hasFlag(flags, 'profile')
       ? undefined
       : env.ASSETHUB_API_KEY?.trim()
-  const auth = await workspaceAuth(flags)
+  const auth = await workspaceAuth(flags, ['list', 'get', 'use'].includes(subcommand ?? ''))
   if (['members', 'invite', 'set-role', 'remove-member'].includes(subcommand ?? '')) {
     let workspaceId = getFlag(flags, 'workspace') ?? auth.selectedWorkspaceId
     if (!workspaceId) workspaceId = (await auth.client.list()).workspaces.find(item => item.active)?.id
@@ -1810,10 +1828,20 @@ const commandWorkspace = async (
     return
   }
   if (subcommand === 'list') {
-    print(await auth.client.list())
+    print(await auth.client.list({
+      query: getFlag(flags, 'query'),
+      cursor: getFlag(flags, 'cursor'),
+      limit: hasFlag(flags, 'limit') ? parsePositiveIntegerFlag(flags, 'limit', 100) : undefined,
+    }))
     return
   }
   if (subcommand === 'get') {
+    if (auth.personal && auth.selectedWorkspaceId) {
+      const selected = await auth.client.select(auth.selectedWorkspaceId)
+      if (!selected.workspace) throw new Error('Workspace API returned no selected workspace')
+      print(selected.workspace)
+      return
+    }
     const account = await auth.client.list()
     const selected = auth.selectedWorkspaceId
     const workspace = account.workspaces.find(item =>
@@ -1839,6 +1867,8 @@ const commandWorkspace = async (
   if (subcommand !== 'use') throw new Error('Use workspace list|get|create|use')
   const workspaceId = requirePositional(positionals, 2, 'workspace-id')
   const selected = await auth.client.select(workspaceId)
+  if (selected.workspaceId !== workspaceId)
+    throw new Error('Workspace API returned an invalid selection scope')
   if (
     selected.mfa.status === 'setup_required' ||
     selected.mfa.status === 'verify_required'
@@ -1847,16 +1877,29 @@ const commandWorkspace = async (
       'Workspace requires MFA. Complete verification in AssetHub, then provide the signed ah_workspace_mfa cookie through ASSETHUB_WORKSPACE_MFA together with your user access token',
     )
   const account = await auth.client.list()
-  const workspace = account.workspaces.find(item => item.id === workspaceId)
+  const workspace = selected.workspace ?? account.workspaces.find(item => item.id === workspaceId)
   if (!workspace)
     throw new Error('Workspace is not available to this authenticated user')
   const profiles = auth.config.profiles ?? {}
+  if (auth.personal) {
+    if (account.authentication !== 'personal') throw new Error('Workspace API did not verify personal authentication')
+    profiles[auth.profile] = {
+      apiKey: auth.accessToken,
+      userId: account.userId,
+      workspaceId,
+      baseUrl: auth.baseUrl,
+      updatedAt: new Date().toISOString(),
+    }
+    await writeAuthConfig(auth.configPath, {...auth.config, defaultProfile: auth.profile, profiles})
+    print({workspaceId, workspace, profile: auth.profile, selected: true, baseUrl: auth.baseUrl})
+    return
+  }
   const cached = Object.entries(profiles).find(
     ([, entry]) =>
       entry.userId === account.userId &&
       entry.workspaceId === workspaceId &&
       new URL(entry.baseUrl).origin === new URL(auth.baseUrl).origin &&
-      entry.apiKey,
+      entry.apiKey && !entry.apiKey.startsWith('ah_pat_'),
   )
   let apiKey: string | undefined
   for (const candidate of new Set([cached?.[1].apiKey, suppliedKey])) {
@@ -1970,7 +2013,13 @@ const commandAuth = async (
 
     const baseUrl =
       getFlag(flags, 'base-url') ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl
-    if (!hasFlag(flags, 'skip-verify')) {
+    const personal = apiKey.startsWith('ah_pat_')
+    const account = personal
+      ? await createWorkspaceClient({accessToken: apiKey, baseUrl}).list()
+      : undefined
+    if (personal && account?.authentication !== 'personal')
+      throw new Error('Workspace API did not verify personal authentication')
+    if (!personal && !hasFlag(flags, 'skip-verify')) {
       const client = createAssetHubClient({apiKey, baseUrl})
       await client.v2.listModels()
     }
@@ -1980,6 +2029,7 @@ const commandAuth = async (
     profiles[profile] = {
       apiKey,
       baseUrl,
+      ...(account ? {userId: account.userId} : {}),
       updatedAt: new Date().toISOString(),
     }
     await writeAuthConfig(configPath, {
@@ -1993,7 +2043,8 @@ const commandAuth = async (
       profile,
       baseUrl,
       configPath,
-      verified: !hasFlag(flags, 'skip-verify'),
+      verified: personal || !hasFlag(flags, 'skip-verify'),
+      ...(account ? {authentication: 'personal', userId: account.userId} : {}),
     })
     return
   }
@@ -2005,8 +2056,11 @@ const commandAuth = async (
         getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
       ]
     if (
-      (!hasFlag(flags, 'profile') && env.ASSETHUB_ACCESS_TOKEN?.trim()) ||
-      (current?.accessToken && !current.apiKey)
+      !hasFlag(flags, 'api-key') &&
+      !current?.apiKey?.startsWith('ah_pat_') &&
+      (hasFlag(flags, 'profile') || !env.ASSETHUB_API_KEY?.startsWith('ah_pat_')) &&
+      ((!hasFlag(flags, 'profile') && env.ASSETHUB_ACCESS_TOKEN?.trim()) ||
+        (current?.accessToken && !current.apiKey))
     ) {
       const auth = await workspaceAuth(flags)
       const account = await auth.client.list()
@@ -2024,7 +2078,16 @@ const commandAuth = async (
     const client = createAssetHubClient({
       apiKey: auth.apiKey,
       baseUrl: auth.baseUrl,
+      workspaceId: auth.workspaceId,
     })
+    if (auth.apiKey.startsWith('ah_pat_')) {
+      const account = await createWorkspaceClient({accessToken: auth.apiKey, baseUrl: auth.baseUrl}).list()
+      if (account.authentication !== 'personal') throw new Error('Workspace API did not verify personal authentication')
+      if (auth.workspaceId) await client.v2.getCapabilities()
+      print({authenticated: true, authentication: 'personal', userId: account.userId, workspaceId: auth.workspaceId,
+        profile: auth.profile, source: auth.source, baseUrl: auth.baseUrl})
+      return
+    }
     const models = await client.v2.listModels()
     print({
       authenticated: true,
@@ -4591,6 +4654,7 @@ const commandRuns = async (
     plan,
     baseUrl: ctx.auth.baseUrl,
     apiKey: ctx.auth.apiKey,
+    workspaceId: ctx.auth.workspaceId,
     skipRegister: args.skipRegister,
     onProgress: event => {
       if (event.kind === 'register') {
@@ -4758,11 +4822,21 @@ const run = async (): Promise<void> => {
   if (command === 'mcp') {
     if (subcommand !== 'config')
       throw new Error('Use mcp tools [tool-name] or mcp config --client cursor|codex')
+    const config = await readAuthConfig(getConfigPath(parsed.flags))
+    const explicitProfile = getFlag(parsed.flags, 'profile')
+    const stored = config.profiles?.[explicitProfile ?? config.defaultProfile ?? defaultProfileName]
+    if (explicitProfile && !stored) throw new Error('Selected profile does not exist')
+    const selected = explicitProfile || stored?.workspaceId || stored?.apiKey?.startsWith('ah_pat_')
+    const baseUrl = getFlag(parsed.flags, 'base-url') ??
+      (selected ? stored?.baseUrl : env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl) ?? defaultBaseUrl
+    const workspaceId = getFlag(parsed.flags, 'workspace') ??
+      (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin ? stored.workspaceId : undefined)
     stdout.write(
       mcpConfig(
         requireFlag(parsed.flags, 'client'),
-        getFlag(parsed.flags, 'base-url') ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl,
+        baseUrl,
         hasFlag(parsed.flags, 'account'),
+        workspaceId,
       ),
     )
     return

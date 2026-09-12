@@ -26,7 +26,7 @@ const validatedBaseUrl = (baseUrl: string): string => {
   return url.href.replace(/\/+$/, '')
 }
 
-export const mcpConfig = (client: string, baseUrl: string, account = false): string => {
+export const mcpConfig = (client: string, baseUrl: string, account = false, workspaceId?: string): string => {
   const url = `${validatedBaseUrl(baseUrl)}${account ? '/api/workspaces/mcp' : '/api/mcp'}`
   const name = account ? 'assethub-workspaces' : 'assethub'
   const token = account ? 'ASSETHUB_ACCESS_TOKEN' : 'ASSETHUB_API_KEY'
@@ -37,7 +37,7 @@ export const mcpConfig = (client: string, baseUrl: string, account = false): str
           mcpServers: {
             [name]: {
               url,
-              headers: {Authorization: `Bearer \${env:${token}}`, ...(account ? {Cookie: '${env:ASSETHUB_WORKSPACE_MFA_COOKIE}'} : {})},
+              headers: {Authorization: `Bearer \${env:${token}}`, ...(!account && workspaceId ? {'X-AssetHub-Workspace': workspaceId} : {}), ...(account ? {Cookie: '${env:ASSETHUB_WORKSPACE_MFA_COOKIE}'} : {})},
             },
           },
         },
@@ -46,7 +46,7 @@ export const mcpConfig = (client: string, baseUrl: string, account = false): str
       ) + '\n'
     )
   if (client === 'codex')
-    return `[mcp_servers.${name}]\nurl = ${JSON.stringify(url)}\nbearer_token_env_var = "${token}"\n${account ? 'env_http_headers = { Cookie = "ASSETHUB_WORKSPACE_MFA_COOKIE" }\n' : ''}`
+    return `[mcp_servers.${name}]\nurl = ${JSON.stringify(url)}\nbearer_token_env_var = "${token}"\n${account ? 'env_http_headers = { Cookie = "ASSETHUB_WORKSPACE_MFA_COOKIE" }\n' : workspaceId ? `http_headers = { "X-AssetHub-Workspace" = ${JSON.stringify(workspaceId)} }\n` : ''}`
   throw new Error('Use mcp config --client cursor|codex')
 }
 
@@ -62,7 +62,7 @@ type Check = {
   tools?: Tool[]
 }
 
-type Auth = {apiKey: string; baseUrl: string; profile: string; source: string; workspaceMfaToken?: string}
+type Auth = {apiKey: string; baseUrl: string; profile: string; source: string; workspaceId?: string; workspaceMfaToken?: string}
 
 const failedCheck = (
   name: 'api' | 'mcp',
@@ -174,6 +174,7 @@ export const diagnose = async ({
       const capabilities = await createAssetHubClient({
         apiKey: auth.apiKey,
         baseUrl: auth.baseUrl,
+        workspaceId: auth.workspaceId,
         fetch: boundedFetch,
       }).v2.getCapabilities()
       if (typeof capabilities.ownerId !== 'string' || !capabilities.ownerId)
@@ -202,7 +203,7 @@ export const diagnose = async ({
       await client.connect(
         new StreamableHTTPClientTransport(new URL(`${auth.baseUrl}${account ? '/api/workspaces/mcp' : '/api/mcp'}`), {
           fetch: boundedFetch,
-          requestInit: {headers: {Authorization: `Bearer ${auth.apiKey}`, ...(account && auth.workspaceMfaToken ? {Cookie: `ah_workspace_mfa=${encodeURIComponent(auth.workspaceMfaToken)}`} : {})}},
+          requestInit: {headers: {Authorization: `Bearer ${auth.apiKey}`, ...(!account && auth.workspaceId ? {'X-AssetHub-Workspace': auth.workspaceId} : {}), ...(account && auth.workspaceMfaToken ? {Cookie: `ah_workspace_mfa=${encodeURIComponent(auth.workspaceMfaToken)}`} : {})}},
         }),
         {signal, timeout: timeoutMs},
       )

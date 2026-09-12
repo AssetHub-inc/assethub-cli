@@ -15,7 +15,8 @@ Usage:
   assethub auth login --access-token-stdin [--base-url <url>] [--profile <name>]
   assethub auth status [--profile <name>]
   assethub auth logout [--profile <name>]
-  assethub workspace list|get
+  assethub workspace list [--query <text>] [--limit <1-100>] [--cursor <cursor>]
+  assethub workspace get
   assethub workspace create --name <name> [--operation-id <uuid>]
   assethub workspace use <workspace-id>
   assethub workspace members [--workspace <id>]
@@ -97,6 +98,7 @@ Global options:
   --api-key <key>       Overrides saved auth and ASSETHUB_API_KEY.
   --base-url <url>      Override the selected API origin. Default: https://app.assethub.io.
   --profile <name>      Select this saved profile ahead of environment credentials and origin.
+  --workspace <id>      Select workspace scope for this command without changing saved selection.
   --config <path>       Auth config path. Defaults to ~/.assethub/config.json.
   --version             Show installed package version.
   --help                Show help.
