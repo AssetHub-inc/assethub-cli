@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.22
+
+- Preserve returned execution run IDs when a dispatch reports a typed terminal server error, including when the first receipt read is unavailable.
+- Resume a known failed receipt with a GET instead of repeating its POST; keep confirmed failures at exit 1 and recovery-required responses at exit 3.
+- Keep API client 0.1.10 unchanged.
+
 ## CLI 0.1.21
 
 - Discover server-registered personal access for existing `sk_` keys during login, workspace discovery, and authentication status.
