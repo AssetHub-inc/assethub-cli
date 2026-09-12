@@ -187,11 +187,14 @@ describe('built recorded CLI', () => {
     },
   )
 
+  // @testdoc Graph extractor names and aliases preserve one analysis receipt on replay, reject classic continuation flags and raw internal IDs.
   it.each([
-    ['V3.6.1', 'ah_agent_graph_v3_6_1', 'V3.6.1 Primary Images First'],
-    ['V3.6.3', 'ah_agent_graph_v3_6_3', 'V3.6.3 Fast Analysis'],
-    ['V3.6.4', 'ah_agent_graph_v3_6_4', 'V3.6.4 Fast Analysis'],
-  ])('splits and replays %s graphs', async (name, apiValue, label) => {
+    ['V3.6.1', 'ah_agent_graph_v3_6_1', 'V3.6.1 Primary Images First', []],
+    ['V3.6.3', 'ah_agent_graph_v3_6_3', 'V3.6.3 Fast Analysis', []],
+    ['V3.6.4', 'ah_agent_graph_v3_6_4', 'V3.6.4 Fast Analysis', []],
+    ['V3.6.5 Primary Images', 'ah_agent_graph_v3_6_5', 'V3.6.5 Primary Images', ['v3.6.5', '3.6.5']],
+    ['Chibi Character (Pluffy) v3.1', 'ah_agent_graph_pluffy_v3_1', 'Chibi Character (Pluffy) v3.1', ['pluffy', 'pluffy v3.1', 'pluffy 3.1']],
+  ] as const)('splits and replays %s graphs', async (name, apiValue, label, aliases) => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))
     const posted: Array<{path: string; body: Record<string, unknown>}> = []
@@ -369,6 +372,29 @@ describe('built recorded CLI', () => {
       `--order-id is not supported with ${name}`,
     )
     expect(posted).toHaveLength(1)
+
+    for (const alias of [name, ...aliases]) {
+      const analyzed = await cli(baseUrl, dir, [
+        'production', 'analyze', '--source-id', 'image-asset',
+        '--canvas', '42', '--part-extractor', alias,
+      ])
+      expect(analyzed.code, analyzed.stderr).toBe(0)
+      expect(posted.at(-1)).toMatchObject({
+        path: '/api/v1/production/analyze',
+        body: {agentVersion: apiValue},
+      })
+    }
+    expect(posted).toHaveLength(2 + aliases.length)
+    const rawId = await cli(baseUrl, dir, [
+      'production', 'analyze', '--source-id', 'image-asset',
+      '--canvas', '42', '--part-extractor', apiValue,
+    ])
+    expect(rawId.code).not.toBe(0)
+    expect(rawId.json.error?.message).toContain(
+      'Internal part extractor IDs are not accepted by the public CLI',
+    )
+    expect(posted).toHaveLength(2 + aliases.length)
+    expect(classicRequests).toEqual([])
   })
 
   it('chains generation and selected parts execution on one canvas with durable operation keys', async () => {

@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.20
+
+- Accept the existing Internal V3.6.5 Primary Images and Chibi Character (Pluffy) v3.1 models by product name or short alias.
+- Keep graph split and replay on one analysis receipt, including `--all-ready`; reject classic continuation flags and raw internal IDs.
+- Preserve the V1.5 default, server authorization and API client 0.1.10.
+
 ## CLI 0.1.19 / API client 0.1.10
 
 - Use one personal API key across its permitted workspaces; switching keeps the same credential and profile.

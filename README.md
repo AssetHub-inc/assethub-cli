@@ -35,6 +35,10 @@ assethub --help
 See the [CLI reference](packages/assethub-cli/README.md) for generation, source
 imports, moodboards, versioned context, comparisons, retries, and evaluations.
 
+CLI 0.1.20 accepts `V3.6.5` (Primary Images) and `pluffy` (Chibi Character v3.1)
+for `parts split` and `production analyze`. Both are Internal-only server models;
+check `assethub production agents` for availability. The V1.5 default is unchanged.
+
 ## Diagnose connections and create MCP configuration
 
 ```sh
