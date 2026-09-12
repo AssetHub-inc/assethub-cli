@@ -1020,6 +1020,7 @@ export type ProductionRunResult = {
 }
 
 export type MeshComposeRequest = {
+  agentRuntime?: ComposerAgentRuntime
   agentVersion?: string
   mode?: 'quick' | 'quality'
   /** Every part: position xyz, quaternion xyzw, scale xyz. */
@@ -1067,7 +1068,12 @@ export type MeshRefinementCapabilities = {
   defaultMode: 'standard'
   modes: MeshRefinementModeInfo[]
 }
+export type ComposerAgentRuntime = {
+  provider: 'openrouter' | 'agents-api'
+  model: string
+}
 export type MeshRefineRequest = {
+  agentRuntime?: ComposerAgentRuntime
   parts: MeshComposerPart[]
   fullBodyImageAssetId: string
   transforms: Record<string, MeshTransform>

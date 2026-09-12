@@ -39,7 +39,8 @@ it.each([
   const canvas = {id: 42, name: 'Native Composer', ownerId: 'org-a', url: 'https://api.test/workflow/42'}
   const posted: Record<string, unknown>[] = []
   const paths: string[] = []
-  const frozen = {parts: [{assetId: 'mesh_old'}], fullBodyImageAssetId: 'saved-reference', agentVersion: 'part_composer_v4_turntable', mode: previousOperation === 'mesh.refine' ? 'placement' : 'quick',
+  const agentRuntime = {provider: previousOperation === 'mesh.refine' ? 'agents-api' : 'openrouter', model: 'saved/model-selection'}
+  const frozen = {agentRuntime, parts: [{assetId: 'mesh_old'}], fullBodyImageAssetId: 'saved-reference', agentVersion: 'part_composer_v4_turntable', mode: previousOperation === 'mesh.refine' ? 'placement' : 'quick',
     transforms: {mesh_old: originalTransform}, nativeRunMode: 'quick-agent', nativeNodeId: 'shape:composer', nativeScene: {internal: true}, nativeNodeInputFingerprint: 'private-fingerprint', operationKey: 'old-command',
     quickRunId: 'run_old', quickScene: {internal: true}, referenceTransform: originalTransform,
   }
@@ -76,7 +77,7 @@ it.each([
   ])
   expect(result.code, JSON.stringify(result.json)).toBe(0)
   expect(posted).toHaveLength(1)
-  expect(posted[0]).toMatchObject({parts: [{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}], fullBodyImageAssetId: 'saved-reference', transforms: {mesh_latest: override ? originalTransform : transform}, executionContext: {canvasId: 42, parentRunId: 'native-run'}})
+  expect(posted[0]).toMatchObject({agentRuntime, parts: [{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}], fullBodyImageAssetId: 'saved-reference', transforms: {mesh_latest: override ? originalTransform : transform}, executionContext: {canvasId: 42, parentRunId: 'native-run'}})
   for (const key of ['nativeRunMode', 'nativeNodeId', 'nativeScene', 'nativeNodeInputFingerprint', 'operationKey', 'quickRunId', 'quickScene']) expect(posted[0]).not.toHaveProperty(key)
   if (command === 'run') {
     expect(posted[0]!.parts).toEqual([{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}])

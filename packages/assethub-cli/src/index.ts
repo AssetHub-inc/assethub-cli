@@ -2564,6 +2564,7 @@ const composerInputFromRun = (
       ? [
           'fullBodyImageAssetId',
           'agentVersion',
+          'agentRuntime',
           'mode',
           'targetCharacterHeightM',
           'projectName',
@@ -2571,7 +2572,7 @@ const composerInputFromRun = (
           'quickRunId',
           'quickScene',
         ]
-      : ['fullBodyImageAssetId', 'mode', 'instruction', 'maxRounds']
+      : ['fullBodyImageAssetId', 'agentRuntime', 'mode', 'instruction', 'maxRounds']
   const input: Record<string, unknown> = Object.fromEntries(
     fields
       .filter(key => source[key] !== undefined)
@@ -2727,6 +2728,9 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     mode,
     instruction,
     ...(maxRounds != null ? {maxRounds} : {}),
+    ...(input.agentRuntime
+      ? {agentRuntime: input.agentRuntime as MeshRefineRequest['agentRuntime']}
+      : {}),
   }
   await printRecorded(
     ctx,
