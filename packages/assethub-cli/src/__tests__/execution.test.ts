@@ -64,6 +64,54 @@ const stateDir = async () => {
 }
 
 describe('recorded CLI execution', () => {
+  // @testdoc A confirmed dispatch failure keeps its server receipt ID for CLI error output and resumes by reading that receipt without another POST.
+  it.each([false, true])('preserves a failed run ID even if its first receipt read fails: %s', async failFirstRead => {
+    const dir = await stateDir()
+    const operationId = '84e8530b-b362-45c7-9064-2b03b6f95b24'
+    const posts: {body: string; key: string | null}[] = []
+    let reads = 0
+    const request: typeof fetch = async (url, init) => {
+      if (String(url).endsWith('/capabilities'))
+        return ok({...capabilities, executionContext: {status: 'available', operations: ['mesh.refine']}})
+      if (String(url).endsWith('/canvases/42')) return ok(canvas)
+      if (String(url).endsWith('/runs/failed-refine-run')) {
+        expect(init?.method).toBe('GET')
+        reads++
+        if (failFirstRead && reads === 1) throw new TypeError('Receipt read unavailable')
+        return ok({...receipt('failed-refine-run', 'failed'), operation: 'mesh.refine'})
+      }
+      expect(String(url)).toBe('https://api.test/api/v2/mesh/refine')
+      expect(init?.method).toBe('POST')
+      posts.push({body: String(init?.body), key: new Headers(init?.headers).get('Idempotency-Key')})
+      return new Response(JSON.stringify({success: false, error: {
+        code: 'TRIGGER_BRANCH_UNAVAILABLE',
+        message: 'No task was started',
+        details: {runId: 'failed-refine-run'},
+      }}), {status: 503})
+    }
+    const client = createAssetHubClient({apiKey: 'secret-key', baseUrl: 'https://api.test', fetch: request})
+    const session = await openExecutionSession({client, stateDir: dir, cwd: dir, canvasId: 42, operation: 'mesh.refine'})
+    await expect(executeRecorded(session, 'mesh.refine', {
+      parts: [{assetId: 'mesh_1'}],
+      fullBodyImageAssetId: 'image_abc_0_0_color',
+      transforms: {mesh_1: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]},
+      mode: 'standard',
+      instruction: 'Align with the reference',
+    }, {operationId, retryDelayMs: 0})).rejects.toMatchObject({
+      exitCode: 1, operationId, runId: 'failed-refine-run',
+    })
+    const stored = await readFile(join(dir, 'operations', `${operationId}.json`), 'utf8')
+    expect(JSON.parse(stored)).toMatchObject({operationId, runId: 'failed-refine-run'})
+    expect(stored).not.toContain('secret-key')
+    expect(posts).toHaveLength(3)
+    expect(new Set(posts.map(post => post.body)).size).toBe(1)
+    expect(new Set(posts.map(post => post.key))).toEqual(new Set([operationId]))
+    const resumed = await resumeRecorded({client, stateDir: dir, cwd: dir, operationId})
+    expect(resumed.execution).toMatchObject({runId: 'failed-refine-run', status: 'failed'})
+    expect(reads).toBe(2)
+    expect(posts).toHaveLength(3)
+  })
+
   it('preserves a fenced production run from an ambiguous dispatch response and resumes by reading it', async () => {
     const dir = await stateDir()
     let submissions = 0

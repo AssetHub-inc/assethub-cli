@@ -243,11 +243,7 @@ const submitSaved = async (
       }
     }
   } catch (error) {
-    if (
-      error instanceof AssetHubApiError &&
-      error.code === 'EXECUTION_RECOVERY_REQUIRED' &&
-      error.runId
-    ) {
+    if (error instanceof AssetHubApiError && error.runId) {
       saved.runId = error.runId
       activeExecution.runId = error.runId
       await writeState(
@@ -257,13 +253,15 @@ const submitSaved = async (
       activeExecution.execution = await session.client.v2
         .getRun(error.runId, {signal: AbortSignal.timeout(5_000)})
         .catch(() => undefined)
-      throw new CliExecutionError(
-        error.message,
-        3,
-        saved.operationId,
-        activeExecution.execution,
-        error.runId,
-      )
+      if (error.code === 'EXECUTION_RECOVERY_REQUIRED') {
+        throw new CliExecutionError(
+          error.message,
+          3,
+          saved.operationId,
+          activeExecution.execution,
+          error.runId,
+        )
+      }
     }
     throw new CliExecutionError(
       error instanceof Error ? error.message : String(error),
@@ -276,6 +274,7 @@ const submitSaved = async (
         : 1,
       saved.operationId,
       activeExecution.execution,
+      activeExecution.runId,
     )
   }
 }
