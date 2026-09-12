@@ -2549,6 +2549,38 @@ const refinementModeInfo = (
   return info
 }
 
+/** Reuse the frozen sources and latest editable scene, never replay server-only receipt fields. */
+const composerInputFromRun = (
+  previous: CanvasExecution,
+  operation: 'mesh.compose' | 'mesh.refine',
+): Record<string, unknown> => {
+  const source = previous.resolvedInput ?? previous.input ?? previous.requestedInput ?? {}
+  const fields = operation === 'mesh.compose'
+    ? ['fullBodyImageAssetId', 'agentVersion', 'mode', 'targetCharacterHeightM', 'projectName', 'decimateRatio', 'quickRunId', 'quickScene']
+    : ['fullBodyImageAssetId', 'mode', 'instruction', 'maxRounds']
+  const input: Record<string, unknown> = Object.fromEntries(
+    fields.filter(key => source[key] !== undefined).map(key => [key, source[key]]),
+  )
+  const parts = previous.composition?.parts ?? source.parts
+  const partFields = operation === 'mesh.compose'
+    ? ['assetId', 'name', 'canonicalKey', 'partImageAssetId', 'partTaskId']
+    : ['assetId', 'name', 'canonicalKey', 'volumeCentroid', 'sourceAssetId', 'transform']
+  input.parts = Array.isArray(parts)
+    ? parts.map(part => part && typeof part === 'object'
+      ? Object.fromEntries(Object.entries(part).filter(([key]) => partFields.includes(key)))
+      : part)
+    : parts
+  const transforms = previous.composition?.transforms ?? source.transforms
+  if (transforms != null) input.transforms = transforms
+  if (operation === 'mesh.refine') {
+    const referenceTransform = previous.composition?.referenceTransform ?? source.referenceTransform
+    if (referenceTransform != null) input.referenceTransform = referenceTransform
+    // Compose modes are not refinement modes; preserve a prior refinement's mode only.
+    if (previous.operation !== 'mesh.refine') delete input.mode
+  }
+  return input
+}
+
 const commandComposerRefine = async (ctx: CommandContext) => {
   const capabilities = await ctx.client.v2.getMeshRefinementModes()
   if (hasFlag(ctx.flags, 'list-modes')) {
@@ -2581,22 +2613,7 @@ const commandComposerRefine = async (ctx: CommandContext) => {
   const input = json
     ? await readJsonArgument(json, '--input-json')
     : previous
-      ? {
-          ...(previous.requestedInput ?? previous.input),
-          ...(previous.operation === 'mesh.refine' &&
-          (previous.requestedInput?.mode ?? previous.input.mode)
-            ? {mode: previous.requestedInput?.mode ?? previous.input.mode}
-            : {mode: undefined}),
-          parts:
-            previous.composition?.parts ??
-            previous.requestedInput?.parts ??
-            previous.input.parts,
-          transforms: previous.composition?.transforms,
-          referenceTransform:
-            previous.composition?.referenceTransform ??
-            previous.requestedInput?.referenceTransform ??
-            previous.input.referenceTransform,
-        }
+      ? composerInputFromRun(previous, 'mesh.refine')
       : {
           parts: parts.map(assetId => ({
             assetId: assertFlagHasValue(assetId, '--part <asset-id>'),
@@ -2720,7 +2737,7 @@ const commandComposer = async (
   const input: Record<string, unknown> = nodeId
     ? {}
     : previous
-      ? {...(previous.requestedInput ?? previous.input)}
+      ? composerInputFromRun(previous, 'mesh.compose')
       : json
         ? await readJsonArgument(json, '--input-json')
         : {
@@ -2748,6 +2765,10 @@ const commandComposer = async (
   const transforms = getFlag(ctx.flags, 'transforms-json')
   if (transforms)
     input.transforms = await readJsonArgument(transforms, '--transforms-json')
+  if (previous && input.transforms) {
+    delete input.quickRunId
+    delete input.quickScene
+  }
   const canvasId = selectedCanvasId(ctx.flags) ?? previous?.canvas.id
   if (previous && canvasId !== previous.canvas.id)
     throw new Error(
