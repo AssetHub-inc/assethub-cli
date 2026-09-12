@@ -148,6 +148,8 @@ const artifactGraphPartExtractorApiValues = new Set([
   'ah_agent_graph_v3_6_1',
   'ah_agent_graph_v3_6_3',
   'ah_agent_graph_v3_6_4',
+  'ah_agent_graph_v3_6_5',
+  'ah_agent_graph_pluffy_v3_1',
 ])
 
 type PartExtractorOption = {
@@ -186,6 +188,16 @@ const partExtractorOptions = [
     publicName: 'V3.6.4 Fast Analysis',
     apiValue: 'ah_agent_graph_v3_6_4',
     aliases: ['v3.6.4', '3.6.4'],
+  },
+  {
+    publicName: 'V3.6.5 Primary Images',
+    apiValue: 'ah_agent_graph_v3_6_5',
+    aliases: ['v3.6.5', '3.6.5'],
+  },
+  {
+    publicName: 'Chibi Character (Pluffy) v3.1',
+    apiValue: 'ah_agent_graph_pluffy_v3_1',
+    aliases: ['pluffy', 'pluffy v3.1', 'pluffy 3.1'],
   },
 ] as const satisfies readonly PartExtractorOption[]
 
