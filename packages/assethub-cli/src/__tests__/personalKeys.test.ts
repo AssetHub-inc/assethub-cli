@@ -9,7 +9,7 @@ import {createAssetHubClient} from '../../../assethub-api-client/src/index.js'
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => { for (const run of cleanup.splice(0).reverse()) await run() })
 const personalKey = 'ah_pat_personal-test-secret'
-const workspace = (id: string) => ({id, name: id, type: 'team', role: 'admin', active: true})
+const workspace = (id: string, active = true) => ({id, name: id, type: 'team', role: 'admin', active})
 
 const fixture = async () => {
   const dir = await mkdtemp(join(tmpdir(), 'assethub-personal-'))
@@ -29,7 +29,7 @@ const fixture = async () => {
     if (req.headers.authorization !== `Bearer ${personalKey}`)
       return json({error: {code: 'UNAUTHORIZED', message: 'Wrong key'}}, 401)
     if (url.pathname === '/api/workspaces' && req.method === 'GET')
-      return json({userId: 'user-1', authentication: 'personal', workspaces: [workspace('workspace-a')], nextCursor: 'next/page'})
+      return json({userId: 'user-1', authentication: 'personal', workspaces: [workspace('workspace-a', req.headers['x-assethub-workspace'] === 'workspace-a')], nextCursor: 'next/page'})
     if (url.pathname === '/api/workspaces/select')
       return json({workspaceId: body.workspaceId, selected: true, workspace: workspace(body.workspaceId), mfa: {status: 'not_required'}})
     if (url.pathname.startsWith('/api/workspaces'))
@@ -97,6 +97,7 @@ it('logs in once and selects paginated workspaces using the same personal key an
     expect(selected.code, selected.stderr).toBe(0)
     expect(selected.data).toMatchObject({workspaceId: id, profile: 'personal', workspace: {id}})
     expect((await f.run(['capabilities'])).data.ownerId).toBe(id)
+    expect((await f.run(['workspace', 'list'])).data.workspaces[0].active).toBe(id === 'workspace-a')
     const config = JSON.parse(await readFile(f.configPath, 'utf8'))
     expect(Object.keys(config.profiles)).toEqual(['personal'])
     expect(config).toMatchObject({defaultProfile: 'personal', profiles: {personal: {apiKey: personalKey, userId: 'user-1', workspaceId: id}}})

@@ -75,6 +75,7 @@ export type WorkspaceMemberRemoveResult = {
 
 export type WorkspaceClientOptions = {
   accessToken: string
+  workspaceId?: string
   /** Signed `ah_workspace_mfa` proof issued by the AssetHub browser flow. */
   workspaceMfaToken?: string
   baseUrl?: string
@@ -349,8 +350,10 @@ const requestHeaders = (
   init: RequestInit,
   accessToken: string,
   encodedMfaToken: string | undefined,
+  workspaceId: string | undefined,
 ): HeadersInit => ({
   Authorization: `Bearer ${accessToken}`,
+  ...(workspaceId ? {'X-AssetHub-Workspace': workspaceId} : {}),
   ...(init.body === undefined ? {} : {'Content-Type': 'application/json'}),
   ...(init.headers ?? {}),
   ...(encodedMfaToken ? {Cookie: `ah_workspace_mfa=${encodedMfaToken}`} : {}),
@@ -382,7 +385,7 @@ export const createWorkspaceClient = (
       response = await fetchImpl(`${baseUrl}${path}`, {
         ...init,
         redirect: 'error',
-        headers: requestHeaders(init, options.accessToken, encodedMfaToken),
+        headers: requestHeaders(init, options.accessToken, encodedMfaToken, options.workspaceId),
       })
     } catch (error) {
       const message =

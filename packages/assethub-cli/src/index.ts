@@ -1761,7 +1761,7 @@ const workspaceAuth = async (flags: Flags, allowPersonal = false) => {
       configPath, config, profile, accessToken: auth.apiKey,
       workspaceMfaToken: undefined, baseUrl: auth.baseUrl,
       selectedWorkspaceId: auth.workspaceId, personal: true,
-      client: createWorkspaceClient({accessToken: auth.apiKey, baseUrl: auth.baseUrl}),
+      client: createWorkspaceClient({accessToken: auth.apiKey, baseUrl: auth.baseUrl, workspaceId: auth.workspaceId}),
     }
   }
   const environmentToken = explicitProfile ? undefined : env.ASSETHUB_ACCESS_TOKEN?.trim()
@@ -2081,7 +2081,7 @@ const commandAuth = async (
       workspaceId: auth.workspaceId,
     })
     if (auth.apiKey.startsWith('ah_pat_')) {
-      const account = await createWorkspaceClient({accessToken: auth.apiKey, baseUrl: auth.baseUrl}).list()
+      const account = await createWorkspaceClient({accessToken: auth.apiKey, baseUrl: auth.baseUrl, workspaceId: auth.workspaceId}).list()
       if (account.authentication !== 'personal') throw new Error('Workspace API did not verify personal authentication')
       if (auth.workspaceId) await client.v2.getCapabilities()
       print({authenticated: true, authentication: 'personal', userId: account.userId, workspaceId: auth.workspaceId,
