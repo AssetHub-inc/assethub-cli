@@ -15,6 +15,7 @@ export type {
   WorkspaceMemberRoleResult,
   WorkspaceMemberRemoveResult,
   WorkspaceListResult,
+  WorkspaceListOptions,
   WorkspaceCreateResult,
   WorkspaceSelectResult,
   WorkspaceApiKey,
@@ -167,6 +168,7 @@ export type AssetHubApiVersion = 'v1' | 'v2'
 
 export type AssetHubClientOptions = {
   apiKey: string
+  workspaceId?: string
   baseUrl?: string
   fetch?: typeof fetch
 }
@@ -1536,6 +1538,7 @@ const isFailedWorkflowEvent = (event: WorkflowStreamEvent): boolean => {
 export class AssetHubClient {
   readonly baseUrl: string
   readonly apiKey: string
+  readonly workspaceId?: string
   private readonly fetchImpl: typeof fetch
 
   constructor(options: AssetHubClientOptions) {
@@ -1544,6 +1547,7 @@ export class AssetHubClient {
     }
     this.baseUrl = trimTrailingSlash(options.baseUrl ?? defaultBaseUrl)
     this.apiKey = options.apiKey
+    this.workspaceId = options.workspaceId
     this.fetchImpl = options.fetch ?? fetch
   }
 
@@ -1559,6 +1563,7 @@ export class AssetHubClient {
         ...init,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
+          ...(this.workspaceId ? {'X-AssetHub-Workspace': this.workspaceId} : {}),
           ...(isFormDataBody(body) ? {} : {'Content-Type': 'application/json'}),
           ...(init.headers ?? {}),
         },
@@ -1601,6 +1606,7 @@ export class AssetHubClient {
         ...init,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
+          ...(this.workspaceId ? {'X-AssetHub-Workspace': this.workspaceId} : {}),
           'Content-Type': 'application/json',
           ...(init.headers ?? {}),
         },

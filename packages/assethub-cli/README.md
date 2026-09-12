@@ -2,6 +2,34 @@
 
 Command line interface for AssetHub.
 
+## Personal API keys
+
+Log in once with a personal key (`ah_pat_`), then select its workspace:
+
+```sh
+assethub auth login --api-key-stdin --profile personal
+assethub workspace list --query Studio --limit 25
+assethub workspace use <workspace-id>
+assethub capabilities
+assethub mesh list --workspace <other-workspace-id>
+```
+
+Login verifies account identity through workspace discovery, including when
+`--skip-verify` is supplied. `workspace use` validates access and saves the workspace
+in the same profile with the same key. It does not issue keys or change browser
+sessions. Pass `--cursor <nextCursor>` for another workspace list page.
+
+`--workspace` overrides the saved selection for one command, including diagnostics,
+MCP discovery, history, and run recovery. Recovery still rejects an operation saved
+in another workspace. Personal profiles take precedence over environment API
+credentials and origins; explicit `--api-key` uses the supplied key and requires
+`--workspace` for scoped API commands. Saved personal credentials cannot be sent
+to another origin through `--base-url` alone.
+
+Keys are limited by their workspace and read/write scopes and current account
+permissions. Account, member, and API-key administration require user-session
+authentication. Existing workspace keys and user-token login remain supported.
+
 ## Connection diagnostics and MCP
 
 ```sh
@@ -15,19 +43,22 @@ assethub mcp config --client codex
 MCP initialization and tool discovery, without invoking any tool or generating
 assets. It returns JSON and exit 0 when checks pass, or exit 2 with a diagnostic
 and next step when a check fails. The default total timeout is 15 seconds; change
-it with `--timeout-ms`. Hosted MCP accepts a workspace API key from any AssetHub
-user; account operations use a separate user access token.
+it with `--timeout-ms`. Hosted MCP accepts workspace and personal API keys; personal keys also require
+a selected workspace. Account operations use a separate user access token.
 
 `mcp config` outputs a Cursor JSON object or Codex TOML section to merge into
-existing user settings. It does not write files or read your saved API key.
+existing user settings. It reads saved profile selection and does not write files
+or include your saved API key in the output.
 The generated settings read `ASSETHUB_API_KEY` from the AI client's environment.
-Use the same workspace key as your CLI profile. For a different API origin, pass
+Use the same key as your CLI profile. Personal profiles include the selected
+`X-AssetHub-Workspace` header; `--workspace` overrides it in the generated settings.
+For a different API origin, pass
 `--base-url https://your-host/prefix` (HTTP is accepted only for localhost).
 
 Explicit `--profile` uses that profile's key and origin, ahead of environment
 variables, including user tokens and workspace MFA proofs. A missing profile fails.
-Without an explicit profile, a workspace selected with `workspace use` takes
-precedence over environment API credentials; otherwise the environment key
+Without an explicit profile, a personal profile or a workspace selected with
+`workspace use` takes precedence over environment API credentials; otherwise the environment key
 precedes the saved default. `--api-key` and `--base-url` remain
 explicit overrides. `auth logout` removes the selected saved profile (or the
 saved default); environment credentials remain under your shell’s control.

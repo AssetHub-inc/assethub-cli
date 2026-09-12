@@ -135,10 +135,12 @@ describe('uploadRun', () => {
       plan: planWith([blobA, blobB]),
       baseUrl: BASE_URL,
       apiKey: API_KEY,
+      workspaceId: 'personal-workspace',
       fetchImpl,
     })
 
     expect(calls.map(call => call.method)).toEqual(['POST', 'HEAD', 'HEAD', 'PUT', 'PUT'])
+    expect(calls.every(call => call.headers['x-assethub-workspace'] === 'personal-workspace')).toBe(true)
     // The PUT that carries bytes is for the blob whose HEAD said 404.
     expect(calls[3].url).toContain(encodeURIComponent(blobB.blobKey))
     expect(calls[3].headers['x-artifact-blob-sha256']).toBe(blobB.sha256)

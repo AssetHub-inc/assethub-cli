@@ -53,6 +53,7 @@ export type UploadRunInput = {
   plan: RunUploadPlan
   baseUrl: string
   apiKey: string
+  workspaceId?: string
   fetchImpl?: typeof fetch
   skipRegister?: boolean
   onProgress?: (event: RunUploadProgressEvent) => void
@@ -62,13 +63,14 @@ export const uploadRun = async ({
   plan,
   baseUrl,
   apiKey,
+  workspaceId,
   fetchImpl = globalThis.fetch.bind(globalThis),
   skipRegister = false,
   onProgress = () => {},
 }: UploadRunInput): Promise<RunUploadResult> => {
   const urls = controlRunUploadUrls(baseUrl)
   // Built once, never logged, never placed in a URL or a query string.
-  const authHeaders = {authorization: `Bearer ${apiKey}`}
+  const authHeaders = {authorization: `Bearer ${apiKey}`, ...(workspaceId ? {'X-AssetHub-Workspace': workspaceId} : {})}
 
   let registered = false
   if (!skipRegister) {

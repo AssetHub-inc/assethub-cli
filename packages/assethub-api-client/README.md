@@ -2,6 +2,20 @@
 
 Typed client for the public AssetHub API.
 
+## Personal API keys
+
+Use `createAssetHubClient({apiKey, workspaceId})` with an `ah_pat_` personal key.
+The client sends `X-AssetHub-Workspace` on JSON and streaming requests, including
+canvas and historical asset operations. The server enforces current membership,
+workspace scope, and read/write permissions; the key does not grant account,
+member, or key administration.
+
+Discover accessible workspaces with `createWorkspaceClient({accessToken: apiKey})`
+and `.list({query, limit, cursor})` (limit 1–100). Personal responses include
+`authentication: 'personal'` and an optional `nextCursor`. `.select(workspaceId)`
+validates access and returns the selected `workspace`; it does not alter a browser
+session. Workspace keys and user access tokens retain their existing behavior.
+
 ## Historical assets
 
 Scoped to the API key workspace:

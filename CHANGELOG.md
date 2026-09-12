@@ -1,5 +1,12 @@
 # Changelog
 
+## CLI 0.1.19 / API client 0.1.10
+
+- Use one personal API key across its permitted workspaces; switching keeps the same credential and profile.
+- Send the selected workspace on API, streaming, workspace discovery, MCP and upload requests.
+- Support bounded workspace search and preserve workspace scope during recovery.
+- Personal key issuance requires the corresponding server rollout; existing workspace credentials remain supported.
+
 ## CLI 0.1.18 / API client 0.1.9
 
 - Download owned canvas images, meshes, and available generation/edit history with `canvas download`, optionally scoped to a mesh.

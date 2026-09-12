@@ -8,8 +8,12 @@ export type Workspace = {
 
 export type WorkspaceListResult = {
   userId: string
+  authentication?: 'personal'
   workspaces: Workspace[]
+  nextCursor?: string | null
 }
+
+export type WorkspaceListOptions = {query?: string; limit?: number; cursor?: string}
 
 export type WorkspaceCreateResult = {
   workspace: {id: string; name: string}
@@ -25,6 +29,7 @@ export type WorkspaceMfa = {
 export type WorkspaceSelectResult = {
   workspaceId: string
   selected: true
+  workspace?: Workspace
   mfa: WorkspaceMfa
 }
 
@@ -70,6 +75,7 @@ export type WorkspaceMemberRemoveResult = {
 
 export type WorkspaceClientOptions = {
   accessToken: string
+  workspaceId?: string
   /** Signed `ah_workspace_mfa` proof issued by the AssetHub browser flow. */
   workspaceMfaToken?: string
   baseUrl?: string
@@ -92,7 +98,7 @@ export type WorkspaceClient = {
     workspaceId: string,
     userId: string,
   ): Promise<WorkspaceMemberRemoveResult>
-  list(): Promise<WorkspaceListResult>
+  list(options?: WorkspaceListOptions): Promise<WorkspaceListResult>
   create(
     input: {name: string},
     options?: WorkspaceCreateOptions,
@@ -175,9 +181,16 @@ const workspace = (value: unknown): value is Workspace => {
 const workspaceList = (value: unknown): WorkspaceListResult | null => {
   const result = object(value)
   return string(result.userId) &&
+    (result.authentication === undefined || result.authentication === 'personal') &&
+    (result.nextCursor === undefined || result.nextCursor === null || string(result.nextCursor)) &&
     Array.isArray(result.workspaces) &&
     result.workspaces.every(workspace)
-    ? {userId: result.userId, workspaces: result.workspaces}
+    ? {
+        userId: result.userId,
+        workspaces: result.workspaces,
+        ...(result.authentication === 'personal' ? {authentication: 'personal' as const} : {}),
+        ...(result.nextCursor === null || string(result.nextCursor) ? {nextCursor: result.nextCursor} : {}),
+      }
     : null
 }
 
@@ -286,6 +299,7 @@ const workspaceSelection = (value: unknown): WorkspaceSelectResult | null => {
   if (
     !string(result.workspaceId) ||
     result.selected !== true ||
+    (result.workspace !== undefined && (!workspace(result.workspace) || result.workspace.id !== result.workspaceId)) ||
     !MFA_STATUSES.includes(mfa.status as WorkspaceMfa['status']) ||
     !validFactorId(mfa.factorId) ||
     !validFactorType(mfa.factorType)
@@ -294,6 +308,7 @@ const workspaceSelection = (value: unknown): WorkspaceSelectResult | null => {
   return {
     workspaceId: result.workspaceId,
     selected: true,
+    ...(workspace(result.workspace) ? {workspace: result.workspace} : {}),
     mfa: {
       status: mfa.status as WorkspaceMfa['status'],
       ...(string(mfa.factorId) ? {factorId: mfa.factorId} : {}),
@@ -335,8 +350,10 @@ const requestHeaders = (
   init: RequestInit,
   accessToken: string,
   encodedMfaToken: string | undefined,
+  workspaceId: string | undefined,
 ): HeadersInit => ({
   Authorization: `Bearer ${accessToken}`,
+  ...(workspaceId ? {'X-AssetHub-Workspace': workspaceId} : {}),
   ...(init.body === undefined ? {} : {'Content-Type': 'application/json'}),
   ...(init.headers ?? {}),
   ...(encodedMfaToken ? {Cookie: `ah_workspace_mfa=${encodedMfaToken}`} : {}),
@@ -368,7 +385,7 @@ export const createWorkspaceClient = (
       response = await fetchImpl(`${baseUrl}${path}`, {
         ...init,
         redirect: 'error',
-        headers: requestHeaders(init, options.accessToken, encodedMfaToken),
+        headers: requestHeaders(init, options.accessToken, encodedMfaToken, options.workspaceId),
       })
     } catch (error) {
       const message =
@@ -431,7 +448,17 @@ export const createWorkspaceClient = (
         {method: 'DELETE', body: JSON.stringify({userId})},
         workspaceMemberRemoval,
       ),
-    list: () => request('/api/workspaces', {method: 'GET'}, workspaceList),
+    list: (listOptions = {}) => {
+      const query = new URLSearchParams()
+      if (listOptions.query !== undefined) query.set('query', listOptions.query)
+      if (listOptions.cursor !== undefined) query.set('cursor', listOptions.cursor)
+      if (listOptions.limit !== undefined) {
+        if (!Number.isSafeInteger(listOptions.limit) || listOptions.limit < 1 || listOptions.limit > 100)
+          throw new Error('Workspace list limit must be between 1 and 100')
+        query.set('limit', String(listOptions.limit))
+      }
+      return request(`/api/workspaces${query.size ? `?${query}` : ''}`, {method: 'GET'}, workspaceList)
+    },
     create: (input, createOptions = {}) =>
       request(
         '/api/workspaces',
