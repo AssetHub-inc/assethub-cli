@@ -1,4 +1,4 @@
-import {randomUUID} from 'node:crypto'
+import {createHash, randomUUID} from 'node:crypto'
 import {mkdir, writeFile} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 import {setTimeout as delay} from 'node:timers/promises'
@@ -83,6 +83,7 @@ type SubmitOptions = {
   parentRunId?: string
   source?: ExecutionContext['source']
   graphSource?: ExecutionContext['graphSource']
+  canvasNode?: ExecutionContext['canvasNode']
 }
 
 export class CliExecutionError extends Error {
@@ -100,9 +101,17 @@ export class CliExecutionError extends Error {
 /** Kept only for SIGINT reporting; interrupting the client never cancels server work. */
 export const activeExecution: {
   operationId?: string
+  batchOperationId?: string
   runId?: string
   execution?: CanvasExecution
 } = {}
+
+export const childOperationId = (parent: string, step: string) => {
+  const hash = createHash('sha256')
+    .update(JSON.stringify([parent, step]))
+    .digest('hex')
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`
+}
 
 const operationPath = (stateDir: string, id: string): string => {
   if (
@@ -283,6 +292,16 @@ export const executeRecorded = async (
     )
   const operationId = options.operationId ?? randomUUID()
   const path = operationPath(session.stateDir, operationId)
+  if (
+    await readState(
+      join(session.stateDir, 'node-batches', `${operationId}.json`),
+    )
+  )
+    throw new CliExecutionError(
+      'Operation ID belongs to a different node batch; use runs resume or a new operation ID',
+      2,
+      operationId,
+    )
   const saved: SavedOperation = JSON.parse(
     JSON.stringify({
       operation,
@@ -298,6 +317,7 @@ export const executeRecorded = async (
           agent: options.agent,
           parentRunId: options.parentRunId,
           graphSource: options.graphSource,
+          canvasNode: options.canvasNode,
         },
       },
     }),
@@ -335,6 +355,8 @@ export const resumeRecorded = async (
     operationId: string
     retryDelayMs?: number
     expectedCanvasId?: number
+    expectedCanvasNodeId?: string
+    expectedOperation?: Operation
     expectedBody?: Record<string, unknown>
   },
 ) => {
@@ -345,6 +367,17 @@ export const resumeRecorded = async (
     throw new Error('Saved operation not found')
   if (saved.baseUrl !== options.client.baseUrl)
     throw new Error('Saved operation belongs to a different API origin')
+  if (
+    options.expectedOperation !== undefined &&
+    saved.operation !== options.expectedOperation
+  )
+    throw new Error('Saved operation has a different operation type')
+  if (
+    options.expectedCanvasNodeId !== undefined &&
+    saved.body.executionContext.canvasNode?.nodeId !==
+      options.expectedCanvasNodeId
+  )
+    throw new Error('Saved operation belongs to a different canvas node')
   if (
     options.expectedCanvasId !== undefined &&
     saved.body.executionContext.canvasId !== options.expectedCanvasId

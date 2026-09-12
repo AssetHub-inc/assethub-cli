@@ -3,6 +3,11 @@ import {setTimeout as delay} from 'node:timers/promises'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
 import {ingestProjectSources} from './projectSources.js'
 import {downloadCanvas} from './canvasDownload.js'
+import {
+  executeNodeMeshBatch,
+  resumeNodeMeshBatch,
+  type NodeMeshBatchResult,
+} from './nodeMeshBatch.js'
 import {writeCanvasComparison} from './canvasComparison.js'
 import {importCanvasAssetWithState} from './canvasAssetImport.js'
 import {execFile, spawn} from 'node:child_process'
@@ -55,6 +60,7 @@ import {
 import {resolveCanvasSelection, saveCanvasSelection} from './canvas.js'
 import {
   activeExecution,
+  childOperationId,
   CliExecutionError,
   executeRecorded,
   hasRecordedOperation,
@@ -235,6 +241,7 @@ Usage:
   assethub project ingest <source-dir> --out-dir <directory> [--exclude-dir <relative-path>...]
   assethub language text|vision --input-json @<json> --operation-id <uuid> [--out <json>]
   assethub canvas download --canvas <id> --out-dir <directory> [--mesh <mesh_asset_id>]
+  assethub canvas nodes --canvas <id>
   assethub canvas import --canvas <id> --file <image> [--name <name>]
   assethub canvas context get --canvas <id> [--out <json>]
   assethub canvas context put --canvas <id> --file <json> [--if-version <n>]
@@ -257,6 +264,7 @@ Usage:
   assethub composer run --part <mesh-asset-id> [--part <mesh-asset-id>...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --from-run <run-id> [--transforms-json <json|@file>] [--mode quick|quality] [--wait]
+  assethub composer run --node <shape:id> --canvas <id> [--model <id>] [--mode quick|quality] [--operation-id <uuid>] [--wait]
   assethub canvas create [--name <name>] [--operation-id <uuid>]
   assethub canvas list [--cursor <cursor>] [--limit <n>]
   assethub canvas get|use|open [<id>]
@@ -272,6 +280,7 @@ Usage:
   assethub evaluations get <evaluation-id>
   assethub image generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
   assethub mesh generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
+  assethub mesh generate --node <shape:id> --canvas <id> [--model-id <id>] [--params-json <json|@file>] [--operation-id <uuid>] [--wait]
   assethub mesh list [--query <text>] [--cursor <cursor>] [--limit <n>]
   assethub mesh get <mesh-asset-id>
   assethub mesh download <mesh-asset-id> --out-dir <directory>
@@ -2220,6 +2229,182 @@ const printRecorded = async (
   process.exitCode = executionExitCode(execution)
 }
 
+const canvasNodeFlag = (flags: Flags): string | undefined => {
+  if (!hasFlag(flags, 'node')) return undefined
+  const nodeId = requireFlag(flags, 'node')
+  if (!nodeId.startsWith('shape:') || nodeId.length <= 6)
+    throw new Error('--node must be a native shape:<id> from canvas nodes')
+  if (
+    sourceInputCount(flags) ||
+    [
+      'input-json',
+      'upload-id',
+      'from-node',
+      'graph-revision',
+      'from-run',
+      'part',
+      'reference',
+      'transforms-json',
+    ].some(name => hasFlag(flags, name))
+  )
+    throw new Error(
+      '--node cannot be combined with explicit sources, parts, reference, input JSON, or another node/run selector',
+    )
+  return nodeId
+}
+
+const printNodeMeshBatch = async (
+  ctx: CommandContext,
+  batch: NodeMeshBatchResult,
+) => {
+  const executions = [...batch.executions]
+  if (hasFlag(ctx.flags, 'wait')) {
+    try {
+      for (let i = 0; i < executions.length; i++)
+        executions[i] = await waitForExecution(
+          ctx.client,
+          executions[i].runId,
+          watchOptions(ctx.flags),
+        )
+    } catch (error) {
+      if (!(error instanceof CliExecutionError)) throw error
+      throw new CliExecutionError(
+        error.message,
+        error.exitCode,
+        batch.operationId,
+        error.execution,
+        error.runId,
+      )
+    }
+  }
+  const downloads = await maybeDownloadUrls(
+    ctx.flags,
+    executions.flatMap(execution => execution.outputs),
+  )
+  print({...batch, executions, ...(downloads ? {downloads} : {})})
+  process.exitCode = Math.max(0, ...executions.map(executionExitCode))
+}
+
+const commandNodeMesh = async (ctx: CommandContext, nodeId: string) => {
+  const body: Record<string, unknown> = {}
+  const modelId = getFlag(ctx.flags, 'model-id')
+  if (modelId) body.modelId = modelId
+  const name = getFlag(ctx.flags, 'name')
+  if (name) body.name = name
+  if (hasFlag(ctx.flags, 'face-limit'))
+    body.faceLimit = parsePositiveIntegerFlag(ctx.flags, 'face-limit', 1)
+  if (hasFlag(ctx.flags, 'low-poly'))
+    body.isLowPoly = parseBooleanFlag(ctx.flags, 'low-poly')
+  if (hasFlag(ctx.flags, 'params-json')) {
+    const params = await readJsonArgument(
+      requireFlag(ctx.flags, 'params-json'),
+      '--params-json',
+    )
+    if (
+      Object.values(params).some(
+        value =>
+          typeof value !== 'string' &&
+          typeof value !== 'boolean' &&
+          !(typeof value === 'number' && Number.isFinite(value)),
+      )
+    )
+      throw new Error(
+        '--params-json values must be strings, booleans, or finite numbers',
+      )
+    body.params = params
+  }
+  const operationId = getFlag(ctx.flags, 'operation-id')
+  const canvasId = selectedCanvasId(ctx.flags)
+  const resumeOptions = {
+    ...stateOptions(ctx),
+    expectedCanvasId: canvasId,
+    expectedCanvasNodeId: nodeId,
+    expectedBody: body,
+  }
+  if (operationId) {
+    const batch = await resumeNodeMeshBatch({...resumeOptions, operationId})
+    if (batch) {
+      await printNodeMeshBatch(ctx, batch)
+      return
+    }
+    if (await hasRecordedOperation(resumeOptions.stateDir, operationId)) {
+      await printRecorded(
+        ctx,
+        await resumeRecorded({
+          ...resumeOptions,
+          operationId,
+          expectedOperation: 'mesh.generate',
+        }),
+      )
+      return
+    }
+  }
+  const session = await openExecutionSession({
+    ...stateOptions(ctx),
+    canvasId,
+    operation: 'mesh.generate',
+    create: false,
+  })
+  const {items} = await ctx.client.v2.listCanvasNodes(session.canvas.id)
+  const target = items.find(item => item.nodeId === nodeId)
+  if (!target)
+    throw new Error('Canvas node is unavailable; read canvas nodes again')
+  const finishedOrBusy = (status?: string) =>
+    ['complete', 'completed', 'generating'].includes(status ?? '')
+  if (target.type === 'production-3d') {
+    if (!target.actions.includes('mesh.generate'))
+      throw new Error('Mesh generation is unavailable for this node')
+    const children = items.filter(
+      item =>
+        item.sourceNodeId === nodeId &&
+        ['mesh-gen', 'preview-asset', 'part-group'].includes(item.type),
+    )
+    if (!children.length)
+      throw new Error('Production node has no saved part nodes to generate')
+    const pending = children.filter(
+      item =>
+        item.actions.includes('mesh.generate') &&
+        !finishedOrBusy(item.meshStatus),
+    )
+    const batchId = operationId ?? randomUUID()
+    stderr.write(`[nodes] batch ${batchId}\n`)
+    await printNodeMeshBatch(
+      ctx,
+      await executeNodeMeshBatch(session, {
+        ...executionOptions(ctx.flags),
+        operationId: batchId,
+        nodeId,
+        body,
+        children: pending.map(item => item.nodeId),
+        skipped: children
+          .filter(item => !pending.includes(item))
+          .map(({nodeId, meshStatus}) => ({nodeId, meshStatus})),
+      }),
+    )
+    return
+  }
+  if (!['mesh-gen', 'preview-asset', 'part-group'].includes(target.type))
+    throw new Error('This canvas node cannot generate a mesh')
+  if (finishedOrBusy(target.meshStatus)) {
+    print({nodeId, skipped: true, meshStatus: target.meshStatus})
+    return
+  }
+  if (!target.actions.includes('mesh.generate'))
+    throw new Error('Mesh generation is unavailable for this node')
+  await printRecorded(
+    ctx,
+    await executeRecorded(
+      session,
+      'mesh.generate',
+      body as MeshGenerationRequest,
+      {
+        ...executionOptions(ctx.flags),
+        canvasNode: {nodeId},
+      },
+    ),
+  )
+}
+
 const commandImage = async (
   subcommand: string | undefined,
   ctx: CommandContext,
@@ -2518,6 +2703,7 @@ const commandComposer = async (
     return
   }
   if (subcommand !== 'run') throw new Error('Use composer models|run')
+  const nodeId = canvasNodeFlag(ctx.flags)
   const fromRun = getFlag(ctx.flags, 'from-run')
   const json = getFlag(ctx.flags, 'input-json')
   const parts = getFlagValues(ctx.flags, 'part')
@@ -2531,21 +2717,24 @@ const commandComposer = async (
   const previous = fromRun ? await ctx.client.v2.getRun(fromRun) : undefined
   if (previous && previous.operation !== 'mesh.compose')
     throw new Error('--from-run must identify a mesh.compose execution')
-  const input = previous
-    ? {...(previous.requestedInput ?? previous.input)}
-    : json
-      ? await readJsonArgument(json, '--input-json')
-      : {
-          parts: parts.map(assetId => ({
-            assetId: assertFlagHasValue(assetId, '--part <asset-id>'),
-          })),
-          fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
-        }
+  const input: Record<string, unknown> = nodeId
+    ? {}
+    : previous
+      ? {...(previous.requestedInput ?? previous.input)}
+      : json
+        ? await readJsonArgument(json, '--input-json')
+        : {
+            parts: parts.map(assetId => ({
+              assetId: assertFlagHasValue(assetId, '--part <asset-id>'),
+            })),
+            fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
+          }
   delete input.executionContext
   if (
-    !Array.isArray(input.parts) ||
-    !input.parts.length ||
-    !input.fullBodyImageAssetId
+    !nodeId &&
+    (!Array.isArray(input.parts) ||
+      !input.parts.length ||
+      !input.fullBodyImageAssetId)
   )
     throw new Error('Composer requires parts[] and fullBodyImageAssetId')
   const mode = getFlag(ctx.flags, 'mode')
@@ -2564,11 +2753,39 @@ const commandComposer = async (
     throw new Error(
       'Recomposition must use the original canvas to retain lineage',
     )
+  const operationId = getFlag(ctx.flags, 'operation-id')
+  if (nodeId && operationId) {
+    const resumeOptions = {
+      ...stateOptions(ctx),
+      operationId,
+      expectedCanvasId: canvasId,
+      expectedCanvasNodeId: nodeId,
+      expectedOperation: 'mesh.compose' as const,
+      expectedBody: input,
+    }
+    // A mesh batch reserves its root key even though its paid requests have child keys.
+    await resumeNodeMeshBatch(resumeOptions)
+    if (await hasRecordedOperation(resumeOptions.stateDir, operationId)) {
+      await printRecorded(ctx, await resumeRecorded(resumeOptions))
+      return
+    }
+  }
   const session = await openExecutionSession({
     ...stateOptions(ctx),
     canvasId,
     operation: 'mesh.compose',
+    ...(nodeId ? {create: false} : {}),
   })
+  if (nodeId) {
+    const {items} = await ctx.client.v2.listCanvasNodes(session.canvas.id)
+    const target = items.find(item => item.nodeId === nodeId)
+    if (
+      !target ||
+      !['production-3d', 'part-composer'].includes(target.type) ||
+      !target.actions.includes('mesh.compose')
+    )
+      throw new Error('Composition is unavailable for this canvas node')
+  }
   const queued = await executeRecorded(
     session,
     'mesh.compose',
@@ -2576,6 +2793,7 @@ const commandComposer = async (
     {
       ...executionOptions(ctx.flags),
       ...(previous ? {parentRunId: previous.runId} : {}),
+      ...(nodeId ? {canvasNode: {nodeId}} : {}),
     },
   )
   await printRecorded(ctx, queued)
@@ -2617,6 +2835,11 @@ const commandMesh = async (
   }
 
   if (subcommand === 'generate') {
+    const nodeId = canvasNodeFlag(ctx.flags)
+    if (nodeId) {
+      await commandNodeMesh(ctx, nodeId)
+      return
+    }
     const inputJson = getFlag(ctx.flags, 'input-json')
     const input = inputJson
       ? await readJsonArgument(inputJson, '--input-json')
@@ -3437,13 +3660,6 @@ const productionSession = (
     operation,
   })
 
-const childOperationId = (parent: string, step: string) => {
-  const hash = createHash('sha256')
-    .update(JSON.stringify([parent, step]))
-    .digest('hex')
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`
-}
-
 const commandProduction = async (
   subcommand: string | undefined,
   positionals: string[],
@@ -4112,6 +4328,11 @@ const commandCanvas = async (
   positionals: string[],
   ctx: CommandContext,
 ) => {
+  if (subcommand === 'nodes') {
+    const {canvas} = await canvasForRead(ctx)
+    print(await ctx.client.v2.listCanvasNodes(canvas.id))
+    return
+  }
   if (subcommand === 'download') {
     const outDir = requireFlag(ctx.flags, 'out-dir')
     const {canvas} = await canvasForRead(ctx)
@@ -4555,6 +4776,14 @@ const commandRuns = async (
     return
   }
   if (subcommand === 'resume') {
+    const batch = await resumeNodeMeshBatch({
+      ...stateOptions(ctx),
+      operationId: requirePositional(positionals, 2, 'operation-id'),
+    })
+    if (batch) {
+      await printNodeMeshBatch(ctx, batch)
+      return
+    }
     const result = await resumeRecorded({
       ...stateOptions(ctx),
       operationId: requirePositional(positionals, 2, 'operation-id'),

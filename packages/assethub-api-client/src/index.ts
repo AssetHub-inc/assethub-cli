@@ -46,6 +46,7 @@ import type {
   CanvasExecution,
   CanvasGraph,
   CanvasGraphOptions,
+  CanvasNodesResult,
   Evaluation,
   EvaluationSubmission,
   ExecutionContext,
@@ -79,6 +80,8 @@ export type {
   CanvasExecution,
   CanvasGraph,
   CanvasGraphOptions,
+  CanvasNode,
+  CanvasNodesResult,
   Evaluation,
   EvaluationReport,
   EvaluationSubmission,
@@ -625,7 +628,6 @@ export type ImageGenerationRequest = {
 
 export type MeshGenerationRequest = {
   executionContext?: ExecutionContext
-  modelId: string
   name?: string
   faceLimit?: number
   isLowPoly?: boolean
@@ -633,8 +635,14 @@ export type MeshGenerationRequest = {
   params?: Record<string, string | number | boolean>
   strictOptions?: boolean
 } & (
-  | {source: Source; sources?: never}
-  | {source?: never; sources: [Source, ...Source[]]}
+  | {modelId: string; source: Source; sources?: never}
+  | {modelId: string; source?: never; sources: [Source, ...Source[]]}
+  | {
+      modelId?: string
+      source?: never
+      sources?: never
+      executionContext: ExecutionContext & {canvasNode: {nodeId: string}}
+    }
 )
 
 export type MeshOperation =
@@ -1011,8 +1019,6 @@ export type ProductionRunResult = {
 }
 
 export type MeshComposeRequest = {
-  parts: Omit<MeshComposerPart, 'volumeCentroid'>[]
-  fullBodyImageAssetId: string
   agentVersion?: string
   mode?: 'quick' | 'quality'
   /** Every part: position xyz, quaternion xyzw, scale xyz. */
@@ -1020,7 +1026,17 @@ export type MeshComposeRequest = {
   targetCharacterHeightM?: number
   projectName?: string
   executionContext: ExecutionContext
-}
+} & (
+  | {
+      parts: Omit<MeshComposerPart, 'volumeCentroid'>[]
+      fullBodyImageAssetId: string
+    }
+  | {
+      parts?: never
+      fullBodyImageAssetId?: never
+      executionContext: ExecutionContext & {canvasNode: {nodeId: string}}
+    }
+)
 export type MeshTransform = [
   number,
   number,
@@ -2162,6 +2178,15 @@ export class AssetHubClient {
           'v2',
           `/runs/${encodeURIComponent(runId)}`,
           {method: 'GET', signal: options.signal},
+        )
+      ).data,
+
+    listCanvasNodes: async (canvasId: number): Promise<CanvasNodesResult> =>
+      (
+        await this.request<CanvasNodesResult>(
+          'v2',
+          `/canvases/${encodeURIComponent(canvasId)}/nodes`,
+          {method: 'GET'},
         )
       ).data,
 

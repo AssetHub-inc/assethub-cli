@@ -23,6 +23,15 @@ durable outputs; `listCanvasRuns`, `getCanvasGraph`, and the evaluation submissi
 list/get methods use the same owner-scoped records. `getRun` accepts an AbortSignal.
 
 Existing generation requests without context keep their previous behavior.
+`listCanvasNodes(canvasId)` discovers saved UI shape IDs and available actions.
+For native mesh generation or composition, pass
+`executionContext.canvasNode: {nodeId: 'shape:...'}` and omit mesh sources or
+composer parts/reference. The server uses that node's saved inputs and settings;
+optional model/params or composer mode/version overrides still apply. A retry
+with the same operation ID retains the original resolved inputs. Mesh receipts
+include `execution.meshGeneration` with the canonical mesh ID and progress when
+available. Native node actions require the `api_canvas_native_nodes` feature gate.
+
 Canvas execution is available to authenticated users with access to the selected workspace; unavailable evaluators
 are explicitly reported by capability discovery. External evaluation reports are agent submissions,
 not human approval or server-verified judgments.

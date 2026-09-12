@@ -6,7 +6,18 @@ export type ExecutionContext = {
   agent?: {name: string; sessionId?: string}
   parentRunId?: string | null
   graphSource?: {graphId: string; nodeId: string; revision: string}
+  canvasNode?: {nodeId: string}
 }
+
+export type CanvasNode = {
+  nodeId: string
+  type: string
+  name?: string
+  sourceNodeId?: string
+  meshStatus?: string
+  actions: Array<'mesh.generate' | 'mesh.compose'>
+}
+export type CanvasNodesResult = {items: CanvasNode[]}
 export type MeshVolumeCentroid = [number, number, number]
 export type MeshComposerPart = {
   assetId: string
@@ -80,6 +91,7 @@ export type CanvasExecution = {
     | 'needs_review'
   canvas: Canvas
   jobIds: string[]
+  meshGeneration?: {id: string; progress?: number}
   orderIds: string[]
   graphRefs: Array<{graphId: string; nodeId?: string; revision?: string}>
   outputs: Array<{
