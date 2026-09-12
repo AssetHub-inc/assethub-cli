@@ -23,6 +23,8 @@ export type MeshComposerPart = {
   assetId: string
   name?: string
   canonicalKey?: string
+  partImageAssetId?: string
+  partTaskId?: string
   volumeCentroid?: MeshVolumeCentroid
 }
 
