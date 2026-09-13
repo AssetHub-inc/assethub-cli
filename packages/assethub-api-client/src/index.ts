@@ -1133,6 +1133,7 @@ export type MeshRefinementMode =
   | 'placement'
   | 'workshop'
   | 'blender'
+  | 'codex'
 export type MeshRefinementModeInfo = {
   id: MeshRefinementMode
   available: boolean
@@ -1141,6 +1142,13 @@ export type MeshRefinementModeInfo = {
   budgetMs: number
 }
 export type MeshRefinementCapabilities = {
+  allAngles?: boolean
+  background?: boolean
+  agentModels?: {
+    id: string
+    label: string
+    provider: 'openrouter' | 'agents-api'
+  }[]
   defaultMode: 'standard'
   modes: MeshRefinementModeInfo[]
 }
@@ -1148,7 +1156,40 @@ export type ComposerAgentRuntime = {
   provider: 'openrouter' | 'agents-api'
   model: string
 }
+export type ComposerRefineCalibration = {
+  referenceAssetId: string
+  anchorAssetId: string
+  confirmedAnchorTransform?: number[]
+  referenceTransform: number[]
+  center: number[]
+  span: number
+}
+export type ComposerReferenceViews = {
+  sourceAssetId: string
+  side?: {assetId: string; inferred: boolean}
+  back?: {assetId: string; inferred: boolean}
+  workflowRunId?: string
+  scope?: 'front' | 'all_angles'
+  pendingActionId?: string
+  allAngles?: {
+    workflowRunId: string
+    videoExecutionId: string
+    cameraKey: string
+    basisKey: string
+    status: 'pending' | 'ready' | 'needs_review' | 'failed'
+  }
+}
 export type MeshRefineRequest = {
+  geometryBackend?: 'blender'
+  referenceMode?: 'front' | 'all_angles'
+  calibration?: ComposerRefineCalibration
+  referenceViews?: ComposerReferenceViews
+  geometrySources?: Record<string, string>
+  reviewContext?: {
+    issues: string[]
+    parts: {assetId: string; sourceAssetId?: string; issues: string[]}[]
+  }
+  background?: {nodeShapeId: string; notifyByEmail: boolean}
   agentRuntime?: ComposerAgentRuntime
   parts: MeshComposerPart[]
   fullBodyImageAssetId: string

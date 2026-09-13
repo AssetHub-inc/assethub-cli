@@ -33,19 +33,22 @@ it.each([
   {command: 'run', previousOperation: 'mesh.compose', override: true},
   {command: 'refine', previousOperation: 'mesh.compose', override: false},
   {command: 'refine', previousOperation: 'mesh.refine', override: false},
-])('reuses native $previousOperation sources for composer $command (override=$override)', async ({command, previousOperation, override}) => {
+  {command: 'refine', previousOperation: 'mesh.refine', override: false, modeOverride: 'standard'},
+])('reuses native $previousOperation sources for composer $command (override=$override)', async ({command, previousOperation, override, modeOverride}) => {
   const stateDir = await mkdtemp(join(tmpdir(), 'assethub-native-lineage-'))
   cleanup.push(() => rm(stateDir, {recursive: true, force: true}))
   const canvas = {id: 42, name: 'Native Composer', ownerId: 'org-a', url: 'https://api.test/workflow/42'}
   const posted: Record<string, unknown>[] = []
   const paths: string[] = []
   const agentRuntime = {provider: previousOperation === 'mesh.refine' ? 'agents-api' : 'openrouter', model: 'saved/model-selection'}
-  const frozen = {agentRuntime, parts: [{assetId: 'mesh_old'}], fullBodyImageAssetId: 'saved-reference', agentVersion: 'part_composer_v4_turntable', mode: previousOperation === 'mesh.refine' ? 'placement' : 'quick',
+  const frozen = {agentRuntime, parts: [{assetId: 'mesh_old'}], fullBodyImageAssetId: 'saved-reference', agentVersion: 'part_composer_v4_turntable', mode: previousOperation === 'mesh.refine' ? 'codex' : 'quick',
     transforms: {mesh_old: originalTransform}, nativeRunMode: 'quick-agent', nativeNodeId: 'shape:composer', nativeScene: {internal: true}, nativeNodeInputFingerprint: 'private-fingerprint', operationKey: 'old-command',
+    ...(previousOperation === 'mesh.refine' ? {geometryBackend: 'blender', referenceMode: 'all_angles', geometrySources: {mesh_old: 'oldest'}, background: {nodeShapeId: 'shape:composer', notifyByEmail: false}} : {}),
     quickRunId: 'run_old', quickScene: {internal: true}, referenceTransform: originalTransform,
   }
   const previous = {schemaVersion: 'assethub.execution.v1', runId: 'native-run', operation: previousOperation, status: 'needs_review', canvas,
     requestedInput: {executionContext: {canvasId: 42, canvasNode: {nodeId: 'shape:composer'}}}, input: {parts: [{assetId: 'stale-mesh'}]}, resolvedInput: frozen,
+    refinement: {geometrySources: {mesh_latest: 'mesh_old'}, referenceViews: {sourceAssetId: 'saved-reference', scope: 'all_angles'}},
     composition: {parts: [{assetId: 'mesh_latest', sourceAssetId: 'mesh_old', name: 'Body', canonicalKey: 'body', volumeCentroid: [1, 2, 3], transform}], transforms: {mesh_latest: transform}, referenceTransform: transform},
   }
   const server = createServer(async (request, response) => {
@@ -54,7 +57,7 @@ it.each([
     if (request.url === '/api/v2/runs/native-run') data = previous
     else if (request.url === '/api/v2/capabilities') data = {ownerId: 'org-a', executionContext: {status: 'available', operations: ['mesh.compose', 'mesh.refine']}, evaluators: []}
     else if (request.url === '/api/v2/canvases/42') data = canvas
-    else if (request.method === 'GET' && request.url === '/api/v2/mesh/refine') data = {defaultMode: 'standard', modes: [{id: 'standard', available: true, maxRounds: 2, budgetMs: 30000}, {id: 'placement', available: true, maxRounds: 3, budgetMs: 90000}]}
+    else if (request.method === 'GET' && request.url === '/api/v2/mesh/refine') data = {defaultMode: 'standard', modes: [{id: 'standard', available: true, maxRounds: 2, budgetMs: 30000}, {id: 'codex', available: true, maxRounds: 3, budgetMs: 90000}]}
     else if (request.method === 'POST' && ['/api/v2/mesh/compose', '/api/v2/mesh/refine'].includes(request.url ?? '')) {
       const body = await readBody(request)
       posted.push(body)
@@ -73,8 +76,15 @@ it.each([
   if (!address || typeof address === 'string') throw new Error('Missing server address')
   const result = await runCli(`http://127.0.0.1:${address.port}`, stateDir, ['composer', command, '--from-run', 'native-run',
     ...(command === 'refine' ? ['--instruction', 'Align the saved parts'] : []),
+    ...(modeOverride ? ['--mode', modeOverride] : []),
     ...(override ? ['--transforms-json', JSON.stringify({mesh_latest: originalTransform})] : []),
   ])
+  if (modeOverride) {
+    expect(result.code).toBe(2)
+    expect(JSON.stringify(result.json) + result.stderr).toContain('use --input-json')
+    expect(posted).toHaveLength(0)
+    return
+  }
   expect(result.code, JSON.stringify(result.json)).toBe(0)
   expect(posted).toHaveLength(1)
   expect(posted[0]).toMatchObject({agentRuntime, parts: [{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}], fullBodyImageAssetId: 'saved-reference', transforms: {mesh_latest: override ? originalTransform : transform}, executionContext: {canvasId: 42, parentRunId: 'native-run'}})
@@ -82,6 +92,7 @@ it.each([
   if (command === 'run') {
     expect(posted[0]!.parts).toEqual([{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}])
     expect(posted[0]).not.toHaveProperty('referenceTransform')
-  } else expect(posted[0]).toMatchObject({referenceTransform: transform, mode: previousOperation === 'mesh.refine' ? 'placement' : 'standard', parts: [{volumeCentroid: [1, 2, 3]}]})
+  } else expect(posted[0]).toMatchObject({referenceTransform: transform, mode: previousOperation === 'mesh.refine' ? 'codex' : 'standard', parts: [{volumeCentroid: [1, 2, 3]}]})
+  if (command === 'refine' && previousOperation === 'mesh.refine') expect(posted[0]).toMatchObject({geometryBackend: 'blender', referenceMode: 'all_angles', geometrySources: previous.refinement.geometrySources, referenceViews: previous.refinement.referenceViews, background: frozen.background})
   expect(paths.some(path => /upload|assets|\/image/.test(path))).toBe(false)
 })
