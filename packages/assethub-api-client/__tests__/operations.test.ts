@@ -392,3 +392,107 @@ describe('authenticated advertised operations', () => {
     expect(requests).toHaveLength(3)
   })
 })
+
+// @testdoc Advertised NDJSON writes dispatch once with the same actor/key, retain outputs, and never treat failed/truncated streams as success.
+it.each([
+  {
+    name: 'raw success',
+    lines: [
+      {
+        type: 'workflow-step-result',
+        payload: {output: {assetIds: ['image-1']}},
+      },
+      {type: 'workflow-finish', payload: {workflowStatus: 'success'}},
+    ],
+    ok: true,
+  },
+  {
+    name: 'public success',
+    lines: [{type: 'result', assetIds: ['image-1']}],
+    ok: true,
+  },
+  {
+    name: 'terminal failure',
+    lines: [{type: 'workflow-finish', payload: {workflowStatus: 'failed'}}],
+    ok: false,
+  },
+  {
+    name: 'truncated',
+    lines: [
+      {
+        type: 'workflow-step-result',
+        payload: {output: {assetIds: ['image-1']}},
+      },
+    ],
+    ok: false,
+  },
+  {
+    name: 'result then error',
+    lines: [{type: 'result', assetIds: ['image-1']}, {type: 'error'}],
+    ok: false,
+  },
+  {name: 'invalid event', lines: [null], ok: false},
+  {name: 'empty', lines: [], ok: false},
+  {
+    name: 'oversized',
+    lines: [
+      {type: 'result', assetIds: ['image-1'], padding: 'x'.repeat(1_048_576)},
+    ],
+    ok: false,
+  },
+])('consumes $name workflow response without replay', async ({lines, ok}) => {
+  const bytes = new TextEncoder().encode(
+    lines.map(line => JSON.stringify(line)).join('\r\n'),
+  )
+  const fetch = vi.fn(
+    async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(bytes.slice(0, 17))
+            controller.enqueue(bytes.slice(17))
+            controller.close()
+          },
+        }),
+        {headers: {'Content-Type': 'application/x-ndjson; charset=utf-8'}},
+      ),
+  )
+  const client = createAssetHubClient({
+    apiKey: 'scoped-key',
+    workspaceId: 'workspace',
+    fetch,
+  })
+  const streamSpec = {
+    paths: {
+      '/image/edit': {
+        post: {responses: {'200': {content: {'application/x-ndjson': {}}}}},
+      },
+    },
+  }
+  const result = callApiOperation(
+    client,
+    {
+      catalog: buildApiCatalog(streamSpec, 'v1', 'V1 '),
+      specs: {v1: streamSpec, v2: {paths: {}}},
+    },
+    {operation: 'V1 POST /image/edit', operationId, body: {prompt: 'edit'}},
+  )
+  if (ok)
+    await expect(result).resolves.toEqual({
+      success: true,
+      data: {events: lines},
+    })
+  else await expect(result).rejects.toThrow()
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(fetch.mock.calls[0]).toMatchObject([
+    'https://app.assethub.io/api/v1/image/edit',
+    {
+      redirect: 'error',
+      headers: {
+        Authorization: 'Bearer scoped-key',
+        'X-AssetHub-Workspace': 'workspace',
+        'Idempotency-Key': operationId,
+      },
+    },
+  ])
+})

@@ -1666,7 +1666,12 @@ const isFormDataBody = (body: unknown): body is FormData =>
   typeof FormData !== 'undefined' && body instanceof FormData
 
 const isFailedWorkflowEvent = (event: WorkflowStreamEvent): boolean => {
-  const statuses = [event.status, event.payload?.status, event.data?.status]
+  const statuses = [
+    event.status,
+    event.payload?.status,
+    event.payload?.workflowStatus,
+    event.data?.status,
+  ]
   return (
     event.type === 'error' ||
     event.type === 'tool-error' ||
@@ -1678,6 +1683,71 @@ const isFailedWorkflowEvent = (event: WorkflowStreamEvent): boolean => {
         ['failed', 'error', 'cancelled'].includes(status.toLowerCase()),
     )
   )
+}
+
+/** Consume a workflow receipt once, preserving outputs and rejecting failed or incomplete streams. */
+export const readWorkflowStream = async (
+  response: Response,
+): Promise<ApiSuccess<{events: WorkflowStreamEvent[]}>> => {
+  if (!response.ok || response.body == null)
+    throw new Error('AssetHub workflow returned no successful stream body')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let bytes = 0
+  let completed = false
+  const events: WorkflowStreamEvent[] = []
+  const parseLine = (line: string): WorkflowStreamEvent | null => {
+    const trimmed = line.trim()
+    if (trimmed.length === 0) return null
+    const json = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed
+    const parsed: unknown = JSON.parse(json)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+      throw new Error('Invalid AssetHub workflow stream event')
+    return parsed as WorkflowStreamEvent
+  }
+  const emit = (line: string): WorkflowStreamEvent | null => {
+    const event = parseLine(line)
+    if (event != null && isFailedWorkflowEvent(event)) {
+      throw new AssetHubWorkflowError(event)
+    }
+    if (event != null) {
+      completed ||=
+        event.type === 'result' ||
+        (event.type === 'workflow-finish' &&
+          event.payload?.workflowStatus === 'success')
+      events.push(event)
+    }
+    return event
+  }
+
+  try {
+    while (true) {
+      const {done, value} = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      // ponytail: bound buffered workflow receipts at 1 MiB; use durable jobs for larger results.
+      if (bytes > 1_048_576)
+        throw new Error(
+          'AssetHub workflow stream exceeds receipt limit; inspect existing jobs before retrying',
+        )
+      buffer += decoder.decode(value, {stream: true})
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        emit(line)
+      }
+    }
+    buffer += decoder.decode()
+    emit(buffer)
+    if (!completed)
+      throw new Error(
+        'AssetHub workflow stream ended without completion; inspect existing jobs before retrying',
+      )
+    return {success: true, data: {events}}
+  } finally {
+    await reader.cancel().catch(() => undefined)
+  }
 }
 
 export class AssetHubClient {
@@ -1738,6 +1808,17 @@ export class AssetHubClient {
       },
     )
 
+    if (
+      !rawDocument &&
+      response.ok &&
+      response.headers
+        .get('content-type')
+        ?.split(';')[0]
+        .trim()
+        .toLowerCase() === 'application/x-ndjson'
+    )
+      return readWorkflowStream(response)
+
     const payload = (await response.json().catch(() => ({}))) as
       | ApiSuccess<unknown>
       | ApiErrorPayload
@@ -1765,88 +1846,6 @@ export class AssetHubClient {
     }
 
     return payload
-  }
-
-  private async *requestNdJson<T extends WorkflowStreamEvent>(
-    version: AssetHubApiVersion,
-    path: string,
-    init: RequestInit,
-  ): AsyncGenerator<T> {
-    const response = await this.fetchImpl(
-      `${this.baseUrl}/api/${version}${normalizePath(path)}`,
-      {
-        ...init,
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          ...(this.workspaceId ? {'X-AssetHub-Workspace': this.workspaceId} : {}),
-          'Content-Type': 'application/json',
-          ...(init.headers ?? {}),
-        },
-      },
-    )
-    if (!response.ok) {
-      const payload = (await response
-        .json()
-        .catch(() => ({}))) as ApiErrorPayload
-      throw new AssetHubApiError({
-        status: response.status,
-        code: payload.error?.code ?? 'UNKNOWN_ERROR',
-        message:
-          payload.error?.message ??
-          `AssetHub API request failed with status ${response.status}`,
-        payload,
-        requestId:
-          payload.error?.requestId ??
-          response.headers.get('X-Request-ID') ??
-          undefined,
-      })
-    }
-    if (response.body == null) {
-      throw new AssetHubApiError({
-        status: response.status,
-        code: 'EMPTY_STREAM',
-        message: 'AssetHub workflow returned no stream body',
-        payload: null,
-      })
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    const parseLine = (line: string): T | null => {
-      const trimmed = line.trim()
-      if (trimmed.length === 0) return null
-      const json = trimmed.startsWith('data:')
-        ? trimmed.slice(5).trim()
-        : trimmed
-      return JSON.parse(json) as T
-    }
-    const emit = (line: string): T | null => {
-      const event = parseLine(line)
-      if (event != null && isFailedWorkflowEvent(event)) {
-        throw new AssetHubWorkflowError(event)
-      }
-      return event
-    }
-
-    try {
-      while (true) {
-        const {done, value} = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, {stream: true})
-        const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() ?? ''
-        for (const line of lines) {
-          const event = emit(line)
-          if (event != null) yield event
-        }
-      }
-      buffer += decoder.decode()
-      const event = emit(buffer)
-      if (event != null) yield event
-    } finally {
-      await reader.cancel().catch(() => undefined)
-    }
   }
 
   readonly v1 = {

@@ -45,7 +45,7 @@ const fixture = async () => {
     }
     if (url.pathname === '/api/v2/test-stream') {
       res.writeHead(200, {'content-type': 'application/x-ndjson'})
-      res.end('{"status":"completed"}\n')
+      res.end('{"type":"result","assetIds":["image-1"]}\n')
       return
     }
     let data: unknown = {items: [], nextCursor: null}
@@ -140,11 +140,8 @@ it('retains workspace scope on SDK JSON, canvas, history and NDJSON transports',
   await client.v2.getCapabilities()
   await client.v2.getCanvas(42)
   await client.v2.listMeshes()
-  // No public endpoint currently uses the retained streaming transport.
-  const stream = (client as unknown as {requestNdJson: (version: string, path: string, init: RequestInit) => AsyncGenerator<unknown>}).requestNdJson('v2', '/test-stream', {method: 'GET'})
-  const events = []
-  for await (const event of stream) events.push(event)
-  expect(events).toEqual([{status: 'completed'}])
+  const stream = await client.request<{events: unknown[]}>('v2', '/test-stream', {method: 'GET'})
+  expect(stream.data.events).toEqual([{type: 'result', assetIds: ['image-1']}])
   expect(f.requests.map(r => r.workspace)).toEqual(['workspace-b', 'workspace-b', 'workspace-b', 'workspace-b'])
 })
 
