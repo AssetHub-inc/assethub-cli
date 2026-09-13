@@ -25,6 +25,30 @@ export type WorkspaceSkillEvidence = WorkspaceSkillEvidenceRef & {
   decisionRecordId: string
 }
 
+export type WorkspaceSkillImageEvidence = Omit<
+  WorkspaceSkillEvidence,
+  'decisionKind'
+> & {
+  kind: 'workspace_image'
+  decisionKind: Exclude<
+    WorkspaceSkillEvidence['decisionKind'],
+    'publisher_approved'
+  >
+}
+
+export type WorkspaceSkillPublisherPolicyEvidence = {
+  kind: 'publisher_policy'
+  key: string
+  publisherId: string
+  releaseId: string
+  sourceSkillId: string
+  sourceSkillRevision: number
+  sourceSnapshotSha256: string
+  reviewRecordId: string
+  reviewRecordSha256: string
+  decisionKind: 'publisher_approved'
+}
+
 export type WorkspaceSkillApplicability = {
   category: string
   partKinds: string[]
@@ -53,7 +77,6 @@ type WorkspaceSkillBase = {
   goal: string
   applicability: WorkspaceSkillApplicability
   steps: WorkspaceSkillStep[]
-  evidence: WorkspaceSkillEvidence[]
   uncertainties: string[]
   derivedFrom: {
     skillId: string | null
@@ -63,29 +86,42 @@ type WorkspaceSkillBase = {
   }
 }
 
+type WorkspaceSkillFields = {
+  origin: 'workspace' | 'official'
+  taskKind: 'part_separation' | 'concept_art' | 'part_composition'
+  phase: WorkspaceSkillPhase
+  workflowRef: {
+    graphId: string
+    nodeId: string
+    sourceRevision: number
+    contentSha256: string
+  } | null
+  budgetRequirements: {maxOperations: number; maxRepairs: number}
+}
+
 export type WorkspaceSkill = WorkspaceSkillBase &
   (
-    | {schemaVersion: 'ag.memory-skill.v1'}
-    | {
+    | {schemaVersion: 'ag.memory-skill.v1'; evidence: WorkspaceSkillEvidence[]}
+    | (WorkspaceSkillFields & {
         schemaVersion: 'ag.memory-skill.v2'
-        origin: 'workspace' | 'official'
-        taskKind: 'part_separation' | 'concept_art' | 'part_composition'
-        phase: WorkspaceSkillPhase
-        workflowRef: {
-          graphId: string
-          nodeId: string
-          sourceRevision: number
-          contentSha256: string
-        } | null
-        budgetRequirements: {maxOperations: number; maxRepairs: number}
-      }
+        evidence: WorkspaceSkillEvidence[]
+      })
+    | (WorkspaceSkillFields & {
+        schemaVersion: 'ag.memory-skill.v3'
+        evidence: (
+          | WorkspaceSkillImageEvidence
+          | WorkspaceSkillPublisherPolicyEvidence
+        )[]
+      })
   )
 
 export type WorkspaceSkillSummary = {
   summary: string
   taskKind: 'part_separation' | 'concept_art' | 'part_composition' | null
   phase: WorkspaceSkillPhase | null
-  origin: 'workspace'
+  origin: 'workspace' | 'official'
+  officialSkillId: string | null
+  officialRevision: number | null
   skillId: string
   revision: number
   grantRevision: number
@@ -107,6 +143,16 @@ export type WorkspaceSkillDetail = {
   scope: 'artist' | 'project' | 'organization'
   grantRevision: number
   authorId: string | null
+  officialSkillId: string | null
+  officialRevision: number | null
+  publisher: {
+    publisherId: string
+    releaseId: string
+    manifestSha256: string
+    revoked: boolean
+    sourceSnapshot: Record<string, unknown>
+    reviewRecord: Record<string, unknown>
+  } | null
   revisions: {revision: number; content_sha256: string}[]
 }
 
@@ -117,6 +163,7 @@ export type WorkspaceSkillUpdate = Pick<
   expectedRevision: number
   expectedGrantRevision: number
   restoreRevision?: number
+  confirmedContentSha256?: string
 }
 
 export type WorkspaceSkillControls = {
