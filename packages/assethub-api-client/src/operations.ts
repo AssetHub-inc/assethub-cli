@@ -24,6 +24,7 @@ export type ApiOperationDiscovery = {
 export type ApiImageInputSource =
   | {kind: 'resourceId'; resourceId: string}
   | {kind: 'uploadId'; uploadId: string}
+  | {kind: 'graphArtifact'; graphId: string; artifactId: string}
 export type ApiImageInput = {
   source: ApiImageInputSource
   mediaType: 'image/jpeg'
@@ -80,6 +81,20 @@ const parseApiImageInputSource = (value: unknown): ApiImageInputSource => {
     uuid.test(value.uploadId)
   )
     return {kind: 'uploadId', uploadId: value.uploadId}
+  if (
+    value.kind === 'graphArtifact' &&
+    hasOnlyKeys(value, ['kind', 'graphId', 'artifactId']) &&
+    typeof value.graphId === 'string' &&
+    /^[a-z0-9][a-z0-9_.:-]{0,199}$/i.test(value.graphId) &&
+    typeof value.artifactId === 'string' &&
+    value.artifactId.length >= 1 &&
+    value.artifactId.length <= 300
+  )
+    return {
+      kind: 'graphArtifact',
+      graphId: value.graphId,
+      artifactId: value.artifactId,
+    }
   throw new Error('Invalid AssetHub image operation result')
 }
 

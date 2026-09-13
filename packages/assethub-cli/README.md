@@ -18,6 +18,12 @@ For V3.7 Artist Skills analysis, `production analyze` accepts
 Manual selection requires IDs; off rejects them. The server resolves authorized
 published skill revisions and keeps Internal gates and actor checks in force.
 
+For complete-object graph models, add `--context <canvas-id> --context-version <n>`
+to `production analyze` to apply that exact saved Must/Avoid guidance. Both flags
+are required together; `--context` also selects the execution canvas and must
+match `--canvas` when supplied. Stale revisions and unsupported engines fail
+before generation. Guidance does not expand the model's supported part boundaries.
+
 ## Personal API keys
 
 Log in once with a personal key, then select its workspace:

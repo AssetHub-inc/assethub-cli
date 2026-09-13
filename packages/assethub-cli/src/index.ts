@@ -331,7 +331,7 @@ Usage:
   assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
   assethub jobs get <job-id> [--download --out-dir <dir>]
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
-  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
   assethub production agents
   assethub production automation --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--wait]
   assethub production status <order-id> [--wait] [--download --out-dir <dir>]
@@ -4085,10 +4085,11 @@ const productionSession = (
     | 'production.analyze'
     | 'production.execute'
     | 'production.automation',
+  canvasId = selectedCanvasId(ctx.flags),
 ) =>
   openExecutionSession({
     ...stateOptions(ctx),
-    canvasId: selectedCanvasId(ctx.flags),
+    canvasId,
     operation,
   })
 
@@ -4107,7 +4108,21 @@ const commandProduction = async (
       ctx.flags,
       agentVersion,
     )
-    const session = await productionSession(ctx, 'production.analyze')
+    const projectContext =
+      hasFlag(ctx.flags, 'context') || hasFlag(ctx.flags, 'context-version')
+        ? {
+            canvasId: Number(requireFlag(ctx.flags, 'context')),
+            version: Number(requireFlag(ctx.flags, 'context-version')),
+          }
+        : undefined
+    if (projectContext) {
+      if (Object.values(projectContext).some(value => !Number.isSafeInteger(value) || value <= 0))
+        throw new Error('--context and --context-version must be positive integers')
+      const canvasId = selectedCanvasId(ctx.flags)
+      if (canvasId != null && canvasId !== projectContext.canvasId)
+        throw new Error('--context must match --canvas')
+    }
+    const session = await productionSession(ctx, 'production.analyze', projectContext?.canvasId)
     const analyzed = await executeRecorded(
       session,
       'production.analyze',
@@ -4116,6 +4131,7 @@ const commandProduction = async (
         agentVersion,
         name: getFlag(ctx.flags, 'name'),
         ...(skillSelection == null ? {} : {skillSelection}),
+        ...(projectContext == null ? {} : {projectContext}),
       },
       executionOptions(ctx.flags),
     )

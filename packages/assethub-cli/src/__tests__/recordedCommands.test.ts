@@ -392,11 +392,26 @@ describe('built recorded CLI', () => {
         '--canvas', '42', '--part-extractor', name,
         '--skill-mode', 'manual', '--skill-id', 'character-hands',
         '--skill-id', 'shared.proportions',
+        '--context', '42', '--context-version', '3',
       ])
       expect(selected.code, selected.stderr).toBe(0)
       expect(posted.at(-1)?.body.skillSelection).toEqual({
         mode: 'manual',
         skillIds: ['character-hands', 'shared.proportions'],
+      })
+      expect(posted.at(-1)?.body.projectContext).toEqual({
+        canvasId: 42,
+        version: 3,
+      })
+      expectedPostCount++
+      const contextOnly = await cli(baseUrl, dir, [
+        'production', 'analyze', '--source-id', 'image-asset',
+        '--part-extractor', name, '--context', '42', '--context-version', '4',
+      ])
+      expect(contextOnly.code, contextOnly.stderr).toBe(0)
+      expect(posted.at(-1)?.body).toMatchObject({
+        projectContext: {canvasId: 42, version: 4},
+        executionContext: {canvasId: 42},
       })
       expectedPostCount++
       for (const invalid of [
@@ -404,6 +419,11 @@ describe('built recorded CLI', () => {
         ['--skill-mode', 'manual'],
         ['--skill-mode', 'manual', '--skill-id'],
         ['--skill-mode', 'off', '--skill-id', 'character-hands'],
+        ['--context', '42'],
+        ['--context-version', '3'],
+        ['--context', '42', '--context-version', '0'],
+        ['--context', '42', '--context-version', '1.5'],
+        ['--context', '41', '--context-version', '3'],
       ]) {
         const rejected = await cli(baseUrl, dir, [
           'production', 'analyze', '--source-id', 'image-asset',

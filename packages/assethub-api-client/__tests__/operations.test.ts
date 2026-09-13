@@ -61,14 +61,17 @@ it('shares catalog search and exact referenced contracts', () => {
 })
 
 // @testdoc Canonical image operation results retain bytes for native consumers while exposing only byte-free metadata to text and structured outputs.
-it('parses canonical image operation results and sanitizes metadata', () => {
+it.each([
+  {kind: 'resourceId', resourceId: 'owned-image'},
+  {kind: 'graphArtifact', graphId: 'graph-1', artifactId: 'rejected-head'},
+])('parses canonical image operation results and sanitizes metadata: %j', source => {
   const result = parseApiImageOperationResult({
     success: true,
     data: {
       schemaVersion: 'assethub.image-inputs.v1',
       images: [
         {
-          source: {kind: 'resourceId', resourceId: 'owned-image'},
+          source,
           mediaType: 'image/jpeg',
           data: jpegBase64,
           width: 16,
@@ -87,7 +90,7 @@ it('parses canonical image operation results and sanitizes metadata', () => {
       schemaVersion: 'assethub.image-inputs.v1',
       images: [
         {
-          source: {kind: 'resourceId', resourceId: 'owned-image'},
+          source,
           mediaType: 'image/jpeg',
           width: 16,
           height: 8,
@@ -101,6 +104,12 @@ it('parses canonical image operation results and sanitizes metadata', () => {
 // @testdoc Recognized image results reject malformed bytes, sources and batch bounds instead of allowing untrusted payloads into native image content.
 it.each([
   {images: []},
+  ...[
+    {kind: 'graphArtifact', graphId: '../foreign', artifactId: 'head'},
+    {kind: 'graphArtifact', graphId: 'graph-1', artifactId: ''},
+    {kind: 'graphArtifact', graphId: 'graph-1', artifactId: 'a'.repeat(301)},
+    {kind: 'graphArtifact', graphId: 'graph-1', artifactId: 'head', url: 'https://example.com/head.png'},
+  ].map(source => ({images: [{source, mediaType: 'image/jpeg', data: jpegBase64, width: 16, height: 8}]})),
   {
     images: [
       {
