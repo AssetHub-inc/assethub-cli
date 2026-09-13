@@ -9,6 +9,22 @@ export type WorkspaceSkillEvidenceRef = {
   sourceRevision: number
 }
 
+export type WorkspaceSkillEvidence = WorkspaceSkillEvidenceRef & {
+  key: string
+  rootArtifactId: string
+  contentReference: string
+  decisionKind:
+    | 'creator_approved'
+    | 'creator_rejected'
+    | 'artist_modified'
+    | 'ai_accepted'
+    | 'ai_rejected'
+    | 'operation_succeeded'
+    | 'operation_failed'
+    | 'publisher_approved'
+  decisionRecordId: string
+}
+
 export type WorkspaceSkillApplicability = {
   category: string
   partKinds: string[]
@@ -28,8 +44,7 @@ export type WorkspaceSkillStep = {
   checks: string[]
 }
 
-export type WorkspaceSkill = {
-  schemaVersion: 'ag.memory-skill.v1' | 'ag.memory-skill.v2'
+type WorkspaceSkillBase = {
   skillId: string
   revision: number
   contentSha256: string
@@ -38,7 +53,7 @@ export type WorkspaceSkill = {
   goal: string
   applicability: WorkspaceSkillApplicability
   steps: WorkspaceSkillStep[]
-  evidence: Array<WorkspaceSkillEvidenceRef & Record<string, unknown>>
+  evidence: WorkspaceSkillEvidence[]
   uncertainties: string[]
   derivedFrom: {
     skillId: string | null
@@ -46,14 +61,29 @@ export type WorkspaceSkill = {
     contentSha256: string | null
     evidenceKeys: string[]
   }
-  origin?: 'workspace' | 'official'
-  taskKind?: 'part_separation' | 'concept_art' | 'part_composition'
-  phase?: WorkspaceSkillPhase
 }
+
+export type WorkspaceSkill = WorkspaceSkillBase &
+  (
+    | {schemaVersion: 'ag.memory-skill.v1'}
+    | {
+        schemaVersion: 'ag.memory-skill.v2'
+        origin: 'workspace' | 'official'
+        taskKind: 'part_separation' | 'concept_art' | 'part_composition'
+        phase: WorkspaceSkillPhase
+        workflowRef: {
+          graphId: string
+          nodeId: string
+          sourceRevision: number
+          contentSha256: string
+        } | null
+        budgetRequirements: {maxOperations: number; maxRepairs: number}
+      }
+  )
 
 export type WorkspaceSkillSummary = {
   summary: string
-  taskKind: WorkspaceSkill['taskKind'] | null
+  taskKind: 'part_separation' | 'concept_art' | 'part_composition' | null
   phase: WorkspaceSkillPhase | null
   origin: 'workspace'
   skillId: string
@@ -122,11 +152,16 @@ export type WorkspaceSkillProposalSummary = {
   state: string
   version: number
   authorId: string
+  snoozedUntil: string | null
+  confirmationTarget: WorkspaceSkillEvidenceRef | null
   canAccept: boolean
   eligibility: string | null
   draft: {
     draftSha256: string
-    candidate: Omit<WorkspaceSkill, 'contentSha256'>
+    candidate: Omit<
+      Extract<WorkspaceSkill, {schemaVersion: 'ag.memory-skill.v2'}>,
+      'contentSha256'
+    >
   } | null
   results: Array<{
     reference: WorkspaceSkillEvidenceRef

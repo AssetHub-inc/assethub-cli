@@ -17,6 +17,7 @@ export type {
   WorkspaceSkillApplicability,
   WorkspaceSkillControls,
   WorkspaceSkillDetail,
+  WorkspaceSkillEvidence,
   WorkspaceSkillEvidenceRef,
   WorkspaceSkillLearnInput,
   WorkspaceSkillLearnResult,
