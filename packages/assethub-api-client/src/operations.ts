@@ -319,7 +319,7 @@ export const discoverApiOperations = async (
   return {catalog, specs}
 }
 
-/** Execute one advertised JSON operation. Never replay a write or infer a new operation ID. */
+/** Execute one advertised operation. Never replay a write or infer a new operation ID. */
 export const callApiOperation = async (
   client: AssetHubClient,
   discovery: ApiOperationDiscovery,
