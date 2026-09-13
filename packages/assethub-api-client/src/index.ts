@@ -984,6 +984,7 @@ export type ProductionAnalyzeRequest = RequireAtLeastOne<
     agentVersion: string
     name?: string
     skillSelection?: ProductionWorkspaceSkillSelection
+    projectContext?: {canvasId: number; version: number}
   },
   'imageUrl' | 'imageBlobLocation' | 'imageAssetId' | 'uploadId'
 >
