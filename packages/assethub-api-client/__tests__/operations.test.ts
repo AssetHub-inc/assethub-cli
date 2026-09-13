@@ -6,10 +6,12 @@ import {
   callApiOperation,
   describeApiOperation,
   discoverApiOperations,
+  parseApiImageOperationResult,
   searchApiOperations,
 } from '../src/operations.js'
 
 const operationId = '11111111-1111-4111-8111-111111111111'
+const jpegBase64 = '/9j/2Q=='
 const spec = {
   paths: {
     '/mesh/compose': {
@@ -56,6 +58,87 @@ it('shares catalog search and exact referenced contracts', () => {
   expect([...buildApiCatalog(spec, 'v1', 'V1 ').keys()]).toContain(
     'V1 POST /mesh/compose',
   )
+})
+
+// @testdoc Canonical image operation results retain bytes for native consumers while exposing only byte-free metadata to text and structured outputs.
+it('parses canonical image operation results and sanitizes metadata', () => {
+  const result = parseApiImageOperationResult({
+    success: true,
+    data: {
+      schemaVersion: 'assethub.image-inputs.v1',
+      images: [
+        {
+          source: {kind: 'resourceId', resourceId: 'owned-image'},
+          mediaType: 'image/jpeg',
+          data: jpegBase64,
+          width: 16,
+          height: 8,
+        },
+      ],
+    },
+  })
+
+  expect(result.images).toEqual([
+    expect.objectContaining({data: jpegBase64, width: 16, height: 8}),
+  ])
+  expect(result.metadata).toEqual({
+    success: true,
+    data: {
+      schemaVersion: 'assethub.image-inputs.v1',
+      images: [
+        {
+          source: {kind: 'resourceId', resourceId: 'owned-image'},
+          mediaType: 'image/jpeg',
+          width: 16,
+          height: 8,
+        },
+      ],
+    },
+  })
+  expect(JSON.stringify(result.metadata)).not.toContain(jpegBase64)
+})
+
+// @testdoc Recognized image results reject malformed bytes, sources and batch bounds instead of allowing untrusted payloads into native image content.
+it.each([
+  {images: []},
+  {
+    images: [
+      {
+        source: {kind: 'resourceId', resourceId: 'owned-image'},
+        mediaType: 'image/jpeg',
+        data: 'not-base64',
+        width: 16,
+        height: 8,
+      },
+    ],
+  },
+  {
+    images: [
+      {
+        source: {kind: 'uploadId', uploadId: 'not-a-uuid'},
+        mediaType: 'image/jpeg',
+        data: jpegBase64,
+        width: 16,
+        height: 8,
+      },
+    ],
+  },
+  {
+    images: Array.from({length: 5}, () => ({
+      source: {kind: 'resourceId', resourceId: 'owned-image'},
+      mediaType: 'image/jpeg',
+      data: jpegBase64,
+      width: 16,
+      height: 8,
+    })),
+  },
+])('rejects malformed canonical image result %#', data => {
+  expect(() =>
+    parseApiImageOperationResult({
+      success: true,
+      data: {schemaVersion: 'assethub.image-inputs.v1', ...data},
+    }),
+  ).toThrow('Invalid AssetHub image operation result')
 })
 
 // @testdoc Supplied path values cannot turn a discovered operation into traversal, encoded separators or a different URL.

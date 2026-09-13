@@ -6,6 +6,7 @@
 - Add typed Workspace Skill methods and `skills` commands for learning, review, controls, and proposal publication through the existing server gates and actor permissions.
 - Forward bounded skill selection for V3.7 Artist Skills through `production analyze --skill-mode auto|manual|off [--skill-id <id>...]`, preserving server-owned skill resolution.
 - Preserve the newer personal-key selection and terminal execution receipt recovery behavior.
+- Add a shared parser for bounded owned-image responses so MCP and chat can consume actual image pixels while retaining metadata without image bytes.
 
 ## CLI 0.1.22
 
