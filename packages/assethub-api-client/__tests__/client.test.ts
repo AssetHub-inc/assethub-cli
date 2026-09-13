@@ -68,6 +68,47 @@ beforeEach(() => {
 })
 
 describe('@assethub/api-client v2 job foundation', () => {
+  it('discovers raw OpenAPI with the same workspace authentication and transport errors', async () => {
+    const spec = {openapi: '3.0.3', paths: {}}
+    const scoped = createAssetHubClient({
+      apiKey: API_KEY,
+      baseUrl: BASE_URL,
+      workspaceId: 'workspace',
+      fetch: fetchMock,
+    })
+    const signal = new AbortController().signal
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(spec)))
+    await expect(scoped.getOpenApiSpec('v2', {signal})).resolves.toEqual(spec)
+    expect(firstRequest()).toEqual([
+      `${BASE_URL}/api/v2/openapi`,
+      expect.objectContaining({
+        method: 'GET',
+        signal,
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${API_KEY}`,
+          'X-AssetHub-Workspace': 'workspace',
+        }),
+      }),
+    ])
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: false,
+          error: {code: 'FORBIDDEN', message: 'Access denied'},
+        }),
+        {status: 403},
+      ),
+    )
+    await expect(scoped.getOpenApiSpec('v1')).rejects.toMatchObject({
+      status: 403,
+      code: 'FORBIDDEN',
+    })
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(spec)))
+    await expect(scoped.request('v2', '/jobs')).rejects.toMatchObject({
+      code: 'UNKNOWN_ERROR',
+    })
+  })
+
   it('lists jobs with encoded filters and returns the cursor unchanged', async () => {
     const result = {
       items: [job],
@@ -695,6 +736,26 @@ describe('@assethub/api-client v1 Production contracts', () => {
     partImageModelResolvedVia: 'user',
     transformModelVariant: 'nano_banana_pro',
   } as const
+
+  it('forwards bounded workspace skill selection for Artist Skills analysis', async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        orderId: 'order-1',
+        runId: 'order-1',
+        publicAccessToken: '',
+        agentVersion: 'V3.7 Artist Skills',
+        status: 'in_progress',
+      }),
+    )
+    await client().v1.analyzeProduction({
+      imageAssetId: 'image-1',
+      agentVersion: 'V3.7 Artist Skills',
+      skillSelection: {mode: 'manual', skillIds: ['skill-1']},
+    })
+    expect(JSON.parse(String(firstRequest()[1]?.body))).toMatchObject({
+      skillSelection: {mode: 'manual', skillIds: ['skill-1']},
+    })
+  })
 
   it('forwards model-selection fields for execute and run', async () => {
     const executeResult = {

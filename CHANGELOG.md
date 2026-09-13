@@ -1,5 +1,12 @@
 # Changelog
 
+## CLI 0.1.23 / API client 0.1.11
+
+- Discover, describe, and call the authenticated v1/v2 OpenAPI catalog with `api search`, `api describe`, and `api call`; mutations require an explicit stable operation UUID.
+- Add typed Workspace Skill methods and `skills` commands for learning, review, controls, and proposal publication through the existing server gates and actor permissions.
+- Forward bounded skill selection for V3.7 Artist Skills through `production analyze --skill-mode auto|manual|off [--skill-id <id>...]`, preserving server-owned skill resolution.
+- Preserve the newer personal-key selection and terminal execution receipt recovery behavior.
+
 ## CLI 0.1.22
 
 - Preserve returned execution run IDs when a dispatch reports a typed terminal server error, including when the first receipt read is unavailable.

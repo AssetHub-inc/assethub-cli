@@ -40,6 +40,22 @@ assethub --help
 See the [CLI reference](packages/assethub-cli/README.md) for generation, source
 imports, moodboards, versioned context, comparisons, retries, and evaluations.
 
+Discover and execute operations advertised to your authenticated workspace:
+
+```sh
+assethub api search compose
+assethub api describe "POST /mesh/compose"
+assethub api call "GET /canvases/{canvasId}/nodes" --path-json '{"canvasId":"123"}'
+assethub skills list
+assethub skills get my-method
+```
+
+Use `api call` with `--input-json` for JSON bodies and an explicit stable
+`--operation-id <uuid>` for mutations. Read the operation contract first;
+normal gates, workspace permissions, and credits apply. Inspect returned run
+IDs before retrying. `skills` also supports learning, updates, controls, and
+proposal review/publication through the server's Workspace Skills contract.
+
 CLI 0.1.20 accepts `V3.6.5` (Primary Images) and `pluffy` (Chibi Character v3.1)
 for `parts split` and `production analyze`. Both are Internal-only server models;
 check `assethub production agents` for availability. The V1.5 default is unchanged.
