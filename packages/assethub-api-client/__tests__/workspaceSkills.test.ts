@@ -105,3 +105,21 @@ it('sends optimistic revisions for updates and controls', async () => {
     'PATCH',
   ])
 })
+
+it('returns the durable source needed to resume proposal preparation after archive lag', async () => {
+  const source = {
+    graphId: '11111111-1111-4111-8111-111111111111',
+    artifactId: 'native-result',
+    projectId: 42,
+  }
+  fetchMock.mockResolvedValue(ok({status: 'waiting_for_archive', source}))
+  const client = createAssetHubClient({
+    apiKey: 'key',
+    baseUrl: 'https://api.test',
+    fetch: fetchMock,
+  })
+  const result = await client.v2.prepareWorkspaceSkillProposal(source)
+  expect(result).toEqual({status: 'waiting_for_archive', source})
+  if (result.status === 'waiting_for_archive')
+    expect(result.source.projectId).toBe(42)
+})
