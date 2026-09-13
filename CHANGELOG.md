@@ -9,6 +9,7 @@
 - Preserve the newer personal-key selection and terminal execution receipt recovery behavior.
 - Expose live Composer layout credit quotes in the SDK, including an explicit unavailable price while preserving compatibility with older servers.
 - Add a shared parser for bounded owned-image responses so MCP and chat can consume actual image pixels while retaining metadata without image bytes, including rejected candidates selected by owned generated graph and artifact IDs.
+- Preserve exact native Production part task IDs on discovered Canvas nodes so graph retries can target the saved part identity.
 
 ## CLI 0.1.22
 
