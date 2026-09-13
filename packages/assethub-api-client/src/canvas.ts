@@ -14,6 +14,7 @@ export type CanvasNode = {
   type: string
   name?: string
   sourceNodeId?: string
+  partTaskId?: string
   meshStatus?: string
   actions: Array<'mesh.generate' | 'mesh.compose'>
 }
