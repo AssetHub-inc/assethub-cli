@@ -29,6 +29,7 @@ export type {
   WorkspaceSkillProposalAcceptInput,
   WorkspaceSkillPublication,
   WorkspaceSkillProposalPrepareInput,
+  WorkspaceSkillProposalPrepareResult,
   WorkspaceSkillProposalSummary,
   WorkspaceSkillPurpose,
   WorkspaceSkillStep,
@@ -44,6 +45,7 @@ import type {
   WorkspaceSkillProposalAcceptInput,
   WorkspaceSkillPublication,
   WorkspaceSkillProposalPrepareInput,
+  WorkspaceSkillProposalPrepareResult,
   WorkspaceSkillProposalSummary,
   WorkspaceSkillUpdate,
 } from './workspaceSkills.js'
@@ -2112,9 +2114,9 @@ export class AssetHubClient {
 
     prepareWorkspaceSkillProposal: async (
       body: WorkspaceSkillProposalPrepareInput,
-    ): Promise<{proposalId: string; state: string}> =>
+    ): Promise<WorkspaceSkillProposalPrepareResult> =>
       (
-        await this.request<{proposalId: string; state: string}>(
+        await this.request<WorkspaceSkillProposalPrepareResult>(
           'v2',
           '/workspace-skills/proposals',
           {method: 'POST', body: JSON.stringify(body)},

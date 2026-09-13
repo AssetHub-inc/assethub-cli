@@ -194,6 +194,13 @@ export type WorkspaceSkillProposalPrepareInput = {
   projectId?: number
 }
 
+export type WorkspaceSkillProposalPrepareResult =
+  | {status: 'prepared'; proposalId: string; state: string}
+  | {
+      status: 'waiting_for_archive'
+      source: WorkspaceSkillProposalPrepareInput & {projectId: number}
+    }
+
 export type WorkspaceSkillProposalSummary = {
   proposalId: string
   state: string
