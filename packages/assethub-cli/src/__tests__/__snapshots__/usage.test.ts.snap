@@ -51,7 +51,7 @@ Usage:
   assethub api call "<METHOD /path>" [--path-json <json|@file>] [--query-json <json|@file>] [--input-json <json|@file|@->] [--operation-id <uuid>]
   assethub skills list [--cursor <cursor>]
   assethub skills get <skill-id> [--revision <n>]
-  assethub skills learn --input-json <json|@file|@->
+  assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
   assethub skills update <skill-id> --input-json <json|@file|@->
   assethub skills controls <skill-id> --revision <n> --grant-revision <n> --mode automatic|manual|off [--share]
   assethub skills prepare --input-json <json|@file|@->

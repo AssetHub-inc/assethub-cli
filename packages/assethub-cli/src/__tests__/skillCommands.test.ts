@@ -4,18 +4,27 @@ import {expect, it} from 'vitest'
 import {fileURLToPath} from 'node:url'
 
 it('makes every Workspace Skill operation available from the CLI', async () => {
-  const requests: Array<{method?: string; url?: string; body: unknown}> = []
+  const requests: Array<{
+    method?: string
+    url?: string
+    body: unknown
+    operationId: string | undefined
+  }> = []
   const server = createServer(async (req, res) => {
     let raw = ''
     for await (const chunk of req) raw += chunk
     requests.push({
+      operationId: req.headers['idempotency-key'] as string | undefined,
       method: req.method,
       url: req.url,
       body: raw ? JSON.parse(raw) : null,
     })
-    res.writeHead(req.url === '/api/v2/workspace-skills/proposals' ? 202 : 200, {
-      'content-type': 'application/json',
-    })
+    res.writeHead(
+      req.url === '/api/v2/workspace-skills/proposals' ? 202 : 200,
+      {
+        'content-type': 'application/json',
+      },
+    )
     res.end(JSON.stringify({success: true, data: {ok: true}}))
   })
   await new Promise<void>(ready => server.listen(0, '127.0.0.1', ready))
@@ -59,6 +68,8 @@ it('makes every Workspace Skill operation available from the CLI', async () => {
     await run(['get', 'method', '--revision', '1'])
     await run([
       'learn',
+      '--operation-id',
+      proposalId,
       '--input-json',
       JSON.stringify({
         graphId,
@@ -106,16 +117,25 @@ it('makes every Workspace Skill operation available from the CLI', async () => {
         result: ref,
       }),
     ])
-    expect(requests.map(request => `${request.method} ${request.url}`)).toEqual([
-      'GET /api/v2/workspace-skills',
-      'GET /api/v2/workspace-skills/method?revision=1',
-      'POST /api/v2/workspace-skills/learn',
-      'PATCH /api/v2/workspace-skills/method',
-      'PATCH /api/v2/workspace-skills/method/controls',
-      'POST /api/v2/workspace-skills/proposals',
-      `GET /api/v2/workspace-skills/proposals/${proposalId}`,
-      `POST /api/v2/workspace-skills/proposals/${proposalId}/accept`,
-    ])
+    expect(requests[2]?.operationId).toBe(proposalId)
+    await expect(run(['learn', '--input-json', '{}'])).rejects.toThrow(
+      'operation-id',
+    )
+    await expect(
+      run(['learn', '--operation-id', 'invalid', '--input-json', '{}']),
+    ).rejects.toThrow('UUID')
+    expect(requests.map(request => `${request.method} ${request.url}`)).toEqual(
+      [
+        'GET /api/v2/workspace-skills',
+        'GET /api/v2/workspace-skills/method?revision=1',
+        'POST /api/v2/workspace-skills/learn',
+        'PATCH /api/v2/workspace-skills/method',
+        'PATCH /api/v2/workspace-skills/method/controls',
+        'POST /api/v2/workspace-skills/proposals',
+        `GET /api/v2/workspace-skills/proposals/${proposalId}`,
+        `POST /api/v2/workspace-skills/proposals/${proposalId}/accept`,
+      ],
+    )
   } finally {
     await new Promise<void>(done => server.close(() => done()))
   }

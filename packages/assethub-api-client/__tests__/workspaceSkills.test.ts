@@ -32,19 +32,22 @@ it('registers and reuses a workspace skill through the typed v2 client', async (
     baseUrl: 'https://api.test',
     fetch: fetchMock,
   })
-  await client.v2.learnWorkspaceSkill({
-    graphId: '11111111-1111-4111-8111-111111111111',
-    phase: 'generate',
-    evidenceRefs: [
-      {
-        graphId: '11111111-1111-4111-8111-111111111111',
-        artifactId: 'result',
-        contentSha256: 'a'.repeat(64),
-        sourceRevision: 2,
-      },
-    ],
-    purpose: 'generation',
-  })
+  await client.v2.learnWorkspaceSkill(
+    {
+      graphId: '11111111-1111-4111-8111-111111111111',
+      phase: 'generate',
+      evidenceRefs: [
+        {
+          graphId: '11111111-1111-4111-8111-111111111111',
+          artifactId: 'result',
+          contentSha256: 'a'.repeat(64),
+          sourceRevision: 2,
+        },
+      ],
+      purpose: 'generation',
+    },
+    {idempotencyKey: '33333333-3333-4333-8333-333333333333'},
+  )
   await client.v2.listWorkspaceSkills()
   await client.v2.getWorkspaceSkill(skillId)
 
@@ -53,7 +56,12 @@ it('registers and reuses a workspace skill through the typed v2 client', async (
     'https://api.test/api/v2/workspace-skills',
     'https://api.test/api/v2/workspace-skills/validated-method',
   ])
-  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({method: 'POST'})
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+    method: 'POST',
+    headers: expect.objectContaining({
+      'Idempotency-Key': '33333333-3333-4333-8333-333333333333',
+    }),
+  })
 })
 
 it('sends optimistic revisions for updates and controls', async () => {

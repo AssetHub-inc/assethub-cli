@@ -2094,12 +2094,17 @@ export class AssetHubClient {
 
     learnWorkspaceSkill: async (
       body: WorkspaceSkillLearnInput,
+      options: {idempotencyKey: string},
     ): Promise<WorkspaceSkillLearnResult> =>
       (
         await this.request<WorkspaceSkillLearnResult>(
           'v2',
           '/workspace-skills/learn',
-          {method: 'POST', body: JSON.stringify(body)},
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+            ...idempotencyRequestInit(options),
+          },
         )
       ).data,
 

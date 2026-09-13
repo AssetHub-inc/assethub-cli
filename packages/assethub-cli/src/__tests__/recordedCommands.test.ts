@@ -402,6 +402,7 @@ describe('built recorded CLI', () => {
       for (const invalid of [
         ['--skill-id', 'character-hands'],
         ['--skill-mode', 'manual'],
+        ['--skill-mode', 'manual', '--skill-id'],
         ['--skill-mode', 'off', '--skill-id', 'character-hands'],
       ]) {
         const rejected = await cli(baseUrl, dir, [

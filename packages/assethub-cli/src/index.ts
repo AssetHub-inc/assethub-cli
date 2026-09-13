@@ -288,7 +288,7 @@ Usage:
   assethub api call "<METHOD /path>" [--path-json <json|@file>] [--query-json <json|@file>] [--input-json <json|@file|@->] [--operation-id <uuid>]
   assethub skills list [--cursor <cursor>]
   assethub skills get <skill-id> [--revision <n>]
-  assethub skills learn --input-json <json|@file|@->
+  assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
   assethub skills update <skill-id> --input-json <json|@file|@->
   assethub skills controls <skill-id> --revision <n> --grant-revision <n> --mode automatic|manual|off [--share]
   assethub skills prepare --input-json <json|@file|@->
@@ -508,7 +508,9 @@ const resolveProductionSkillSelection = (
   | {mode: 'auto' | 'manual' | 'off'; skillIds: string[]}
   | undefined => {
   const mode = getFlag(flags, 'skill-mode')
-  const skillIds = getFlagValues(flags, 'skill-id')
+  const skillIds = getFlagValues(flags, 'skill-id').map(value =>
+    assertFlagHasValue(value, '--skill-id <id>'),
+  )
   if (mode == null) {
     if (skillIds.length > 0)
       throw new Error('--skill-id requires --skill-mode')
@@ -1967,12 +1969,27 @@ export const commandSkills = async (
       requireFlag(ctx.flags, 'input-json'),
       '--input-json',
     )
+    const operationId =
+      subcommand === 'learn'
+        ? requireFlag(ctx.flags, 'operation-id')
+        : undefined
+    if (
+      operationId != null &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        operationId,
+      )
+    )
+      throw new Error(
+        '--operation-id must be a UUID; reuse the same ID and input after an uncertain response',
+      )
+    if (operationId != null) activeExecution.operationId = operationId
     print(
       subcommand === 'learn'
         ? await ctx.client.v2.learnWorkspaceSkill(
             input as Parameters<
               typeof ctx.client.v2.learnWorkspaceSkill
             >[0],
+            {idempotencyKey: operationId!},
           )
         : await ctx.client.v2.prepareWorkspaceSkillProposal(
             input as Parameters<
