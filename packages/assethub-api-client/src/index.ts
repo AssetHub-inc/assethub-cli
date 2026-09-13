@@ -1167,6 +1167,13 @@ export type MeshComposerCapabilities = {
   models: Array<{id: string; label: string; modes: Array<'quick' | 'quality'>}>
   defaultModel: string
   modes: Array<'quick' | 'quality'>
+  quotes?: Array<{
+    agentVersion: string
+    mode: 'quick' | 'quality'
+    creditPlanId: string
+    /** null means paid layout is unavailable; it never means free. */
+    credits: number | null
+  }>
 }
 export type MeshComposeResult = {
   execution: CanvasExecution
