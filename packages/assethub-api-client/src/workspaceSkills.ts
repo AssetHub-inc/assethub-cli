@@ -137,6 +137,7 @@ export type WorkspaceSkillListResult = {
 }
 
 export type WorkspaceSkillDetail = {
+  orgId?: string
   skill: WorkspaceSkill
   canEdit: boolean
   mode: WorkspaceSkillMode
