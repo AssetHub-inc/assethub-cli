@@ -21,12 +21,126 @@ export type ApiOperationDiscovery = {
   catalog: Map<string, ApiOperation>
   specs: Record<AssetHubApiVersion, ApiOperationSpec>
 }
+export type ApiImageInputSource =
+  | {kind: 'resourceId'; resourceId: string}
+  | {kind: 'uploadId'; uploadId: string}
+export type ApiImageInput = {
+  source: ApiImageInputSource
+  mediaType: 'image/jpeg'
+  data: string
+  width: number
+  height: number
+}
+export type ApiImageOperationMetadata = {
+  success: true
+  data: {
+    schemaVersion: 'assethub.image-inputs.v1'
+    images: Array<Omit<ApiImageInput, 'data'>>
+  }
+}
+export type ParsedApiImageOperationResult = {
+  images: ApiImageInput[]
+  metadata: ApiImageOperationMetadata
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const base64 =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 const methods = ['get', 'post', 'put', 'patch', 'delete']
+
+const hasOnlyKeys = (value: Record<string, unknown>, keys: string[]) => {
+  const actual = Object.keys(value)
+  return (
+    actual.length === keys.length && actual.every(key => keys.includes(key))
+  )
+}
+
+function assertImageOperationResult(condition: unknown): asserts condition {
+  if (!condition) throw new Error('Invalid AssetHub image operation result')
+}
+
+const parseApiImageInputSource = (value: unknown): ApiImageInputSource => {
+  assertImageOperationResult(isRecord(value))
+  if (
+    value.kind === 'resourceId' &&
+    hasOnlyKeys(value, ['kind', 'resourceId']) &&
+    typeof value.resourceId === 'string' &&
+    value.resourceId === value.resourceId.trim() &&
+    value.resourceId.length >= 1 &&
+    value.resourceId.length <= 500
+  )
+    return {kind: 'resourceId', resourceId: value.resourceId}
+  if (
+    value.kind === 'uploadId' &&
+    hasOnlyKeys(value, ['kind', 'uploadId']) &&
+    typeof value.uploadId === 'string' &&
+    uuid.test(value.uploadId)
+  )
+    return {kind: 'uploadId', uploadId: value.uploadId}
+  throw new Error('Invalid AssetHub image operation result')
+}
+
+/** Parse the exact image-read API envelope and separate native bytes from safe metadata. */
+export const parseApiImageOperationResult = (
+  value: unknown,
+): ParsedApiImageOperationResult => {
+  assertImageOperationResult(isRecord(value))
+  assertImageOperationResult(
+    hasOnlyKeys(value, ['success', 'data']) &&
+      value.success === true &&
+      isRecord(value.data),
+  )
+  const data = value.data
+  assertImageOperationResult(
+    hasOnlyKeys(data, ['schemaVersion', 'images']) &&
+      data.schemaVersion === 'assethub.image-inputs.v1' &&
+      Array.isArray(data.images) &&
+      data.images.length >= 1 &&
+      data.images.length <= 4,
+  )
+
+  let totalBase64Length = 0
+  const images: ApiImageInput[] = data.images.map((raw: unknown) => {
+    assertImageOperationResult(isRecord(raw))
+    assertImageOperationResult(
+      hasOnlyKeys(raw, ['source', 'mediaType', 'data', 'width', 'height']) &&
+        raw.mediaType === 'image/jpeg' &&
+        typeof raw.data === 'string' &&
+        raw.data.length > 0 &&
+        raw.data.length <= 1_000_000 &&
+        base64.test(raw.data) &&
+        Number.isSafeInteger(raw.width) &&
+        (raw.width as number) >= 1 &&
+        (raw.width as number) <= 1024 &&
+        Number.isSafeInteger(raw.height) &&
+        (raw.height as number) >= 1 &&
+        (raw.height as number) <= 1024,
+    )
+
+    totalBase64Length += raw.data.length
+    assertImageOperationResult(totalBase64Length <= 4_000_000)
+    return {
+      source: parseApiImageInputSource(raw.source),
+      mediaType: 'image/jpeg' as const,
+      data: raw.data,
+      width: raw.width as number,
+      height: raw.height as number,
+    }
+  })
+  return {
+    images,
+    metadata: {
+      success: true,
+      data: {
+        schemaVersion: 'assethub.image-inputs.v1',
+        images: images.map(({data: _data, ...metadata}) => metadata),
+      },
+    },
+  }
+}
 
 const assertApiPath = (path: string) => {
   if (

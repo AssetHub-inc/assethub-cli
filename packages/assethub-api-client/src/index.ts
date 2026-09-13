@@ -4,13 +4,18 @@ export {
   buildApiRequest,
   discoverApiOperations,
   callApiOperation,
+  parseApiImageOperationResult,
   searchApiOperations,
 } from './operations.js'
 export type {
+  ApiImageInput,
+  ApiImageInputSource,
+  ApiImageOperationMetadata,
   ApiOperation,
   ApiOperationSpec,
   ApiOperationInput,
   ApiOperationDiscovery,
+  ParsedApiImageOperationResult,
 } from './operations.js'
 export type {
   WorkspaceSkill,
