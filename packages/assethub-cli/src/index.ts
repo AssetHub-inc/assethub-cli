@@ -296,7 +296,7 @@ Usage:
   assethub skills accept <proposal-id> --input-json <json|@file|@->
   assethub composer models
   assethub composer refine --list-modes
-  assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
+  assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --part <mesh-asset-id> [--part <mesh-asset-id>...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
@@ -2886,6 +2886,7 @@ const meshRefinementModes = [
   'placement',
   'workshop',
   'blender',
+  'codex',
 ] as const satisfies readonly MeshRefinementMode[]
 
 const refinementTransforms = (value: unknown, flag: string) => {
@@ -2929,6 +2930,11 @@ const refinementModeInfo = (
   return info
 }
 
+const refinementContinuationFields = [
+  'geometryBackend', 'referenceMode', 'calibration', 'referenceViews',
+  'geometrySources', 'reviewContext', 'background',
+] as const
+
 /** Reuse the frozen sources and latest editable scene, never replay server-only receipt fields. */
 const composerInputFromRun = (
   previous: CanvasExecution,
@@ -2949,7 +2955,14 @@ const composerInputFromRun = (
           'quickRunId',
           'quickScene',
         ]
-      : ['fullBodyImageAssetId', 'agentRuntime', 'mode', 'instruction', 'maxRounds']
+      : [
+          'fullBodyImageAssetId',
+          'agentRuntime',
+          'mode',
+          'instruction',
+          'maxRounds',
+          ...refinementContinuationFields,
+        ]
   const input: Record<string, unknown> = Object.fromEntries(
     fields
       .filter(key => source[key] !== undefined)
@@ -2979,6 +2992,11 @@ const composerInputFromRun = (
   const transforms = previous.composition?.transforms ?? source.transforms
   if (transforms != null) input.transforms = transforms
   if (operation === 'mesh.refine') {
+    for (const key of ['calibration', 'referenceViews', 'geometrySources'] as const) {
+      if (previous.refinement?.[key] != null) input[key] = previous.refinement[key]
+    }
+    const reviewContext = previous.refinement?.report?.reviewContext
+    if (reviewContext != null) input.reviewContext = reviewContext
     const referenceTransform =
       previous.composition?.referenceTransform ?? source.referenceTransform
     if (referenceTransform != null)
@@ -3055,6 +3073,8 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     capabilities.defaultMode
   if (!meshRefinementModes.includes(mode))
     throw new Error(`--mode must be one of: ${meshRefinementModes.join(', ')}`)
+  if (mode !== 'codex' && (input.geometryBackend || input.referenceMode === 'all_angles' || input.background))
+    throw new Error('Saved Blender-backend, all-angle or background settings require codex mode; use --input-json with settings matching the new mode')
   const modeInfo = refinementModeInfo(capabilities, mode)
   const maxRoundsFlag = getFlag(ctx.flags, 'max-rounds')
   const inputMaxRounds = input.maxRounds
@@ -3098,6 +3118,11 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     operation: 'mesh.refine',
   })
   const body: Omit<MeshRefineRequest, 'executionContext'> = {
+    ...Object.fromEntries(
+      refinementContinuationFields
+        .filter(key => input[key] !== undefined)
+        .map(key => [key, input[key]]),
+    ),
     parts: refinementParts,
     fullBodyImageAssetId: input.fullBodyImageAssetId,
     transforms,

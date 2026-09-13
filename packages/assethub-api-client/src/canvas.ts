@@ -1,4 +1,9 @@
 /** Public canvas execution contracts shared by CLI and MCP consumers. */
+import type {
+  ComposerRefineCalibration,
+  ComposerReferenceViews,
+} from './index.js'
+
 export type ExecutionContext = {
   canvasId: number
   clientOperationId: string
@@ -113,9 +118,18 @@ export type CanvasExecution = {
     referenceTransform?: number[]
   }
   refinement?: {
-    mode: 'standard' | 'thorough' | 'placement' | 'workshop' | 'blender'
+    mode:
+      | 'standard'
+      | 'thorough'
+      | 'placement'
+      | 'workshop'
+      | 'blender'
+      | 'codex'
     report?: Record<string, unknown>
     message?: string
+    calibration?: ComposerRefineCalibration
+    referenceViews?: ComposerReferenceViews
+    geometrySources?: Record<string, string>
   }
   usage: {
     reservedCredits: number | null
