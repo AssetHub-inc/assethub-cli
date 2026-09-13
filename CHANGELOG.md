@@ -7,7 +7,7 @@
 - Forward bounded skill selection for V3.7 Artist Skills through `production analyze --skill-mode auto|manual|off [--skill-id <id>...]`, preserving server-owned skill resolution.
 - Pin saved Production guidance with `--context <canvas-id> --context-version <n>`; supported graph models apply the verified Must/Avoid instructions without silently reading a newer revision.
 - Preserve the newer personal-key selection and terminal execution receipt recovery behavior.
-- Add a shared parser for bounded owned-image responses so MCP and chat can consume actual image pixels while retaining metadata without image bytes.
+- Add a shared parser for bounded owned-image responses so MCP and chat can consume actual image pixels while retaining metadata without image bytes, including rejected candidates selected by owned generated graph and artifact IDs.
 
 ## CLI 0.1.22
 
