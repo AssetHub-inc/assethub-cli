@@ -2,6 +2,23 @@
 
 Typed client for the public AssetHub API.
 
+## Advertised operations and Workspace Skills
+
+`discoverApiOperations(client)` reads authenticated v1/v2 OpenAPI documents.
+Use `searchApiOperations(discovery.catalog, query)` and
+`describeApiOperation(operation, operation.path.startsWith('/api/v1/') ? discovery.specs.v1 : discovery.specs.v2)` to inspect contracts, then
+`callApiOperation(client, discovery, {operation, path, query, body, operationId})`
+to execute one advertised JSON operation. V1 operation names have a `V1 ` prefix
+and use `discovery.specs.v1` for description. Mutations require an explicit
+operation UUID; retain its exact inputs and inspect any uncertain run before
+retrying. The server remains authoritative for gates, permissions, and billing.
+
+Typed `client.v2` Workspace Skill methods cover list/get, updates, controls,
+learning, and proposal prepare/get/accept. They preserve server-owned actor
+checks and optimistic revisions. `learnWorkspaceSkill(input, {idempotencyKey: operationUuid})`
+requires a stable UUID; reuse the same UUID and input to recover its original learning root.
+Creator approval requires a human decision.
+
 ## Personal API keys
 
 Use `createAssetHubClient({apiKey, workspaceId})` with an `ah_pat_` personal key.

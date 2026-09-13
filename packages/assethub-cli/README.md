@@ -2,6 +2,22 @@
 
 Command line interface for AssetHub.
 
+## API discovery and Workspace Skills
+
+Use `api search [query]` to discover the authenticated server catalog and
+`api describe "METHOD /path"` to inspect an exact request contract. `api call`
+accepts `--path-json`, `--query-json`, and `--input-json` (inline JSON or `@file`).
+Mutations require an explicit stable `--operation-id <uuid>`. Preserve that UUID
+and exact inputs; inspect any returned run ID before retrying uncertain work.
+The server's workspace, gate, billing, and terminal-result rules still apply.
+
+`skills list|get|learn|update|controls|prepare|proposal|accept` uses the existing
+Workspace Skills API. Read `--help` for required revisions and JSON inputs.
+For V3.7 Artist Skills analysis, `production analyze` accepts
+`--skill-mode auto|manual|off` and up to three distinct `--skill-id <id>` values.
+Manual selection requires IDs; off rejects them. The server resolves authorized
+published skill revisions and keeps Internal gates and actor checks in force.
+
 ## Personal API keys
 
 Log in once with a personal key, then select its workspace:

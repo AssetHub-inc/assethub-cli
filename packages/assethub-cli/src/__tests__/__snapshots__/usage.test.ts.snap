@@ -46,6 +46,17 @@ Usage:
   assethub files upload <file> --media-type image|mesh
   assethub source create (--file <path> | --source-url <url> | --source-id <id> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) --media-type image|mesh [--file-name <name>] [--content-type <type>]
   assethub capabilities
+  assethub api search [query]
+  assethub api describe "<METHOD /path>"
+  assethub api call "<METHOD /path>" [--path-json <json|@file>] [--query-json <json|@file>] [--input-json <json|@file|@->] [--operation-id <uuid>]
+  assethub skills list [--cursor <cursor>]
+  assethub skills get <skill-id> [--revision <n>]
+  assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
+  assethub skills update <skill-id> --input-json <json|@file|@->
+  assethub skills controls <skill-id> --revision <n> --grant-revision <n> --mode automatic|manual|off [--share]
+  assethub skills prepare --input-json <json|@file|@->
+  assethub skills proposal <proposal-id>
+  assethub skills accept <proposal-id> --input-json <json|@file|@->
   assethub composer models
   assethub composer refine --list-modes
   assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
@@ -83,7 +94,7 @@ Usage:
   assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
   assethub jobs get <job-id> [--download --out-dir <dir>]
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
-  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--wait] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--download --out-dir <dir>]
   assethub production agents
   assethub production automation --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--wait]
   assethub production status <order-id> [--wait] [--download --out-dir <dir>]

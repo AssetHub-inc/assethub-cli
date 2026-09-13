@@ -28,6 +28,10 @@ import {fileURLToPath, pathToFileURL} from 'node:url'
 import {promisify} from 'node:util'
 import {
   AssetHubApiError,
+  callApiOperation,
+  describeApiOperation,
+  discoverApiOperations,
+  searchApiOperations,
   WorkspaceClientError,
   createWorkspaceClient,
   type AnimationRetargetRequest,
@@ -152,6 +156,7 @@ const artifactGraphPartExtractorApiValues = new Set([
   'ah_agent_graph_v3_6_4',
   'ah_agent_graph_v3_6_5',
   'ah_agent_graph_pluffy_v3_1',
+  'ah_agent_graph_v3_7',
 ])
 
 type PartExtractorOption = {
@@ -200,6 +205,11 @@ const partExtractorOptions = [
     publicName: 'Chibi Character (Pluffy) v3.1',
     apiValue: 'ah_agent_graph_pluffy_v3_1',
     aliases: ['pluffy', 'pluffy v3.1', 'pluffy 3.1'],
+  },
+  {
+    publicName: 'V3.7 Artist Skills',
+    apiValue: 'ah_agent_graph_v3_7',
+    aliases: ['v3.7', '3.7'],
   },
 ] as const satisfies readonly PartExtractorOption[]
 
@@ -273,6 +283,17 @@ Usage:
   assethub files upload <file> --media-type image|mesh
   assethub source create (--file <path> | --source-url <url> | --source-id <id> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) --media-type image|mesh [--file-name <name>] [--content-type <type>]
   assethub capabilities
+  assethub api search [query]
+  assethub api describe "<METHOD /path>"
+  assethub api call "<METHOD /path>" [--path-json <json|@file>] [--query-json <json|@file>] [--input-json <json|@file|@->] [--operation-id <uuid>]
+  assethub skills list [--cursor <cursor>]
+  assethub skills get <skill-id> [--revision <n>]
+  assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
+  assethub skills update <skill-id> --input-json <json|@file|@->
+  assethub skills controls <skill-id> --revision <n> --grant-revision <n> --mode automatic|manual|off [--share]
+  assethub skills prepare --input-json <json|@file|@->
+  assethub skills proposal <proposal-id>
+  assethub skills accept <proposal-id> --input-json <json|@file|@->
   assethub composer models
   assethub composer refine --list-modes
   assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
@@ -310,7 +331,7 @@ Usage:
   assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
   assethub jobs get <job-id> [--download --out-dir <dir>]
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
-  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--wait] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--download --out-dir <dir>]
   assethub production agents
   assethub production automation --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--wait]
   assethub production status <order-id> [--wait] [--download --out-dir <dir>]
@@ -479,6 +500,42 @@ const resolvePartExtractorForAnalyze = (flags: Flags): string =>
   resolvePartExtractorApiValue(
     getPartExtractorFlag(flags) ?? defaultPartExtractorName,
   )
+
+const resolveProductionSkillSelection = (
+  flags: Flags,
+  agentVersion: string,
+):
+  | {mode: 'auto' | 'manual' | 'off'; skillIds: string[]}
+  | undefined => {
+  const mode = getFlag(flags, 'skill-mode')
+  const skillIds = getFlagValues(flags, 'skill-id').map(value =>
+    assertFlagHasValue(value, '--skill-id <id>'),
+  )
+  if (mode == null) {
+    if (skillIds.length > 0)
+      throw new Error('--skill-id requires --skill-mode')
+    return undefined
+  }
+  if (mode !== 'auto' && mode !== 'manual' && mode !== 'off')
+    throw new Error('--skill-mode must be "auto", "manual", or "off"')
+  if (agentVersion !== 'ah_agent_graph_v3_7')
+    throw new Error('--skill-mode is supported only with V3.7 Artist Skills')
+  if (skillIds.length > 3)
+    throw new Error('--skill-id accepts at most 3 values')
+  if (new Set(skillIds).size !== skillIds.length)
+    throw new Error('--skill-id values must be unique')
+  if (
+    skillIds.some(
+      skillId => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(skillId),
+    )
+  )
+    throw new Error('--skill-id contains an invalid workspace skill ID')
+  if (mode === 'manual' && skillIds.length === 0)
+    throw new Error('--skill-mode manual requires at least one --skill-id')
+  if (mode === 'off' && skillIds.length > 0)
+    throw new Error('--skill-mode off does not accept --skill-id')
+  return {mode, skillIds}
+}
 
 const publicPartExtractorName = (
   value: string | null | undefined,
@@ -1777,6 +1834,203 @@ const commandSource = async (
 
   print({source, fileRef: source.fileRef, mediaType})
 }
+
+const commandApi = async (
+  subcommand: string | undefined,
+  positionals: string[],
+  ctx: CommandContext,
+) => {
+  if (!['search', 'describe', 'call'].includes(subcommand ?? ''))
+    throw new Error(
+      'Use api search|describe|call. Mutations require --operation-id.',
+    )
+  const discovery = await discoverApiOperations(ctx.client)
+  if (subcommand === 'search') {
+    print({
+      operations: searchApiOperations(
+        discovery.catalog,
+        positionals.slice(2).join(' '),
+      ),
+    })
+    return
+  }
+  const operation = requirePositional(positionals, 2, 'operation')
+  if (subcommand === 'describe') {
+    const found = discovery.catalog.get(operation)
+    if (!found) throw new Error('Unknown operation. Use api search first.')
+    print(
+      describeApiOperation(
+        found,
+        discovery.specs[found.path.startsWith('/api/v1/') ? 'v1' : 'v2'],
+      ),
+    )
+    return
+  }
+  const pathJson = getFlag(ctx.flags, 'path-json')
+  const queryJson = getFlag(ctx.flags, 'query-json')
+  const bodyJson = getFlag(ctx.flags, 'input-json')
+  const operationId = getFlag(ctx.flags, 'operation-id')
+  activeExecution.operationId = operationId
+  try {
+    print(
+      await callApiOperation(ctx.client, discovery, {
+        operation,
+        operationId,
+        path: pathJson
+          ? ((await readJsonArgument(pathJson, '--path-json')) as Record<
+              string,
+              string
+            >)
+          : undefined,
+        query: queryJson
+          ? ((await readJsonArgument(queryJson, '--query-json')) as Record<
+              string,
+              string | number | boolean
+            >)
+          : undefined,
+        body: bodyJson
+          ? await readJsonArgument(bodyJson, '--input-json')
+          : undefined,
+      }),
+    )
+  } catch (error) {
+    if (error instanceof AssetHubApiError && error.runId)
+      activeExecution.runId = error.runId
+    throw error
+  }
+}
+
+export const commandSkills = async (
+  subcommand: string | undefined,
+  positionals: string[],
+  ctx: CommandContext,
+): Promise<void> => {
+  if (subcommand === 'list') {
+    print(
+      await ctx.client.v2.listWorkspaceSkills({
+        cursor: getFlag(ctx.flags, 'cursor'),
+      }),
+    )
+    return
+  }
+  if (subcommand === 'get') {
+    print(
+      await ctx.client.v2.getWorkspaceSkill(
+        requirePositional(positionals, 2, 'skill-id'),
+        {
+          revision: hasFlag(ctx.flags, 'revision')
+            ? parsePositiveIntegerFlag(ctx.flags, 'revision', 1)
+            : undefined,
+        },
+      ),
+    )
+    return
+  }
+  if (subcommand === 'controls') {
+    const mode = parseEnumFlag(ctx.flags, 'mode', [
+      'automatic',
+      'manual',
+      'off',
+    ] as const)
+    if (!mode) throw new Error('Missing required flag: --mode')
+    requireFlag(ctx.flags, 'revision')
+    requireFlag(ctx.flags, 'grant-revision')
+    print(
+      await ctx.client.v2.setWorkspaceSkillControls(
+        requirePositional(positionals, 2, 'skill-id'),
+        {
+          expectedRevision: parsePositiveIntegerFlag(
+            ctx.flags,
+            'revision',
+            1,
+          ),
+          expectedGrantRevision: parsePositiveIntegerFlag(
+            ctx.flags,
+            'grant-revision',
+            1,
+          ),
+          mode,
+          ...(hasFlag(ctx.flags, 'share') ? {share: true} : {}),
+        },
+      ),
+    )
+    return
+  }
+  if (subcommand === 'proposal') {
+    print(
+      await ctx.client.v2.getWorkspaceSkillProposal(
+        requirePositional(positionals, 2, 'proposal-id'),
+      ),
+    )
+    return
+  }
+  if (['learn', 'prepare'].includes(subcommand ?? '')) {
+    const input = await readJsonArgument(
+      requireFlag(ctx.flags, 'input-json'),
+      '--input-json',
+    )
+    const operationId =
+      subcommand === 'learn'
+        ? requireFlag(ctx.flags, 'operation-id')
+        : undefined
+    if (
+      operationId != null &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        operationId,
+      )
+    )
+      throw new Error(
+        '--operation-id must be a UUID; reuse the same ID and input after an uncertain response',
+      )
+    if (operationId != null) activeExecution.operationId = operationId
+    print(
+      subcommand === 'learn'
+        ? await ctx.client.v2.learnWorkspaceSkill(
+            input as Parameters<
+              typeof ctx.client.v2.learnWorkspaceSkill
+            >[0],
+            {idempotencyKey: operationId!},
+          )
+        : await ctx.client.v2.prepareWorkspaceSkillProposal(
+            input as Parameters<
+              typeof ctx.client.v2.prepareWorkspaceSkillProposal
+            >[0],
+          ),
+    )
+    return
+  }
+  if (['update', 'accept'].includes(subcommand ?? '')) {
+    const id = requirePositional(
+      positionals,
+      2,
+      subcommand === 'update' ? 'skill-id' : 'proposal-id',
+    )
+    const input = await readJsonArgument(
+      requireFlag(ctx.flags, 'input-json'),
+      '--input-json',
+    )
+    print(
+      subcommand === 'update'
+        ? await ctx.client.v2.updateWorkspaceSkill(
+            id,
+            input as Parameters<
+              typeof ctx.client.v2.updateWorkspaceSkill
+            >[1],
+          )
+        : await ctx.client.v2.acceptWorkspaceSkillProposal(
+            id,
+            input as Parameters<
+              typeof ctx.client.v2.acceptWorkspaceSkillProposal
+            >[1],
+          ),
+    )
+    return
+  }
+  throw new Error(
+    'Use skills list|get|learn|update|controls|prepare|proposal|accept',
+  )
+}
+
 
 const commandModels = async (
   subcommand: string | undefined,
@@ -3848,14 +4102,20 @@ const commandProduction = async (
     return
   }
   if (subcommand === 'analyze') {
+    const agentVersion = resolvePartExtractorForAnalyze(ctx.flags)
+    const skillSelection = resolveProductionSkillSelection(
+      ctx.flags,
+      agentVersion,
+    )
     const session = await productionSession(ctx, 'production.analyze')
     const analyzed = await executeRecorded(
       session,
       'production.analyze',
       {
         ...(await resolveProductionAnalyzeSource(ctx)),
-        agentVersion: resolvePartExtractorForAnalyze(ctx.flags),
+        agentVersion,
         name: getFlag(ctx.flags, 'name'),
+        ...(skillSelection == null ? {} : {skillSelection}),
       },
       executionOptions(ctx.flags),
     )
@@ -5274,6 +5534,12 @@ const run = async (): Promise<void> => {
 
   const ctx = await createContext(parsed.flags, argv.slice(2))
   switch (command) {
+    case 'api':
+      await commandApi(subcommand, parsed.positionals, ctx)
+      return
+    case 'skills':
+      await commandSkills(subcommand, parsed.positionals, ctx)
+      return
     case 'composer':
       await commandComposer(subcommand, ctx)
       return

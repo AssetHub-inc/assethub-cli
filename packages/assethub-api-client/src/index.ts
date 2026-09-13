@@ -1,3 +1,50 @@
+export {
+  buildApiCatalog,
+  describeApiOperation,
+  buildApiRequest,
+  discoverApiOperations,
+  callApiOperation,
+  searchApiOperations,
+} from './operations.js'
+export type {
+  ApiOperation,
+  ApiOperationSpec,
+  ApiOperationInput,
+  ApiOperationDiscovery,
+} from './operations.js'
+export type {
+  WorkspaceSkill,
+  WorkspaceSkillApplicability,
+  WorkspaceSkillControls,
+  WorkspaceSkillDetail,
+  WorkspaceSkillEvidence,
+  WorkspaceSkillEvidenceRef,
+  WorkspaceSkillLearnInput,
+  WorkspaceSkillLearnResult,
+  WorkspaceSkillListResult,
+  WorkspaceSkillMode,
+  WorkspaceSkillPhase,
+  WorkspaceSkillProposalAcceptInput,
+  WorkspaceSkillPublication,
+  WorkspaceSkillProposalPrepareInput,
+  WorkspaceSkillProposalSummary,
+  WorkspaceSkillPurpose,
+  WorkspaceSkillStep,
+  WorkspaceSkillSummary,
+  WorkspaceSkillUpdate,
+} from './workspaceSkills.js'
+import type {
+  WorkspaceSkillControls,
+  WorkspaceSkillDetail,
+  WorkspaceSkillLearnInput,
+  WorkspaceSkillLearnResult,
+  WorkspaceSkillListResult,
+  WorkspaceSkillProposalAcceptInput,
+  WorkspaceSkillPublication,
+  WorkspaceSkillProposalPrepareInput,
+  WorkspaceSkillProposalSummary,
+  WorkspaceSkillUpdate,
+} from './workspaceSkills.js'
 /*
 Intervention types are re-exported from a generated module, never declared here.
 `src/generated/intervention.ts` is emitted from the same zod schema the v2 route
@@ -913,6 +960,11 @@ export type CreditInfo = {
   isFreeByAdminDashboardFlag: boolean
 }
 
+export type ProductionWorkspaceSkillSelection = {
+  mode: 'auto' | 'manual' | 'off'
+  skillIds: string[]
+}
+
 export type ProductionAnalyzeRequest = RequireAtLeastOne<
   {
     imageUrl?: string
@@ -922,6 +974,7 @@ export type ProductionAnalyzeRequest = RequireAtLeastOne<
     executionContext?: ExecutionContext
     agentVersion: string
     name?: string
+    skillSelection?: ProductionWorkspaceSkillSelection
   },
   'imageUrl' | 'imageBlobLocation' | 'imageAssetId' | 'uploadId'
 >
@@ -1590,6 +1643,27 @@ export class AssetHubClient {
     path: string,
     init: RequestInit = {},
   ): Promise<ApiSuccess<T>> {
+    return this.requestJson(version, path, init) as Promise<ApiSuccess<T>>
+  }
+
+  async getOpenApiSpec(
+    version: AssetHubApiVersion,
+    options: {signal?: AbortSignal} = {},
+  ): Promise<unknown> {
+    return this.requestJson(
+      version,
+      '/openapi',
+      {method: 'GET', ...options},
+      true,
+    )
+  }
+
+  private async requestJson(
+    version: AssetHubApiVersion,
+    path: string,
+    init: RequestInit,
+    rawDocument = false,
+  ): Promise<unknown> {
     const body = init.body
     const response = await this.fetchImpl(
       `${this.baseUrl}/api/${version}${normalizePath(path)}`,
@@ -1597,7 +1671,9 @@ export class AssetHubClient {
         ...init,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
-          ...(this.workspaceId ? {'X-AssetHub-Workspace': this.workspaceId} : {}),
+          ...(this.workspaceId
+            ? {'X-AssetHub-Workspace': this.workspaceId}
+            : {}),
           ...(isFormDataBody(body) ? {} : {'Content-Type': 'application/json'}),
           ...(init.headers ?? {}),
         },
@@ -1605,10 +1681,14 @@ export class AssetHubClient {
     )
 
     const payload = (await response.json().catch(() => ({}))) as
-      | ApiSuccess<T>
+      | ApiSuccess<unknown>
       | ApiErrorPayload
 
-    if (!response.ok || payload.success !== true) {
+    if (
+      !response.ok ||
+      (!rawDocument && payload.success !== true) ||
+      payload.success === false
+    ) {
       const errorPayload = payload as ApiErrorPayload
       const code = errorPayload.error?.code ?? 'UNKNOWN_ERROR'
       const message =
@@ -1626,7 +1706,7 @@ export class AssetHubClient {
       })
     }
 
-    return payload as ApiSuccess<T>
+    return payload
   }
 
   private async *requestNdJson<T extends WorkflowStreamEvent>(
@@ -1961,6 +2041,105 @@ export class AssetHubClient {
         await this.request<ApiCapabilities>('v2', '/capabilities', {
           method: 'GET',
         })
+      ).data,
+
+    listWorkspaceSkills: async (
+      options: {cursor?: string} = {},
+    ): Promise<WorkspaceSkillListResult> =>
+      (
+        await this.request<WorkspaceSkillListResult>(
+          'v2',
+          withQuery('/workspace-skills', {cursor: options.cursor}),
+          {method: 'GET'},
+        )
+      ).data,
+
+    getWorkspaceSkill: async (
+      skillId: string,
+      options: {revision?: number} = {},
+    ): Promise<WorkspaceSkillDetail> =>
+      (
+        await this.request<WorkspaceSkillDetail>(
+          'v2',
+          withQuery(`/workspace-skills/${encodeURIComponent(skillId)}`, {
+            revision: options.revision,
+          }),
+          {method: 'GET'},
+        )
+      ).data,
+
+    updateWorkspaceSkill: async (
+      skillId: string,
+      body: WorkspaceSkillUpdate,
+    ): Promise<WorkspaceSkillDetail> =>
+      (
+        await this.request<WorkspaceSkillDetail>(
+          'v2',
+          `/workspace-skills/${encodeURIComponent(skillId)}`,
+          {method: 'PATCH', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    setWorkspaceSkillControls: async (
+      skillId: string,
+      body: WorkspaceSkillControls,
+    ): Promise<WorkspaceSkillDetail> =>
+      (
+        await this.request<WorkspaceSkillDetail>(
+          'v2',
+          `/workspace-skills/${encodeURIComponent(skillId)}/controls`,
+          {method: 'PATCH', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    learnWorkspaceSkill: async (
+      body: WorkspaceSkillLearnInput,
+      options: {idempotencyKey: string},
+    ): Promise<WorkspaceSkillLearnResult> =>
+      (
+        await this.request<WorkspaceSkillLearnResult>(
+          'v2',
+          '/workspace-skills/learn',
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+            ...idempotencyRequestInit(options),
+          },
+        )
+      ).data,
+
+    prepareWorkspaceSkillProposal: async (
+      body: WorkspaceSkillProposalPrepareInput,
+    ): Promise<{proposalId: string; state: string}> =>
+      (
+        await this.request<{proposalId: string; state: string}>(
+          'v2',
+          '/workspace-skills/proposals',
+          {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    getWorkspaceSkillProposal: async (
+      proposalId: string,
+    ): Promise<WorkspaceSkillProposalSummary> =>
+      (
+        await this.request<WorkspaceSkillProposalSummary>(
+          'v2',
+          `/workspace-skills/proposals/${encodeURIComponent(proposalId)}`,
+          {method: 'GET'},
+        )
+      ).data,
+
+    acceptWorkspaceSkillProposal: async (
+      proposalId: string,
+      body: WorkspaceSkillProposalAcceptInput,
+    ): Promise<WorkspaceSkillPublication> =>
+      (
+        await this.request<WorkspaceSkillPublication>(
+          'v2',
+          `/workspace-skills/proposals/${encodeURIComponent(proposalId)}/accept`,
+          {method: 'POST', body: JSON.stringify(body)},
+        )
       ).data,
 
     createCanvas: async (

@@ -7,6 +7,11 @@ API keys, project source files, or customer data in reports or fixtures.
 Run `npm ci` and `npm run check` before submitting. The CLI and SDK are npm
 workspaces; shared development dependencies live at the repository root.
 
+For remote product actions, follow the shared [feature parity skill](.claude/skills/assethub-feature-parity/SKILL.md)
+and [cross-repository development guide](docs/feature-parity-development.md).
+The application repository owns the server, OpenAPI, MCP, and hosted chat;
+this repository owns the packages users install from npm.
+
 # Releasing
 
 1. Review the package changes, update the affected `package.json` versions and

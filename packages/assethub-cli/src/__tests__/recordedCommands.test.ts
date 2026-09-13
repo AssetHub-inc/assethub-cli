@@ -194,6 +194,7 @@ describe('built recorded CLI', () => {
     ['V3.6.4', 'ah_agent_graph_v3_6_4', 'V3.6.4 Fast Analysis', []],
     ['V3.6.5 Primary Images', 'ah_agent_graph_v3_6_5', 'V3.6.5 Primary Images', ['v3.6.5', '3.6.5']],
     ['Chibi Character (Pluffy) v3.1', 'ah_agent_graph_pluffy_v3_1', 'Chibi Character (Pluffy) v3.1', ['pluffy', 'pluffy v3.1', 'pluffy 3.1']],
+    ['V3.7 Artist Skills', 'ah_agent_graph_v3_7', 'V3.7 Artist Skills', ['v3.7', '3.7']],
   ] as const)('splits and replays %s graphs', async (name, apiValue, label, aliases) => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))
@@ -384,7 +385,35 @@ describe('built recorded CLI', () => {
         body: {agentVersion: apiValue},
       })
     }
-    expect(posted).toHaveLength(2 + aliases.length)
+    let expectedPostCount = 2 + aliases.length
+    if (apiValue === 'ah_agent_graph_v3_7') {
+      const selected = await cli(baseUrl, dir, [
+        'production', 'analyze', '--source-id', 'image-asset',
+        '--canvas', '42', '--part-extractor', name,
+        '--skill-mode', 'manual', '--skill-id', 'character-hands',
+        '--skill-id', 'shared.proportions',
+      ])
+      expect(selected.code, selected.stderr).toBe(0)
+      expect(posted.at(-1)?.body.skillSelection).toEqual({
+        mode: 'manual',
+        skillIds: ['character-hands', 'shared.proportions'],
+      })
+      expectedPostCount++
+      for (const invalid of [
+        ['--skill-id', 'character-hands'],
+        ['--skill-mode', 'manual'],
+        ['--skill-mode', 'manual', '--skill-id'],
+        ['--skill-mode', 'off', '--skill-id', 'character-hands'],
+      ]) {
+        const rejected = await cli(baseUrl, dir, [
+          'production', 'analyze', '--source-id', 'image-asset',
+          '--canvas', '42', '--part-extractor', name, ...invalid,
+        ])
+        expect(rejected.code).not.toBe(0)
+      }
+      expect(posted).toHaveLength(expectedPostCount)
+    }
+    expect(posted).toHaveLength(expectedPostCount)
     const rawId = await cli(baseUrl, dir, [
       'production', 'analyze', '--source-id', 'image-asset',
       '--canvas', '42', '--part-extractor', apiValue,
@@ -393,7 +422,7 @@ describe('built recorded CLI', () => {
     expect(rawId.json.error?.message).toContain(
       'Internal part extractor IDs are not accepted by the public CLI',
     )
-    expect(posted).toHaveLength(2 + aliases.length)
+    expect(posted).toHaveLength(expectedPostCount)
     expect(classicRequests).toEqual([])
   })
 
