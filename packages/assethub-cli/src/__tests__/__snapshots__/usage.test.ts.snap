@@ -8,6 +8,7 @@ CLI and MCP are available to all AssetHub users. Workspace permissions and featu
 Usage:
   assethub --version
   assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
+  assethub init [--agent claude-code|codex|cursor...] [--project] [--dry-run] [--base-url <url>] [--workspace <id>] [--profile <name>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--account] [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
@@ -120,6 +121,7 @@ Global options:
 Examples:
   ASSETHUB_API_KEY=ah_live_xxx assethub models list
   assethub auth login --api-key-stdin
+  assethub init --dry-run
   assethub models list --ids-only
   assethub files upload ./input.png --media-type image
   assethub source create --file ./input.png --media-type image
