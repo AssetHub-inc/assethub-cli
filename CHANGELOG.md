@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.24
+
+- Add `assethub init`, which detects Claude Code, Codex, and Cursor, writes the hosted MCP entry into each agent's configuration without storing a key, and installs the bundled `assethub` agent skill. `--agent`, `--project`, and `--dry-run` control scope; existing settings and user-owned directories are preserved.
+- Ship the `assethub` agent skill in the npm package. It teaches coding agents the command sequence, cost rules, recovery via `runs resume`, and verdict submission, and refreshes itself on the next command after a CLI upgrade.
+- Honor `ASSETHUB_CLI_HOME` for every agent-configuration write so tests and sandboxes never touch the real home directory.
+
 ## CLI 0.1.23 / API client 0.1.11
 
 - Discover, describe, and call the authenticated v1/v2 OpenAPI catalog with `api search`, `api describe`, and `api call`; mutations require an explicit stable operation UUID.

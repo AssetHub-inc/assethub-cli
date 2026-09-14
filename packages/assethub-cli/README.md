@@ -64,6 +64,8 @@ authentication. Existing workspace keys and user-token login remain supported.
 ```sh
 assethub --version
 assethub doctor --mcp --profile my-workspace
+assethub init --dry-run
+assethub init
 assethub mcp config --client cursor
 assethub mcp config --client codex
 ```
@@ -83,6 +85,19 @@ Use the same key as your CLI profile. Personal profiles include the selected
 `X-AssetHub-Workspace` header; `--workspace` overrides it in the generated settings.
 For a different API origin, pass
 `--base-url https://your-host/prefix` (HTTP is accepted only for localhost).
+
+`init` sets up every supported coding agent found on this machine — Claude Code,
+Codex, and Cursor — in one step. It writes the hosted MCP entry into each agent's
+own configuration (merging with what is already there), installs the bundled
+`assethub` skill under `~/.agents/skills/assethub`, and links it into each agent's
+skill directory so the agent knows the correct command sequence, cost rules, and
+recovery steps without being told. Pass `--agent <name>` to choose agents
+explicitly, `--project` to write project-level MCP files into the current
+directory instead of your home, and `--dry-run` to see the plan without writing.
+`init` never stores a key: the MCP entries read `ASSETHUB_API_KEY` from the
+agent's environment. Directories that `init` did not create are left untouched.
+After a CLI upgrade, the next command refreshes the installed skill automatically.
+Set `ASSETHUB_CLI_HOME` to redirect all of these writes, for example in tests.
 
 Explicit `--profile` uses that profile's key and origin, ahead of environment
 variables, including user tokens and workspace MFA proofs. A missing profile fails.
