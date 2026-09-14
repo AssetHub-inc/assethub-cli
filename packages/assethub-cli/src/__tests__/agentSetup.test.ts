@@ -3,6 +3,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   readlink,
   rm,
@@ -10,7 +11,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {join, resolve} from 'node:path'
+import {dirname, join, resolve} from 'node:path'
 import {promisify} from 'node:util'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {
@@ -179,6 +180,12 @@ describe('assethub init', () => {
       'is not valid JSON',
     )
     expect(await readFile(join(home, '.cursor', 'mcp.json'), 'utf8')).toBe('{not json')
+    // A malformed mcpServers value is refused, not replaced.
+    await writeFile(join(home, '.cursor', 'mcp.json'), '{"mcpServers": []}')
+    await expect(initAgents({baseUrl: 'https://app.assethub.io', home, cwd})).rejects.toThrow(
+      'non-object "mcpServers"',
+    )
+    expect(await readFile(join(home, '.cursor', 'mcp.json'), 'utf8')).toBe('{"mcpServers": []}')
   })
 
   it('refreshes an installed skill after a CLI upgrade and stays quiet otherwise', async () => {
@@ -194,7 +201,8 @@ describe('assethub init', () => {
       await cliVersion(),
     )
     expect(await readFile(join(canonical, 'SKILL.md'), 'utf8')).toContain('name: assethub')
-    expect(await exists(`${canonical}.next`)).toBe(false)
+    // No staging or backup directory is left beside the installed skill.
+    expect(await readdir(dirname(canonical))).toEqual(['assethub'])
   })
 })
 

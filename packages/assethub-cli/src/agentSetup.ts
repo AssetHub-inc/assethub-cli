@@ -26,7 +26,7 @@ import {
 } from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {dirname, join, relative, resolve} from 'node:path'
-import {cwd as processCwd, env} from 'node:process'
+import {cwd as processCwd, env, pid} from 'node:process'
 import {fileURLToPath} from 'node:url'
 import {cliVersion, mcpConfig, validatedBaseUrl} from './setup.js'
 
@@ -150,12 +150,17 @@ const writeJsonServer = async (
       throw new Error(`${path} must contain a JSON object.`)
     document = parsed as Record<string, unknown>
   }
-  const servers =
-    typeof document.mcpServers === 'object' &&
-    document.mcpServers !== null &&
-    !Array.isArray(document.mcpServers)
-      ? (document.mcpServers as Record<string, unknown>)
-      : {}
+  // A malformed `mcpServers` is the user's data too; refuse rather than replace it.
+  if (
+    document.mcpServers !== undefined &&
+    (typeof document.mcpServers !== 'object' ||
+      document.mcpServers === null ||
+      Array.isArray(document.mcpServers))
+  )
+    throw new Error(
+      `${path} has a non-object "mcpServers" value. Fix or move it, then rerun init.`,
+    )
+  const servers = (document.mcpServers ?? {}) as Record<string, unknown>
   if (JSON.stringify(servers[SERVER_NAME]) === JSON.stringify(entry))
     return 'unchanged'
   const next = {...document, mcpServers: {...servers, [SERVER_NAME]: entry}}
@@ -205,19 +210,34 @@ type SkillStatus = 'installed' | 'updated' | 'unchanged' | 'kept-existing'
 const readMarker = async (dir: string): Promise<string | undefined> =>
   (await readText(join(dir, VERSION_MARKER)))?.trim()
 
-/** Stage the new copy beside the target, then swap, so a failed copy never leaves a half-written skill. */
+/**
+ * Stage the new copy beside the target, then swap with two renames, so the
+ * installed skill is never deleted before its replacement is complete. A
+ * failed swap puts the previous copy back. Two CLIs syncing at the same
+ * moment use distinct staging names; whichever copy lands is complete, and
+ * the loser's error is swallowed by the caller.
+ */
 const replaceSkillDir = async (
   source: string,
   target: string,
   version: string,
 ): Promise<void> => {
-  const staging = `${target}.next`
+  const staging = `${target}.next-${pid}`
+  const previous = `${target}.prev-${pid}`
   await rm(staging, {recursive: true, force: true})
   await mkdir(dirname(target), {recursive: true})
   await cp(source, staging, {recursive: true})
   await writeFile(join(staging, VERSION_MARKER), `${version}\n`)
-  await rm(target, {recursive: true, force: true})
-  await rename(staging, target)
+  const hadTarget = await isDirectory(target)
+  if (hadTarget) await rename(target, previous)
+  try {
+    await rename(staging, target)
+  } catch (error) {
+    if (hadTarget) await rename(previous, target).catch(() => undefined)
+    await rm(staging, {recursive: true, force: true})
+    throw error
+  }
+  if (hadTarget) await rm(previous, {recursive: true, force: true})
 }
 
 export const installSkill = async ({
