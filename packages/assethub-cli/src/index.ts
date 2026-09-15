@@ -157,6 +157,7 @@ const artifactGraphPartExtractorApiValues = new Set([
   'ah_agent_graph_v3_6_5',
   'ah_agent_graph_pluffy_v3_1',
   'ah_agent_graph_v3_7',
+  'ah_agent_graph_v3_7_1',
 ])
 
 type PartExtractorOption = {
@@ -210,6 +211,11 @@ const partExtractorOptions = [
     publicName: 'V3.7 Artist Skills',
     apiValue: 'ah_agent_graph_v3_7',
     aliases: ['v3.7', '3.7'],
+  },
+  {
+    publicName: 'V3.7.1 Building Modules',
+    apiValue: 'ah_agent_graph_v3_7_1',
+    aliases: ['v3.7.1', '3.7.1'],
   },
 ] as const satisfies readonly PartExtractorOption[]
 
@@ -341,7 +347,7 @@ Usage:
   assethub production intervene <order-id> (--exclude <target-id> | --include <target-id> | --add-part <name> | --rename <target-id>=<name> | --reject <target-id>[=<reason>] | --regenerate <target-id>=<mode> | --set-param <key>=<value> | --ops-json <json|@file|@->)... [--idempotency-key <key>]
   assethub production interventions <order-id>
   assethub runs upload <path> [--graph-id <id>] [--stream-id <id>] [--rev <n>] [--description <text>] [--tag <tag>...] [--skip-register] [--dry-run]
-  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
+  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
 
@@ -518,8 +524,8 @@ const resolveProductionSkillSelection = (
   }
   if (mode !== 'auto' && mode !== 'manual' && mode !== 'off')
     throw new Error('--skill-mode must be "auto", "manual", or "off"')
-  if (agentVersion !== 'ah_agent_graph_v3_7')
-    throw new Error('--skill-mode is supported only with V3.7 Artist Skills')
+  if (!['ah_agent_graph_v3_7', 'ah_agent_graph_v3_7_1'].includes(agentVersion))
+    throw new Error('--skill-mode requires V3.7 Artist Skills or V3.7.1 Building Modules')
   if (skillIds.length > 3)
     throw new Error('--skill-id accepts at most 3 values')
   if (new Set(skillIds).size !== skillIds.length)
@@ -4423,6 +4429,10 @@ const commandParts = async (
     let orderId = source == null ? getFlag(ctx.flags, 'order-id') : undefined
     if (orderId != null) {
       orderId = assertFlagHasValue(orderId, '--order-id <id>')
+      if (hasFlag(ctx.flags, 'skill-mode') || hasFlag(ctx.flags, 'skill-id'))
+        throw new Error(
+          '--skill-mode and --skill-id cannot be changed with --order-id; use runs resume to preserve the saved selection',
+        )
     }
     const partExtractorFlag = getPartExtractorFlag(ctx.flags)
     const requestedAgentVersion =
@@ -4431,6 +4441,10 @@ const commandParts = async (
             partExtractorFlag ?? defaultPartExtractorName,
           )
         : undefined
+    const skillSelection =
+      requestedAgentVersion == null
+        ? undefined
+        : resolveProductionSkillSelection(ctx.flags, requestedAgentVersion)
     if (
       requestedAgentVersion != null &&
       artifactGraphPartExtractorApiValues.has(requestedAgentVersion)
@@ -4460,6 +4474,7 @@ const commandParts = async (
           ...(source ?? (await resolveProductionAnalyzeSource(ctx))),
           agentVersion: resolvePartExtractorForAnalyze(ctx.flags),
           name: getFlag(ctx.flags, 'name'),
+          ...(skillSelection == null ? {} : {skillSelection}),
         },
         {...executionOptions(ctx.flags), operationId},
       )

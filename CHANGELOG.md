@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.24
+
+- Accept V3.7.1 Building Modules and its short aliases for graph splitting and workspace skill selection. Preserve server authorization and saved operation recovery.
+- Forward Skills from new `parts split` analyses and reject retroactive selection on existing orders.
+- Keep API client 0.1.11 and the CLI default unchanged.
+
 ## CLI 0.1.23 / API client 0.1.11
 
 - Discover, describe, and call the authenticated v1/v2 OpenAPI catalog with `api search`, `api describe`, and `api call`; mutations require an explicit stable operation UUID.
