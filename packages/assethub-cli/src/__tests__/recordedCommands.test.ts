@@ -195,6 +195,7 @@ describe('built recorded CLI', () => {
     ['V3.6.5 Primary Images', 'ah_agent_graph_v3_6_5', 'V3.6.5 Primary Images', ['v3.6.5', '3.6.5']],
     ['Chibi Character (Pluffy) v3.1', 'ah_agent_graph_pluffy_v3_1', 'Chibi Character (Pluffy) v3.1', ['pluffy', 'pluffy v3.1', 'pluffy 3.1']],
     ['V3.7 Artist Skills', 'ah_agent_graph_v3_7', 'V3.7 Artist Skills', ['v3.7', '3.7']],
+    ['V3.7.1 Building Modules', 'ah_agent_graph_v3_7_1', 'V3.7.1 Building Modules', ['v3.7.1', '3.7.1']],
   ] as const)('splits and replays %s graphs', async (name, apiValue, label, aliases) => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))
@@ -297,6 +298,7 @@ describe('built recorded CLI', () => {
     const baseUrl = `http://127.0.0.1:${address.port}`
     const operationId = '84e8530b-b362-45c7-9064-2b03b6f95b24'
     const outDir = join(dir, 'parts-out')
+    const supportsSkills = ['ah_agent_graph_v3_7', 'ah_agent_graph_v3_7_1'].includes(apiValue)
     const args = [
       'parts',
       'split',
@@ -315,6 +317,7 @@ describe('built recorded CLI', () => {
       '--download',
       '--out-dir',
       outDir,
+      ...(supportsSkills ? ['--skill-mode', 'manual', '--skill-id', 'module-contours'] : []),
     ]
 
     const agents = await cli(baseUrl, dir, ['production', 'agents'])
@@ -334,6 +337,9 @@ describe('built recorded CLI', () => {
       path: '/api/v1/production/analyze',
       body: {agentVersion: apiValue},
     })
+    expect(posted[0].body.skillSelection).toEqual(
+      supportsSkills ? {mode: 'manual', skillIds: ['module-contours']} : undefined,
+    )
     expect(classicRequests).toEqual([])
     expect(await readFile(split.json.downloads!.files[0].path, 'utf8')).toBe(
       'part-image-bytes',
@@ -345,6 +351,18 @@ describe('built recorded CLI', () => {
     expect(posted).toHaveLength(1)
     expect(classicRequests).toEqual([])
     expect(runReads).toBeGreaterThan(1)
+
+    for (const rejectedArgs of [
+      ['parts', 'split', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'V1.5', '--skill-mode', 'auto'],
+      ['parts', 'split', '--order-id', 'classic-order', '--skill-mode', 'off'],
+      ['parts', 'split', '--order-id', 'classic-order', '--skill-id', 'module-contours'],
+    ]) {
+      const rejected = await cli(baseUrl, dir, rejectedArgs)
+      expect(rejected.code).not.toBe(0)
+      expect(rejected.json.error?.message).toContain('--skill-')
+    }
+    expect(posted).toHaveLength(1)
+    expect(classicRequests).toEqual([])
 
     for (const unsupported of [
       ['--task-id', 'task-1'],
@@ -386,7 +404,7 @@ describe('built recorded CLI', () => {
       })
     }
     let expectedPostCount = 2 + aliases.length
-    if (apiValue === 'ah_agent_graph_v3_7') {
+    if (['ah_agent_graph_v3_7', 'ah_agent_graph_v3_7_1'].includes(apiValue)) {
       const selected = await cli(baseUrl, dir, [
         'production', 'analyze', '--source-id', 'image-asset',
         '--canvas', '42', '--part-extractor', name,
@@ -404,6 +422,15 @@ describe('built recorded CLI', () => {
         version: 3,
       })
       expectedPostCount++
+      for (const mode of ['auto', 'off']) {
+        const selected = await cli(baseUrl, dir, [
+          'production', 'analyze', '--source-id', 'image-asset',
+          '--canvas', '42', '--part-extractor', name, '--skill-mode', mode,
+        ])
+        expect(selected.code, selected.stderr).toBe(0)
+        expect(posted.at(-1)?.body.skillSelection).toEqual({mode, skillIds: []})
+        expectedPostCount++
+      }
       const contextOnly = await cli(baseUrl, dir, [
         'production', 'analyze', '--source-id', 'image-asset',
         '--part-extractor', name, '--context', '42', '--context-version', '4',

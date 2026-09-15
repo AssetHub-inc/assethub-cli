@@ -13,10 +13,13 @@ The server's workspace, gate, billing, and terminal-result rules still apply.
 
 `skills list|get|learn|update|controls|prepare|proposal|accept` uses the existing
 Workspace Skills API. Read `--help` for required revisions and JSON inputs.
-For V3.7 Artist Skills analysis, `production analyze` accepts
+For V3.7 Artist Skills or V3.7.1 Building Modules, `production analyze` and new
+`parts split` analyses accept
 `--skill-mode auto|manual|off` and up to three distinct `--skill-id <id>` values.
 Manual selection requires IDs; off rejects them. The server resolves authorized
 published skill revisions and keeps Internal gates and actor checks in force.
+Existing `parts split --order-id` operations reject skill flags; use
+`runs resume` to recover the saved operation with its original selection.
 
 For complete-object graph models, add `--context <canvas-id> --context-version <n>`
 to `production analyze` to apply that exact saved Must/Avoid guidance. Both flags
