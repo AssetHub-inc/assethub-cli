@@ -67,6 +67,7 @@ const modes = {
   defaultMode: 'standard',
   modes: [
     {id: 'standard', available: true, maxRounds: 2, budgetMs: 30_000},
+    {id: 'codex', available: true, maxRounds: 16, budgetMs: 3_600_000},
     {id: 'thorough', available: true, maxRounds: 4, budgetMs: 120_000},
     {id: 'placement', available: true, maxRounds: 3, budgetMs: 90_000},
     {id: 'workshop', available: false, reason: 'internal rollout', maxRounds: 1, budgetMs: 30_000},
@@ -243,7 +244,11 @@ describe('composer refine CLI', () => {
       fullBodyImageAssetId: 'reference',
       transforms: {'mesh-a': [1, 0, 0, 0, 0, 0, 1, 1, 1, 1]},
       referenceTransform: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
-      mode: 'standard',
+      mode: 'codex',
+      geometryBackend: 'blender',
+      agentRuntime: {provider: 'responses-api', model: 'gpt-6-astra'},
+      assemblyPolicy: 'body_first_v1',
+      dressingGeneration: {maxCredits: 25, sourceImageAssetIds: {'mesh-a': 'owned-source'}},
       instruction: 'center the character',
       maxRounds: 1,
     }
@@ -277,13 +282,14 @@ describe('composer refine CLI', () => {
     const resumed = await runCli(baseUrl, stateDir, ['runs', 'resume', operationId, '--wait'])
     expect(resumed.code, resumed.stderr).toBe(3)
     expect(posted).toHaveLength(2)
+    expect(posted[0]).toMatchObject(input)
     expect(posted[1]).toEqual(posted[0])
     expect(resumed.json.execution).toMatchObject({status: 'needs_review', operation: 'mesh.refine'})
     const invalid = await runCli(baseUrl, stateDir, [
       'composer',
       'refine',
       '--input-json',
-      json,
+      JSON.stringify({...input, geometryBackend: undefined, assemblyPolicy: undefined, dressingGeneration: undefined}),
       '--mode',
       'blender',
     ])

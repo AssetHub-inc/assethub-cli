@@ -43,7 +43,7 @@ it.each([
   const agentRuntime = {provider: previousOperation === 'mesh.refine' ? 'agents-api' : 'openrouter', model: 'saved/model-selection'}
   const frozen = {agentRuntime, parts: [{assetId: 'mesh_old'}], fullBodyImageAssetId: 'saved-reference', agentVersion: 'part_composer_v4_turntable', mode: previousOperation === 'mesh.refine' ? 'codex' : 'quick',
     transforms: {mesh_old: originalTransform}, nativeRunMode: 'quick-agent', nativeNodeId: 'shape:composer', nativeScene: {internal: true}, nativeNodeInputFingerprint: 'private-fingerprint', operationKey: 'old-command',
-    ...(previousOperation === 'mesh.refine' ? {geometryBackend: 'blender', referenceMode: 'all_angles', geometrySources: {mesh_old: 'oldest'}, background: {nodeShapeId: 'shape:composer', notifyByEmail: false}} : {}),
+    ...(previousOperation === 'mesh.refine' ? {assemblyPolicy: 'body_first_v1', dressingGeneration: {maxCredits: 25, sourceImageAssetIds: {mesh_latest: 'owned-source'}}, geometryBackend: 'blender', referenceMode: 'all_angles', geometrySources: {mesh_old: 'oldest'}, background: {nodeShapeId: 'shape:composer', notifyByEmail: false}} : {}),
     quickRunId: 'run_old', quickScene: {internal: true}, referenceTransform: originalTransform,
   }
   const previous = {schemaVersion: 'assethub.execution.v1', runId: 'native-run', operation: previousOperation, status: 'needs_review', canvas,
@@ -93,6 +93,6 @@ it.each([
     expect(posted[0]!.parts).toEqual([{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}])
     expect(posted[0]).not.toHaveProperty('referenceTransform')
   } else expect(posted[0]).toMatchObject({referenceTransform: transform, mode: previousOperation === 'mesh.refine' ? 'codex' : 'standard', parts: [{volumeCentroid: [1, 2, 3]}]})
-  if (command === 'refine' && previousOperation === 'mesh.refine') expect(posted[0]).toMatchObject({geometryBackend: 'blender', referenceMode: 'all_angles', geometrySources: previous.refinement.geometrySources, referenceViews: previous.refinement.referenceViews, background: frozen.background})
+  if (command === 'refine' && previousOperation === 'mesh.refine') expect(posted[0]).toMatchObject({assemblyPolicy: frozen.assemblyPolicy, dressingGeneration: frozen.dressingGeneration, geometryBackend: 'blender', referenceMode: 'all_angles', geometrySources: previous.refinement.geometrySources, referenceViews: previous.refinement.referenceViews, background: frozen.background})
   expect(paths.some(path => /upload|assets|\/image/.test(path))).toBe(false)
 })

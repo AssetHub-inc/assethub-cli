@@ -1180,6 +1180,8 @@ export type ComposerReferenceViews = {
   }
 }
 export type MeshRefineRequest = {
+  assemblyPolicy?: 'body_first_v1'
+  dressingGeneration?: {maxCredits: number; sourceImageAssetIds: Record<string, string>}
   geometryBackend?: 'blender'
   referenceMode?: 'front' | 'all_angles'
   calibration?: ComposerRefineCalibration
