@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {afterEach, describe, expect, it} from 'vitest'
-import type {CanvasExecution} from '@assethub/api-client'
+import type {CanvasExecution, MeshRefineRequest} from '@assethub/api-client'
 
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
@@ -239,7 +239,8 @@ describe('composer refine CLI', () => {
     const posted: Record<string, unknown>[] = []
     const operationId = 'a4e8530b-b362-45c7-9064-2b03b6f95b24'
     let savedRun: CanvasExecution | undefined
-    const input = {
+    let bodyFirstMaxRounds: number | undefined = 32
+    const input: Omit<MeshRefineRequest, 'executionContext'> = {
       parts: [{assetId: 'mesh-a', name: 'body'}],
       fullBodyImageAssetId: 'reference',
       transforms: {'mesh-a': [1, 0, 0, 0, 0, 0, 1, 1, 1, 1]},
@@ -250,10 +251,10 @@ describe('composer refine CLI', () => {
       assemblyPolicy: 'body_first_v1',
       dressingGeneration: {maxCredits: 25, sourceImageAssetIds: {'mesh-a': 'owned-source'}},
       instruction: 'center the character',
-      maxRounds: 1,
+      maxRounds: 32,
     }
     const baseUrl = await listen(async request => {
-      if (request.url === '/api/v2/mesh/refine' && request.method === 'GET') return modes
+      if (request.url === '/api/v2/mesh/refine' && request.method === 'GET') return {...modes, bodyFirst: true, bodyFirstMaxRounds}
       if (request.url === '/api/v2/capabilities')
         return {ownerId: 'org-a', executionContext: {status: 'available', operations: ['mesh.refine']}, evaluators: []}
       if (request.url === '/api/v2/canvases/42') return canvas
@@ -285,6 +286,25 @@ describe('composer refine CLI', () => {
     expect(posted[0]).toMatchObject(input)
     expect(posted[1]).toEqual(posted[0])
     expect(resumed.json.execution).toMatchObject({status: 'needs_review', operation: 'mesh.refine'})
+    for (const policy of [undefined, 'body_first_v1']) {
+      bodyFirstMaxRounds = undefined
+      const overBudget = await runCli(baseUrl, stateDir, [
+        'composer', 'refine', '--input-json',
+        JSON.stringify({...input, assemblyPolicy: policy}), '--canvas', '42',
+      ])
+      expect(overBudget.code).toBe(2)
+      expect(overBudget.json.error).toMatchObject({
+        message: '--max-rounds must be at most 16 for codex',
+      })
+    }
+    bodyFirstMaxRounds = 32
+    const continued = await runCli(baseUrl, stateDir, [
+      'composer', 'refine', '--from-run', operationId,
+      '--instruction', 'Continue repairing remaining defects',
+      '--operation-id', '42608b89-cc07-4a6b-a065-d1716b23bba0',
+    ])
+    expect(continued.code, continued.stderr).toBe(3)
+    expect(posted[2]).toMatchObject({assemblyPolicy: 'body_first_v1', maxRounds: 32})
     const invalid = await runCli(baseUrl, stateDir, [
       'composer',
       'refine',
@@ -295,6 +315,6 @@ describe('composer refine CLI', () => {
     ])
     expect(invalid.code).toBe(2)
     expect(invalid.json.error).toMatchObject({message: 'Refinement mode blender is unavailable: worker unavailable'})
-    expect(posted).toHaveLength(2)
+    expect(posted).toHaveLength(3)
   })
 })
