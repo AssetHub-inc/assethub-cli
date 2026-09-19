@@ -2937,6 +2937,7 @@ const refinementModeInfo = (
 }
 
 const refinementContinuationFields = [
+  'assemblyPolicy', 'dressingGeneration',
   'geometryBackend', 'referenceMode', 'calibration', 'referenceViews',
   'geometrySources', 'reviewContext', 'background',
 ] as const

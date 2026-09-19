@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.25 / API client 0.1.12
+
+- Preserve the requested body-first assembly policy and bounded regeneration options in Composer refinement JSON input, saved operation replay, and `--from-run` requests.
+- Add the existing server contract fields to the public API client request type; server authorization, rollout gates and budgets remain authoritative.
+
 ## CLI 0.1.24
 
 - Accept V3.7.1 Building Modules and its short aliases for graph splitting and workspace skill selection. Preserve server authorization and saved operation recovery.
