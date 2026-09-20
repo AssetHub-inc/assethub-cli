@@ -1142,18 +1142,20 @@ export type MeshRefinementModeInfo = {
   budgetMs: number
 }
 export type MeshRefinementCapabilities = {
+  bodyFirst?: boolean
+  bodyFirstMaxRounds?: number
   allAngles?: boolean
   background?: boolean
   agentModels?: {
     id: string
     label: string
-    provider: 'openrouter' | 'agents-api'
+    provider: 'openrouter' | 'agents-api' | 'responses-api'
   }[]
   defaultMode: 'standard'
   modes: MeshRefinementModeInfo[]
 }
 export type ComposerAgentRuntime = {
-  provider: 'openrouter' | 'agents-api'
+  provider: 'openrouter' | 'agents-api' | 'responses-api'
   model: string
 }
 export type ComposerRefineCalibration = {
@@ -1180,6 +1182,8 @@ export type ComposerReferenceViews = {
   }
 }
 export type MeshRefineRequest = {
+  assemblyPolicy?: 'body_first_v1'
+  dressingGeneration?: {maxCredits: number; sourceImageAssetIds: Record<string, string>}
   geometryBackend?: 'blender'
   referenceMode?: 'front' | 'all_angles'
   calibration?: ComposerRefineCalibration

@@ -2940,6 +2940,7 @@ const refinementModeInfo = (
 }
 
 const refinementContinuationFields = [
+  'assemblyPolicy', 'dressingGeneration',
   'geometryBackend', 'referenceMode', 'calibration', 'referenceViews',
   'geometrySources', 'reviewContext', 'background',
 ] as const
@@ -3100,9 +3101,13 @@ const commandComposerRefine = async (ctx: CommandContext) => {
       : parsePositiveIntegerFlag(ctx.flags, 'max-rounds', 1)
   if (maxRounds != null && (!Number.isInteger(maxRounds) || maxRounds <= 0))
     throw new Error('--max-rounds must be a positive integer')
-  if (maxRounds != null && maxRounds > modeInfo.maxRounds)
+  const roundLimit =
+    mode === 'codex' && input.assemblyPolicy === 'body_first_v1'
+      ? capabilities.bodyFirstMaxRounds ?? modeInfo.maxRounds
+      : modeInfo.maxRounds
+  if (maxRounds != null && maxRounds > roundLimit)
     throw new Error(
-      `--max-rounds must be at most ${modeInfo.maxRounds} for ${mode}`,
+      `--max-rounds must be at most ${roundLimit} for ${mode}`,
     )
   const transformsFlag = getFlag(ctx.flags, 'transforms-json')
   const transforms = transformsFlag
