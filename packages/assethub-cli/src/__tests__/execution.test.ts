@@ -197,6 +197,36 @@ describe('recorded CLI execution', () => {
     })
   })
 
+  it('never fails --wait on a 429: it rides out a rate limit that outlasts the client retry budget and returns the completed run', async () => {
+    const rateLimited = () =>
+      new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'RATE_LIMITED',
+            message: 'Rate limit exceeded. Try again in 1 seconds.',
+          },
+        }),
+        {status: 429, headers: {'Retry-After': '1'}},
+      )
+    const request = vi.fn<typeof fetch>().mockImplementation(async () => {
+      // More consecutive 429s than the client's own internal retry budget,
+      // so one still escapes to waitForExecution's poll loop.
+      if (request.mock.calls.length <= 5) return rateLimited()
+      return ok({...receipt('rate-limited-run', 'completed')})
+    })
+    const client = createAssetHubClient({
+      apiKey: 'test-key',
+      fetch: request,
+      sleep: async () => undefined,
+    })
+    const execution = await waitForExecution(client, 'rate-limited-run', {
+      intervalMs: 1,
+    })
+    expect(execution.status).toBe('completed')
+    expect(request.mock.calls.length).toBeGreaterThan(5)
+  })
+
   it('replays production analysis with the saved key and returns its canvas order', async () => {
     const dir = await stateDir()
     const bodies: string[] = []

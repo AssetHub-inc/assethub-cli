@@ -1166,3 +1166,159 @@ describe('@assethub/api-client compatibility', () => {
     })
   })
 })
+
+describe('@assethub/api-client rate limit (429) retry', () => {
+  const rateLimited = (
+    message: string,
+    headers: Record<string, string> = {},
+  ): Response =>
+    new Response(
+      JSON.stringify({
+        success: false,
+        error: {code: 'RATE_LIMITED', message},
+      }),
+      {status: 429, headers},
+    )
+
+  const clientWithSleep = (sleep: (ms: number) => Promise<void>) =>
+    createAssetHubClient({
+      apiKey: API_KEY,
+      baseUrl: BASE_URL,
+      fetch: fetchMock,
+      sleep,
+    })
+
+  it('waits out the server Retry-After header, with jitter, then retries the GET and succeeds', async () => {
+    const sleepMock = vi.fn(async () => undefined)
+    fetchMock
+      .mockResolvedValueOnce(
+        rateLimited('Rate limit exceeded. Try again in 2 seconds.', {
+          'Retry-After': '2',
+        }),
+      )
+      .mockResolvedValueOnce(ok(job))
+
+    await expect(clientWithSleep(sleepMock).v1.getJob(JOB_ID)).resolves.toEqual(
+      job,
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(sleepMock).toHaveBeenCalledTimes(1)
+    const waitedMs = sleepMock.mock.calls[0]?.[0] as number
+    expect(waitedMs).toBeGreaterThanOrEqual(2000)
+    expect(waitedMs).toBeLessThan(3000)
+  })
+
+  it('falls back to the "Try again in N seconds" message when Retry-After is absent', async () => {
+    const sleepMock = vi.fn(async () => undefined)
+    fetchMock
+      .mockResolvedValueOnce(
+        rateLimited('Rate limit exceeded. Try again in 3 seconds.'),
+      )
+      .mockResolvedValueOnce(ok(job))
+
+    await expect(clientWithSleep(sleepMock).v1.getJob(JOB_ID)).resolves.toEqual(
+      job,
+    )
+
+    expect(sleepMock).toHaveBeenCalledTimes(1)
+    const waitedMs = sleepMock.mock.calls[0]?.[0] as number
+    expect(waitedMs).toBeGreaterThanOrEqual(3000)
+    expect(waitedMs).toBeLessThan(4000)
+  })
+
+  it('caps the wait at a maximum delay even when the server asks for much longer', async () => {
+    const sleepMock = vi.fn(async () => undefined)
+    fetchMock
+      .mockResolvedValueOnce(
+        rateLimited('Rate limit exceeded. Try again in 120 seconds.', {
+          'Retry-After': '120',
+        }),
+      )
+      .mockResolvedValueOnce(ok(job))
+
+    await expect(clientWithSleep(sleepMock).v1.getJob(JOB_ID)).resolves.toEqual(
+      job,
+    )
+
+    const waitedMs = sleepMock.mock.calls[0]?.[0] as number
+    expect(waitedMs).toBeLessThanOrEqual(31_000)
+  })
+
+  it('gives up after a bounded number of attempts and surfaces the 429 error', async () => {
+    const sleepMock = vi.fn(async () => undefined)
+    fetchMock.mockImplementation(async () =>
+      rateLimited('Rate limit exceeded. Try again in 1 seconds.', {
+        'Retry-After': '1',
+      }),
+    )
+
+    await expect(
+      clientWithSleep(sleepMock).v1.getJob(JOB_ID),
+    ).rejects.toMatchObject({status: 429, code: 'RATE_LIMITED'})
+
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1)
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(6)
+    expect(sleepMock.mock.calls.length).toBe(fetchMock.mock.calls.length - 1)
+  })
+
+  it('replays a mutation with the same Idempotency-Key after a 429, never dropping it', async () => {
+    const sleepMock = vi.fn(async () => undefined)
+    const queued = {
+      jobId: 'mesh-job',
+      meshGenId: 'mesh-gen',
+      status: 'queued',
+      modelId: 'meshGen.tripo_p1',
+      inputMode: 'multiview',
+      imageCount: 2,
+    } satisfies QueuedMeshResult
+    fetchMock
+      .mockResolvedValueOnce(
+        rateLimited('Rate limit exceeded. Try again in 1 seconds.', {
+          'Retry-After': '1',
+        }),
+      )
+      .mockResolvedValueOnce(ok(queued))
+
+    await expect(
+      clientWithSleep(sleepMock).v2.generateMesh(
+        {
+          sources: [{resourceId: 'front-image'}],
+          modelId: 'meshGen.tripo_p1',
+          inputMode: 'multiview',
+        },
+        {idempotencyKey: 'submit-op-1'},
+      ),
+    ).resolves.toEqual(queued)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const [, firstInit] = fetchMock.mock.calls[0]
+    const [, secondInit] = fetchMock.mock.calls[1]
+    expect(new Headers(firstInit?.headers).get('Idempotency-Key')).toBe(
+      'submit-op-1',
+    )
+    expect(new Headers(secondInit?.headers).get('Idempotency-Key')).toBe(
+      'submit-op-1',
+    )
+  })
+
+  it('does not retry a non-429 error status', async () => {
+    const sleepMock = vi.fn(async () => undefined)
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: false,
+          error: {code: 'SERVER_ERROR', message: 'boom'},
+        }),
+        {status: 500},
+      ),
+    )
+
+    await expect(
+      clientWithSleep(sleepMock).v1.getJob(JOB_ID),
+    ).rejects.toMatchObject({status: 500})
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(sleepMock).not.toHaveBeenCalled()
+  })
+})
