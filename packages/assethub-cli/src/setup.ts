@@ -9,7 +9,7 @@ export const cliVersion = async (): Promise<string> =>
     ) as {version: string}
   ).version
 
-const validatedBaseUrl = (baseUrl: string): string => {
+export const validatedBaseUrl = (baseUrl: string): string => {
   const url = new URL(baseUrl)
   if (url.username || url.password || url.search || url.hash)
     throw new Error('Use an API URL without credentials, query, or fragment.')
