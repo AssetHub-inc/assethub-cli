@@ -113,9 +113,12 @@ The API key belongs in a trusted server or local process. See the
 ## Connect an AI coding tool with MCP
 
 AssetHub provides a hosted MCP endpoint at `https://app.assethub.io/api/mcp`.
-There is no local MCP package to install. The
-[CLI & MCP setup page](https://app.assethub.io/developer-tools) includes Cursor
-and Codex configuration. CLI and hosted MCP are available to all AssetHub users;
+There is no local MCP package to install. Run `assethub init` to detect Claude
+Code, Codex, and Cursor on this machine, write the MCP entry into each one, and
+install the bundled `assethub` skill that teaches the agent the command sequence,
+cost rules, and recovery steps. Use `assethub init --dry-run` to preview. The
+[CLI & MCP setup page](https://app.assethub.io/developer-tools) includes the same
+Cursor and Codex configuration for manual setup. CLI and hosted MCP are available to all AssetHub users;
 workspace ownership, permissions, and credit requirements apply.
 
 ## Development

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {setTimeout as delay} from 'node:timers/promises'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
+import {AGENT_IDS, initAgents, syncInstalledSkill} from './agentSetup.js'
 import {ingestProjectSources} from './projectSources.js'
 import {downloadCanvas} from './canvasDownload.js'
 import {
@@ -267,6 +268,7 @@ CLI and MCP are available to all AssetHub users. Workspace permissions and featu
 Usage:
   assethub --version
   assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
+  assethub init [--agent claude-code|codex|cursor...] [--project] [--dry-run] [--base-url <url>] [--workspace <id>] [--profile <name>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--account] [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
@@ -379,6 +381,7 @@ Global options:
 Examples:
   ASSETHUB_API_KEY=ah_live_xxx assethub models list
   assethub auth login --api-key-stdin
+  assethub init --dry-run
   assethub models list --ids-only
   assethub files upload ./input.png --media-type image
   assethub source create --file ./input.png --media-type image
@@ -5458,6 +5461,22 @@ const parseNonNegativeIntegerFlag = (
   return parsed
 }
 
+/** Base URL and workspace an MCP entry should target: explicit flags, then the selected profile, then defaults. */
+const resolveMcpTarget = async (
+  flags: Flags,
+): Promise<{baseUrl: string; workspaceId?: string}> => {
+  const config = await readAuthConfig(getConfigPath(flags))
+  const explicitProfile = getFlag(flags, 'profile')
+  const stored = config.profiles?.[explicitProfile ?? config.defaultProfile ?? defaultProfileName]
+  if (explicitProfile && !stored) throw new Error('Selected profile does not exist')
+  const selected = explicitProfile || stored?.workspaceId || isPersonalProfile(stored)
+  const baseUrl = getFlag(flags, 'base-url') ??
+    (selected ? stored?.baseUrl : env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl) ?? defaultBaseUrl
+  const workspaceId = getFlag(flags, 'workspace') ??
+    (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin ? stored.workspaceId : undefined)
+  return {baseUrl, workspaceId}
+}
+
 const run = async (): Promise<void> => {
   const parsed = parseArgs(argv.slice(2))
   if (hasFlag(parsed.flags, 'version')) {
@@ -5470,6 +5489,23 @@ const run = async (): Promise<void> => {
   }
 
   const [command, subcommand] = parsed.positionals
+  if (command !== 'init') await syncInstalledSkill()
+  if (command === 'init') {
+    if (subcommand)
+      throw new Error(`Use init [--agent ${AGENT_IDS.join('|')}] [--project] [--dry-run]`)
+    const target = await resolveMcpTarget(parsed.flags)
+    print(
+      await initAgents({
+        ...target,
+        agents: getFlagValues(parsed.flags, 'agent').map(value =>
+          assertFlagHasValue(value, '--agent <name>'),
+        ),
+        project: hasFlag(parsed.flags, 'project'),
+        dryRun: hasFlag(parsed.flags, 'dry-run'),
+      }),
+    )
+    return
+  }
   if (command === 'mcp' && subcommand === 'tools') {
     stderr.write('Discovering AssetHub MCP tools…\n')
     const report = await diagnose({
@@ -5503,15 +5539,7 @@ const run = async (): Promise<void> => {
   if (command === 'mcp') {
     if (subcommand !== 'config')
       throw new Error('Use mcp tools [tool-name] or mcp config --client cursor|codex')
-    const config = await readAuthConfig(getConfigPath(parsed.flags))
-    const explicitProfile = getFlag(parsed.flags, 'profile')
-    const stored = config.profiles?.[explicitProfile ?? config.defaultProfile ?? defaultProfileName]
-    if (explicitProfile && !stored) throw new Error('Selected profile does not exist')
-    const selected = explicitProfile || stored?.workspaceId || isPersonalProfile(stored)
-    const baseUrl = getFlag(parsed.flags, 'base-url') ??
-      (selected ? stored?.baseUrl : env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl) ?? defaultBaseUrl
-    const workspaceId = getFlag(parsed.flags, 'workspace') ??
-      (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin ? stored.workspaceId : undefined)
+    const {baseUrl, workspaceId} = await resolveMcpTarget(parsed.flags)
     stdout.write(
       mcpConfig(
         requireFlag(parsed.flags, 'client'),
