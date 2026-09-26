@@ -99,6 +99,10 @@ export class CliExecutionError extends Error {
   }
 }
 
+/** A floor under `--interval-ms` for `waitForExecution`'s own poll cadence. */
+const MIN_POLL_INTERVAL_MS = 1_000
+const POLL_JITTER_MS = 250
+
 /** Kept only for SIGINT reporting; interrupting the client never cancels server work. */
 export const activeExecution: {
   operationId?: string
@@ -446,6 +450,12 @@ export const waitForExecution = async (
       activeExecution.execution,
       runId,
     )
+  // A floor under --interval-ms and a touch of jitter on every poll: several
+  // `--wait` invocations started together (e.g. parallel `mesh generate`)
+  // otherwise poll in lockstep and collide on the same rate-limit window.
+  const pollIntervalMs = () =>
+    Math.max(options.intervalMs ?? 5_000, MIN_POLL_INTERVAL_MS) +
+    Math.floor(Math.random() * POLL_JITTER_MS)
   while (true) {
     const signal = AbortSignal.timeout(Math.max(1, deadline - Date.now()))
     let execution: CanvasExecution
@@ -453,6 +463,17 @@ export const waitForExecution = async (
       execution = await client.v2.getRun(runId, {signal})
     } catch (error) {
       if (signal.aborted) throw timeout()
+      // The client already retries a 429 internally (Retry-After/backoff);
+      // one only reaches here once that budget is exhausted. Server work
+      // keeps running regardless, so a rate limit is never a wait failure —
+      // treat it like "no update yet" and keep polling within the deadline.
+      if (error instanceof AssetHubApiError && error.status === 429) {
+        if (Date.now() >= deadline) throw timeout()
+        await delay(
+          Math.min(pollIntervalMs(), Math.max(0, deadline - Date.now())),
+        )
+        continue
+      }
       throw new CliExecutionError(
         error instanceof Error ? error.message : String(error),
         error instanceof AssetHubApiError && error.status < 500 ? 2 : 1,
@@ -470,8 +491,6 @@ export const waitForExecution = async (
     )
       return execution
     if (Date.now() >= deadline) throw timeout()
-    await delay(
-      Math.min(options.intervalMs ?? 5_000, Math.max(0, deadline - Date.now())),
-    )
+    await delay(Math.min(pollIntervalMs(), Math.max(0, deadline - Date.now())))
   }
 }

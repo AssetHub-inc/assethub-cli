@@ -230,6 +230,8 @@ export type AssetHubClientOptions = {
   workspaceId?: string
   baseUrl?: string
   fetch?: typeof fetch
+  /** Injectable for tests; defaults to a real timer-based sleep. */
+  sleep?: (ms: number) => Promise<void>
 }
 
 export type ApiSuccess<T> = {
@@ -1669,6 +1671,43 @@ const sleep = async (ms: number): Promise<void> => {
 const isFormDataBody = (body: unknown): body is FormData =>
   typeof FormData !== 'undefined' && body instanceof FormData
 
+/**
+ * A 429 response never reaches the idempotency store on the server (the rate
+ * limiter runs ahead of it), so replaying the same request with the same
+ * Idempotency-Key/body cannot create a duplicate run. Bounded so a
+ * persistently rate-limited caller still fails instead of hanging.
+ */
+const RATE_LIMIT_MAX_ATTEMPTS = 5
+const RATE_LIMIT_MIN_DELAY_MS = 250
+const RATE_LIMIT_MAX_DELAY_MS = 30_000
+
+/** Seconds or an HTTP-date, per RFC 9110 7.8.3. */
+const parseRetryAfterHeader = (header: string): number | undefined => {
+  const seconds = Number(header)
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+  const dateMs = Date.parse(header)
+  return Number.isNaN(dateMs) ? undefined : Math.max(0, dateMs - Date.now())
+}
+
+/** Falls back to the API's own wording (e.g. "Try again in 30 seconds.") when no header is sent. */
+const parseRetryAfterMessage = (message: string): number | undefined => {
+  const match = /try again in\s+(\d+(?:\.\d+)?)\s*seconds?/i.exec(message)
+  return match ? Number(match[1]) * 1000 : undefined
+}
+
+const rateLimitDelayMs = (response: Response, message: string): number => {
+  const header = response.headers.get('Retry-After')
+  const requested =
+    (header == null ? undefined : parseRetryAfterHeader(header)) ??
+    parseRetryAfterMessage(message) ??
+    RATE_LIMIT_MIN_DELAY_MS
+  const jitter = Math.random() * Math.min(1_000, Math.max(100, requested * 0.25))
+  return Math.min(
+    RATE_LIMIT_MAX_DELAY_MS,
+    Math.max(RATE_LIMIT_MIN_DELAY_MS, requested + jitter),
+  )
+}
+
 const isFailedWorkflowEvent = (event: WorkflowStreamEvent): boolean => {
   const statuses = [
     event.status,
@@ -1759,6 +1798,7 @@ export class AssetHubClient {
   readonly apiKey: string
   readonly workspaceId?: string
   private readonly fetchImpl: typeof fetch
+  private readonly sleepImpl: (ms: number) => Promise<void>
 
   constructor(options: AssetHubClientOptions) {
     if (options.apiKey.trim().length === 0) {
@@ -1768,6 +1808,7 @@ export class AssetHubClient {
     this.apiKey = options.apiKey
     this.workspaceId = options.workspaceId
     this.fetchImpl = options.fetch ?? fetch
+    this.sleepImpl = options.sleep ?? sleep
   }
 
   async request<T>(
@@ -1797,59 +1838,63 @@ export class AssetHubClient {
     rawDocument = false,
   ): Promise<unknown> {
     const body = init.body
-    const response = await this.fetchImpl(
-      `${this.baseUrl}/api/${version}${normalizePath(path)}`,
-      {
-        ...init,
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          ...(this.workspaceId
-            ? {'X-AssetHub-Workspace': this.workspaceId}
-            : {}),
-          ...(isFormDataBody(body) ? {} : {'Content-Type': 'application/json'}),
-          ...(init.headers ?? {}),
-        },
-      },
-    )
-
-    if (
-      !rawDocument &&
-      response.ok &&
-      response.headers
-        .get('content-type')
-        ?.split(';')[0]
-        .trim()
-        .toLowerCase() === 'application/x-ndjson'
-    )
-      return readWorkflowStream(response)
-
-    const payload = (await response.json().catch(() => ({}))) as
-      | ApiSuccess<unknown>
-      | ApiErrorPayload
-
-    if (
-      !response.ok ||
-      (!rawDocument && payload.success !== true) ||
-      payload.success === false
-    ) {
-      const errorPayload = payload as ApiErrorPayload
-      const code = errorPayload.error?.code ?? 'UNKNOWN_ERROR'
-      const message =
-        errorPayload.error?.message ??
-        `AssetHub API request failed with status ${response.status}`
-      throw new AssetHubApiError({
-        status: response.status,
-        code,
-        message,
-        payload,
-        requestId:
-          errorPayload.error?.requestId ??
-          response.headers.get('X-Request-ID') ??
-          undefined,
-      })
+    const url = `${this.baseUrl}/api/${version}${normalizePath(path)}`
+    const headers = {
+      Authorization: `Bearer ${this.apiKey}`,
+      ...(this.workspaceId ? {'X-AssetHub-Workspace': this.workspaceId} : {}),
+      ...(isFormDataBody(body) ? {} : {'Content-Type': 'application/json'}),
+      ...(init.headers ?? {}),
     }
 
-    return payload
+    for (let attempt = 0; ; attempt++) {
+      const response = await this.fetchImpl(url, {...init, headers})
+
+      if (
+        !rawDocument &&
+        response.ok &&
+        response.headers
+          .get('content-type')
+          ?.split(';')[0]
+          .trim()
+          .toLowerCase() === 'application/x-ndjson'
+      )
+        return readWorkflowStream(response)
+
+      const payload = (await response.json().catch(() => ({}))) as
+        | ApiSuccess<unknown>
+        | ApiErrorPayload
+
+      if (
+        !response.ok ||
+        (!rawDocument && payload.success !== true) ||
+        payload.success === false
+      ) {
+        const errorPayload = payload as ApiErrorPayload
+        const code = errorPayload.error?.code ?? 'UNKNOWN_ERROR'
+        const message =
+          errorPayload.error?.message ??
+          `AssetHub API request failed with status ${response.status}`
+        // Same request (headers, body, Idempotency-Key) is replayed unchanged;
+        // the rate limiter rejects before any handler runs, so nothing was
+        // queued or charged yet, and repeating is always safe.
+        if (response.status === 429 && attempt < RATE_LIMIT_MAX_ATTEMPTS - 1) {
+          await this.sleepImpl(rateLimitDelayMs(response, message))
+          continue
+        }
+        throw new AssetHubApiError({
+          status: response.status,
+          code,
+          message,
+          payload,
+          requestId:
+            errorPayload.error?.requestId ??
+            response.headers.get('X-Request-ID') ??
+            undefined,
+        })
+      }
+
+      return payload
+    }
   }
 
   readonly v1 = {
