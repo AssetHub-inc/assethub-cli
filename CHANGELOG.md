@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.27 / API client 0.1.13
+
+- Retry 429 responses in the shared client request path instead of failing the command: wait the server's `Retry-After` header (or the parsed "Try again in N seconds" message), add jitter, and bound both the per-wait delay and the attempt count while replaying the exact same request (including any `Idempotency-Key`).
+- Stop treating a 429 as a `--wait` failure: `waitForExecution` keeps polling until the `--wait` deadline instead of exiting with a failure status when the run is still rate-limited.
+- Add a floor and jitter to the `--wait` poll cadence so parallel invocations stop polling in lockstep against the same rate-limit window.
+
 ## CLI 0.1.26
 
 - Accept `V3.0.9 Garment Boundaries` and its short aliases for graph splitting.
