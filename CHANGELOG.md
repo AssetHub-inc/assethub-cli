@@ -1,5 +1,19 @@
 # Changelog
 
+## CLI 0.1.26
+
+- Accept `V3.0.9 Garment Boundaries` and its short aliases for graph splitting.
+- Accept `Humanoid Assembly (internal)` and its aliases, including the exact
+  publicName printed by `production agents`, for graph splitting.
+- Align `V3.7 Artist Skills` and `V3.7.1 Building Modules` aliases with the
+  `V3.0.7`/`V3.0.8` names used by the web picker and `production agents`.
+- Derive the artifact-graph routing set from the part extractor option list
+  instead of a separately maintained set, so a newly listed graph agent
+  cannot miss the graph endpoint.
+- Recognize internal part extractor IDs by the `ah_` prefix instead of by
+  the presence of an underscore, so public aliases that happen to contain
+  underscores (e.g. `humanoid_assembly_auto`) are no longer rejected.
+
 ## CLI 0.1.25 / API client 0.1.12
 
 - Preserve the requested body-first assembly policy and bounded regeneration options in Composer refinement JSON input, saved operation replay, and `--from-run` requests.

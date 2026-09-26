@@ -194,8 +194,10 @@ describe('built recorded CLI', () => {
     ['V3.6.4', 'ah_agent_graph_v3_6_4', 'V3.6.4 Fast Analysis', []],
     ['V3.6.5 Primary Images', 'ah_agent_graph_v3_6_5', 'V3.6.5 Primary Images', ['v3.6.5', '3.6.5']],
     ['Chibi Character (Pluffy) v3.1', 'ah_agent_graph_pluffy_v3_1', 'Chibi Character (Pluffy) v3.1', ['pluffy', 'pluffy v3.1', 'pluffy 3.1']],
-    ['V3.7 Artist Skills', 'ah_agent_graph_v3_7', 'V3.7 Artist Skills', ['v3.7', '3.7']],
-    ['V3.7.1 Building Modules', 'ah_agent_graph_v3_7_1', 'V3.7.1 Building Modules', ['v3.7.1', '3.7.1']],
+    ['V3.7 Artist Skills', 'ah_agent_graph_v3_7', 'V3.7 Artist Skills', ['v3.7', '3.7', 'v3.0.7 artist skills', 'v3.0.7', '3.0.7']],
+    ['V3.7.1 Building Modules', 'ah_agent_graph_v3_7_1', 'V3.7.1 Building Modules', ['v3.7.1', '3.7.1', 'v3.0.8 building modules', 'v3.0.8', '3.0.8']],
+    ['V3.0.9 Garment Boundaries', 'ah_agent_graph_v3_7_2', 'V3.0.9 Garment Boundaries', ['v3.0.9', '3.0.9']],
+    ['Humanoid Assembly (internal)', 'ah_agent_graph_humanoid_assembly_auto', 'Humanoid Assembly (internal)', ['humanoid assembly', 'humanoid-assembly', 'humanoid_assembly_auto']],
   ] as const)('splits and replays %s graphs', async (name, apiValue, label, aliases) => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))

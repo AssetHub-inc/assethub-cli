@@ -150,15 +150,6 @@ const defaultImageModelId = 'imageGen.nanoBanana2.openrouter'
 const defaultMeshModelId = 'meshGen.hunyuan31'
 const defaultProfileName = 'default'
 const defaultPartExtractorName = 'V1.5'
-const artifactGraphPartExtractorApiValues = new Set([
-  'ah_agent_graph_v3_6_1',
-  'ah_agent_graph_v3_6_3',
-  'ah_agent_graph_v3_6_4',
-  'ah_agent_graph_v3_6_5',
-  'ah_agent_graph_pluffy_v3_1',
-  'ah_agent_graph_v3_7',
-  'ah_agent_graph_v3_7_1',
-])
 
 type PartExtractorOption = {
   publicName: string
@@ -208,16 +199,36 @@ const partExtractorOptions = [
     aliases: ['pluffy', 'pluffy v3.1', 'pluffy 3.1'],
   },
   {
+    publicName: 'V3.0.9 Garment Boundaries',
+    apiValue: 'ah_agent_graph_v3_7_2',
+    aliases: ['v3.0.9', '3.0.9'],
+  },
+  {
     publicName: 'V3.7 Artist Skills',
     apiValue: 'ah_agent_graph_v3_7',
-    aliases: ['v3.7', '3.7'],
+    // The web picker and `production agents` call it V3.0.7.
+    aliases: ['v3.7', '3.7', 'v3.0.7 artist skills', 'v3.0.7', '3.0.7'],
   },
   {
     publicName: 'V3.7.1 Building Modules',
     apiValue: 'ah_agent_graph_v3_7_1',
-    aliases: ['v3.7.1', '3.7.1'],
+    // The web picker and `production agents` call it V3.0.8.
+    aliases: ['v3.7.1', '3.7.1', 'v3.0.8 building modules', 'v3.0.8', '3.0.8'],
+  },
+  {
+    publicName: 'Humanoid Assembly (internal)',
+    apiValue: 'ah_agent_graph_humanoid_assembly_auto',
+    aliases: ['humanoid assembly', 'humanoid-assembly', 'humanoid_assembly_auto'],
   },
 ] as const satisfies readonly PartExtractorOption[]
+
+// Graph-engine extractors run through the artifact-graph endpoint. Derived from
+// the option list so a newly listed graph agent cannot miss the graph path.
+const artifactGraphPartExtractorApiValues = new Set<string>(
+  partExtractorOptions
+    .map(option => option.apiValue)
+    .filter(apiValue => apiValue.startsWith('ah_agent_graph_')),
+)
 
 const partExtractorPublicNames = partExtractorOptions
   .map(option => option.publicName)
@@ -239,8 +250,13 @@ const partExtractorPublicNameByApiValue = new Map<string, string>(
   partExtractorOptions.map(option => [option.apiValue, option.publicName]),
 )
 
+// Every registered internal apiValue is an `ah_...` id (see partExtractorOptions
+// above). Matching that prefix instead of a blanket "contains an underscore"
+// check keeps this from rejecting a public alias that happens to use
+// underscores (e.g. 'humanoid_assembly_auto', mirroring the engine profile
+// name) while still catching every real internal id.
 const isInternalPartExtractorId = (value: string): boolean =>
-  value.trim().includes('_')
+  value.trim().toLowerCase().startsWith('ah_')
 
 const execFileAsync = promisify(execFile)
 
