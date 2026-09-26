@@ -2,6 +2,17 @@
 
 ## CLI 0.1.26
 
+- Accept `V3.0.9 Garment Boundaries` and its short aliases for graph splitting.
+- Accept `Humanoid Assembly (internal)` and its aliases, including the exact
+  publicName printed by `production agents`, for graph splitting.
+- Align `V3.7 Artist Skills` and `V3.7.1 Building Modules` aliases with the
+  `V3.0.7`/`V3.0.8` names used by the web picker and `production agents`.
+- Derive the artifact-graph routing set from the part extractor option list
+  instead of a separately maintained set, so a newly listed graph agent
+  cannot miss the graph endpoint.
+- Recognize internal part extractor IDs by the `ah_` prefix instead of by
+  the presence of an underscore, so public aliases that happen to contain
+  underscores (e.g. `humanoid_assembly_auto`) are no longer rejected.
 - Add `assethub init`, which detects Claude Code, Codex, and Cursor, writes the hosted MCP entry into each agent's configuration without storing a key, and installs the bundled `assethub` agent skill. `--agent`, `--project`, and `--dry-run` control scope; existing settings and user-owned directories are preserved.
 - Ship the `assethub` agent skill in the npm package. It teaches coding agents the command sequence, cost rules, recovery via `runs resume`, and verdict submission, and refreshes itself on the next command after a CLI upgrade.
 - Honor `ASSETHUB_CLI_HOME` for every agent-configuration write so tests and sandboxes never touch the real home directory.

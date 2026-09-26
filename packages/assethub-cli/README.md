@@ -262,8 +262,10 @@ has its own saved operation ID, with the execution linked to the analysis run.
 For Internal `V3.6.1` (`V3.6.1 Primary Images First`), `V3.6.3`
 (`V3.6.3 Fast Analysis`, CLI 0.1.16+), `V3.6.4`
 (`V3.6.4 Fast Analysis`, CLI 0.1.17+), `V3.6.5 Primary Images` and
-`Chibi Character (Pluffy) v3.1` (both CLI 0.1.20+), analysis runs the complete
-Artifact Graph split. `--all-ready` waits for that one receipt and does not start a
+`Chibi Character (Pluffy) v3.1` (both CLI 0.1.20+), `V3.7 Artist Skills`,
+`V3.7.1 Building Modules` (both CLI 0.1.23+/0.1.24+), `V3.0.9 Garment
+Boundaries`, and `Humanoid Assembly (internal)` (both CLI 0.1.26+), analysis
+runs the complete Artifact Graph split. `--all-ready` waits for that one receipt and does not start a
 second production execution. Resume an interrupted graph split with
 `runs resume <operation-id>`; `--task-id`, `--mission-id`,
 `--part-extraction-mode`, and classic `--order-id` continuation are unsupported.
@@ -537,6 +539,13 @@ Part extraction uses the same names shown in the AssetHub product: `V1.5`,
 `V3.6.4` (`V3.6.4 Fast Analysis`), `V3.6.5` (`V3.6.5 Primary Images`),
 and `pluffy` (`Chibi Character (Pluffy) v3.1`). CLI 0.1.20 adds the latter two;
 `3.6.5`, `pluffy v3.1`, and `pluffy 3.1` are also accepted aliases.
+`V3.7 Artist Skills` (`v3.7`; also known as `V3.0.7 Artist Skills`) and
+`V3.7.1 Building Modules` (`v3.7.1`; also known as `V3.0.8 Building Modules`)
+support `--skill-mode`. `V3.0.9 Garment Boundaries` (`v3.0.9`) and
+`Humanoid Assembly (internal)` (`humanoid assembly`, `humanoid-assembly`,
+`humanoid_assembly_auto`; CLI 0.1.26+) are additional Internal-only graph
+extractors; use the exact quoted public name or one of its aliases with
+`--part-extractor`.
 Run `production agents` to check availability and `supportedOnGraphEndpoint`
 before selecting a graph version. These aliases do not change the V1.5 default
 or grant access to Internal models; the server still authorizes the account.
