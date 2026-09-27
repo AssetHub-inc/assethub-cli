@@ -322,7 +322,7 @@ Usage:
   assethub composer refine --list-modes
   assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
-  assethub composer run --part <mesh-asset-id> [--part <mesh-asset-id>...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer run --part <mesh-asset-id>[:<part-image-asset-id>] [--part <mesh-asset-id>[:<part-image-asset-id>]...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --from-run <run-id> [--transforms-json <json|@file>] [--mode quick|quality] [--wait]
   assethub composer run --node <shape:id> --canvas <id> [--model <id>] [--mode quick|quality] [--operation-id <uuid>] [--wait]
@@ -1032,6 +1032,32 @@ const assertFlagHasValue = (value: string, flagDescription: string): string => {
     throw new Error(`Missing required flag value: ${flagDescription}`)
   }
   return value
+}
+
+/**
+ * Parses one `--part` value for `composer run`/`composer refine` into a
+ * composer part. Plain `<mesh-asset-id>` composes without a part-reference
+ * image (Composer V6 then requires it via `--input-json` or falls back to
+ * the mesh's own thumbnail, if enabled). `<mesh-asset-id>:<part-image-asset-id>`
+ * attaches the image the part's mesh was generated from, matching what the
+ * canvas node graph supplies automatically for UI-driven runs.
+ */
+const parsePartFlagValue = (
+  raw: string,
+): {assetId: string; partImageAssetId?: string} => {
+  const value = assertFlagHasValue(
+    raw,
+    '--part <mesh-asset-id>[:<part-image-asset-id>]',
+  )
+  const separatorIndex = value.indexOf(':')
+  if (separatorIndex === -1) return {assetId: value}
+  const assetId = value.slice(0, separatorIndex)
+  const partImageAssetId = value.slice(separatorIndex + 1)
+  if (!assetId || !partImageAssetId)
+    throw new Error(
+      '--part must be <mesh-asset-id> or <mesh-asset-id>:<part-image-asset-id>',
+    )
+  return {assetId, partImageAssetId}
 }
 
 const sourceInputCount = (flags: Flags): number =>
@@ -3067,9 +3093,7 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     : previous
       ? composerInputFromRun(previous, 'mesh.refine')
       : {
-          parts: parts.map(assetId => ({
-            assetId: assertFlagHasValue(assetId, '--part <asset-id>'),
-          })),
+          parts: parts.map(parsePartFlagValue),
           fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
         }
   delete input.executionContext
@@ -3207,9 +3231,7 @@ const commandComposer = async (
       : json
         ? await readJsonArgument(json, '--input-json')
         : {
-            parts: parts.map(assetId => ({
-              assetId: assertFlagHasValue(assetId, '--part <asset-id>'),
-            })),
+            parts: parts.map(parsePartFlagValue),
             fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
           }
   delete input.executionContext

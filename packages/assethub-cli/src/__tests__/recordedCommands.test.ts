@@ -187,6 +187,94 @@ describe('built recorded CLI', () => {
     },
   )
 
+  // @testdoc `--part <mesh-asset-id>:<part-image-asset-id>` attaches the part's
+  // reference image (Composer V6 requires one per part; the CLI previously had
+  // no way to supply it outside of raw --input-json).
+  it('composer run accepts a part image via --part mesh:image', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-compose-part-image-'))
+    cleanup.push(() => rm(dir, {recursive: true, force: true}))
+    const posted: Record<string, unknown>[] = []
+    const executions = new Map<string, CanvasExecution>()
+    const server = createServer(async (req, res) => {
+      const canvas = {
+        id: 42,
+        name: 'Composition',
+        ownerId: 'org-a',
+        url: `http://${req.headers.host}/workflow/42`,
+      }
+      let data: unknown
+      if (req.url === '/api/v2/capabilities')
+        data = {
+          ownerId: 'org-a',
+          executionContext: {
+            status: 'available',
+            operations: ['mesh.compose'],
+          },
+          evaluators: [],
+        }
+      else if (req.url === '/api/v2/canvases/42') data = canvas
+      else if (req.url === '/api/v2/mesh/compose' && req.method === 'POST') {
+        const input = await bodyOf(req)
+        posted.push(input)
+        const runId = input.executionContext.clientOperationId
+        const execution: CanvasExecution = {
+          schemaVersion: 'assethub.execution.v1',
+          runId,
+          operation: 'mesh.compose',
+          status: 'completed',
+          canvas,
+          jobIds: [],
+          orderIds: [],
+          graphRefs: [],
+          outputs: [],
+          history: {status: 'recorded'},
+          usage: {reservedCredits: null, chargedCredits: null},
+          createdAt: '2026-09-08T00:00:00Z',
+          input,
+          resolvedInput: input,
+          context: input.executionContext,
+        }
+        executions.set(runId, execution)
+        data = {execution}
+      } else if (req.url?.startsWith('/api/v2/runs/'))
+        data = executions.get(req.url.split('/').at(-1)!)
+      else {
+        res.writeHead(404)
+        res.end()
+        return
+      }
+      res.writeHead(200, {'content-type': 'application/json'})
+      res.end(JSON.stringify({success: true, data}))
+    })
+    await new Promise<void>(ready => server.listen(0, '127.0.0.1', ready))
+    cleanup.push(() => new Promise<void>(done => server.close(() => done())))
+    const address = server.address()
+    if (!address || typeof address === 'string')
+      throw new Error('Missing server address')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    const result = await cli(baseUrl, dir, [
+      'composer',
+      'run',
+      '--part',
+      'mesh-a:image-a',
+      '--part',
+      'mesh-b',
+      '--reference',
+      'reference',
+      '--canvas',
+      '42',
+      '--wait',
+    ])
+    expect(result.code, result.stderr).toBe(0)
+    expect(posted[0]).toMatchObject({
+      parts: [
+        {assetId: 'mesh-a', partImageAssetId: 'image-a'},
+        {assetId: 'mesh-b'},
+      ],
+      fullBodyImageAssetId: 'reference',
+    })
+  })
+
   // @testdoc Graph extractor names and aliases preserve one analysis receipt on replay, reject classic continuation flags and raw internal IDs.
   it.each([
     ['V3.6.1', 'ah_agent_graph_v3_6_1', 'V3.6.1 Primary Images First', []],

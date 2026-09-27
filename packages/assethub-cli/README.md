@@ -569,6 +569,11 @@ assethub canvas list
 assethub canvas use <canvas-id>
 assethub composer models
 assethub composer run --part <mesh-id> --part <mesh-id> --reference <image-id> --wait
+# Composer V6 (auto-assemble) requires each part's reference image; attach it
+# with `<mesh-id>:<part-image-asset-id>` (the image that mesh was generated
+# from) when the mesh has no other lineage the run can resolve it from.
+assethub composer run --part <mesh-id>:<part-image-id> --part <mesh-id>:<part-image-id> \
+  --reference <image-id> --model part_composer_v6_auto_assemble --wait
 assethub composer run --from-run <run-id> --transforms-json @transforms.json --wait
 assethub composer refine --list-modes
 assethub composer refine --from-run <run-id> --instruction "align the feet" \
