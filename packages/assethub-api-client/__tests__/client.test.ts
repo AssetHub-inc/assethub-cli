@@ -67,6 +67,41 @@ beforeEach(() => {
   fetchMock.mockReset()
 })
 
+describe('AssetHubApiError', () => {
+  it('exposes the error envelope\'s own details, e.g. PART_IMAGE_REQUIRED / ASSET_WRONG_MEDIA_TYPE', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'PART_IMAGE_REQUIRED',
+            message: 'Part image required',
+            details: {meshAssetId: 'mesh_1'},
+          },
+        }),
+        {status: 400},
+      ),
+    )
+    await expect(client().request('v2', '/mesh/compose')).rejects.toMatchObject({
+      code: 'PART_IMAGE_REQUIRED',
+      details: {meshAssetId: 'mesh_1'},
+    })
+  })
+
+  it('leaves details undefined when the server sent none', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({success: false, error: {code: 'FORBIDDEN', message: 'nope'}}),
+        {status: 403},
+      ),
+    )
+    await expect(client().request('v2', '/mesh/compose')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      details: undefined,
+    })
+  })
+})
+
 describe('@assethub/api-client v2 job foundation', () => {
   it('discovers raw OpenAPI with the same workspace authentication and transport errors', async () => {
     const spec = {openapi: '3.0.3', paths: {}}

@@ -59,6 +59,9 @@ import {
   type EvaluationReport,
   type ProductionAutomationRequest,
   type ProductionAutomationImage,
+  type ProductionAutomationResult,
+  type ProductionAutomationBatchStatusResult,
+  type MeshComposerPart,
   createAssetHubClient,
 } from '@assethub/api-client'
 
@@ -77,6 +80,22 @@ import {
 import {buildRunUploadPlan, formatBytes} from './runsUpload/buildRunUpload.js'
 import {readGraphFolder} from './runsUpload/graphFolder.js'
 import {uploadRun} from './runsUpload/uploadRun.js'
+import {existsSync} from 'node:fs'
+import {
+  DEFAULT_MAX_PARTS,
+  buildAutomationConfig,
+  buildComposerPartsFromMeshExecutions,
+  detectOneShotImageInput,
+  estimateOneShotCost,
+  exceedsMaxCost,
+  formatExecutionSummaryLines,
+  parseComposeFlag,
+  pollAutomationBatch,
+  readServerCostBreakdown,
+  resolveFullBodyImageAssetId,
+  serverSupportsV6Compose,
+  withErrorHint,
+} from './productionOneShot.js'
 
 type Flags = Record<string, string | boolean | string[]>
 
@@ -330,7 +349,7 @@ Usage:
   assethub canvas list [--cursor <cursor>] [--limit <n>]
   assethub canvas get|use|open [<id>]
   assethub runs list [--canvas <id>] [--cursor <cursor>] [--limit <n>]
-  assethub runs get|watch <run-id> [--timeout-ms <n>]
+  assethub runs get|watch|wait <run-id> [--interval-ms <ms>] [--timeout-ms <n>] [--summary]
   assethub runs resume <operation-id> [--wait]
   assethub graph list [--cursor <cursor>] [--limit <n>]
   assethub graph show|export [--canvas <id> | --graph <id>] [--source generated|upload] [--artifact <node-id>] [--out <path>] [--allow-truncated]
@@ -361,6 +380,7 @@ Usage:
   assethub production status <order-id> [--wait] [--download --out-dir <dir>]
   assethub production execute --order-id <id> --mission-id <id> --task-id <id> [--task-id <id>...] [--part-extractor <name>] [--part-extraction-mode fast|high_quality] [--wait] [--download --out-dir <dir>]
   assethub production run --order-id <id> --mission-id <id> [--run-mode full_auto|approval] [--task-id <id>...] [--part-extractor <name>] [--part-extraction-mode fast|high_quality] [--allowed-model-id <id>...] [--max-iterations <n>] [--max-cost-credits <n>] [--wait] [--download --out-dir <dir>]
+  assethub production run --image <file|asset-id> [--canvas <id>] [--part-extractor <name>] [--compose v6|none] [--mesh-model <id>] [--max-parts <n>] [--max-cost <credits>] [--estimate] [--wait] [--download --out-dir <dir>] [--json]
   assethub production watch <order-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
   assethub production intervene <order-id> (--exclude <target-id> | --include <target-id> | --add-part <name> | --rename <target-id>=<name> | --reject <target-id>[=<reason>] | --regenerate <target-id>=<mode> | --set-param <key>=<value> | --ops-json <json|@file|@->)... [--idempotency-key <key>]
   assethub production interventions <order-id>
@@ -397,7 +417,11 @@ Examples:
   assethub animate retarget --resource-id rig_x --animation preset:idle --wait
   assethub production analyze --file ./input.png --part-extractor "V1.5" --wait
   assethub production run --order-id ord_x --mission-id ms_x --run-mode full_auto --max-cost-credits 200 --wait
+  assethub production run --image ./character.png --estimate
+  assethub production run --image ./character.png --compose v6 --max-cost 500 --wait --download --out-dir ./out/asset
   assethub production watch ord_x
+  assethub runs get run_x --summary
+  assethub runs wait run_x --timeout-ms 3600000
   assethub production intervene ord_x --exclude 7 --rename 3="left wing" --idempotency-key review-2026-07-29
   assethub production interventions ord_x
   assethub runs upload ./out/pluffy-run-2026-07-30 --dry-run
@@ -4170,6 +4194,208 @@ const productionSession = (
     operation,
   })
 
+/**
+ * `production run --image <file|assetId>`: the one-shot "image -> finished
+ * asset" command. A thin wrapper around `production automation` (which
+ * already does split -> mesh x N -> compose server-side) plus waiting,
+ * cost estimation and downloads — it never re-implements the manual
+ * split/mesh/compose dance. See productionOneShot.ts for the pure,
+ * independently-tested pieces (image-flag resolution, cost estimate math,
+ * batch-status polling, the V6 compose fallback's mesh<->image pairing, and
+ * error hints); this function only wires them to the client and to flags.
+ */
+const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> => {
+  if (sourceInputCount(ctx.flags) > 0) {
+    throw new Error(
+      '--image already resolves a source; do not combine it with --file/--source-id/--source-url/other source flags.',
+    )
+  }
+  const imageValue = requireFlag(ctx.flags, 'image')
+  const detected = detectOneShotImageInput(imageValue, existsSync)
+  const sourceFlags: Flags = {
+    ...ctx.flags,
+    ...(detected.kind === 'file'
+      ? {file: detected.path}
+      : {'source-id': detected.resourceId}),
+  }
+
+  const compose = parseComposeFlag(getFlag(ctx.flags, 'compose'))
+  const meshModelId = getFlag(ctx.flags, 'mesh-model') ?? defaultMeshModelId
+  const maxParts =
+    getFlag(ctx.flags, 'max-parts') == null
+      ? DEFAULT_MAX_PARTS
+      : parsePositiveIntegerFlag(ctx.flags, 'max-parts', 1)
+  const maxCostCredits =
+    getFlag(ctx.flags, 'max-cost') == null
+      ? undefined
+      : parsePositiveIntegerFlag(ctx.flags, 'max-cost', 1)
+  const agentVersion = resolvePartExtractorForAnalyze(ctx.flags)
+
+  // Every number below comes from a side-effect-free GET; nothing here
+  // starts real (billable) work, so this runs whether or not --estimate was
+  // passed and gates --max-cost before the real automation call below.
+  const [models, composerCapabilities] = await Promise.all([
+    ctx.client.v2.listModels({domain: 'meshGen'}),
+    ctx.client.v2.getMeshComposers(),
+  ])
+  const meshModel = models.find(model => model.id === meshModelId)
+  const composeCredits =
+    compose === 'v6'
+      ? (composerCapabilities.quotes?.find(quote => quote.agentVersion === 'v6')
+          ?.credits ?? null)
+      : undefined
+  const estimate = estimateOneShotCost({
+    meshModel,
+    maxParts,
+    composeRequested: compose === 'v6',
+    composeCredits,
+  })
+
+  if (exceedsMaxCost(estimate.totalCredits, maxCostCredits)) {
+    throw new Error(
+      `Estimated cost ${estimate.totalCredits} credits exceeds --max-cost ${maxCostCredits}; refusing to run before spending anything. ${estimate.notes.join(' ')}`,
+    )
+  }
+
+  if (hasFlag(ctx.flags, 'estimate')) {
+    print({estimate})
+    return
+  }
+
+  const session = await productionSession(ctx, 'production.automation')
+  const source = await recordedSource(
+    ctx,
+    await requireSource({
+      flags: sourceFlags,
+      client: ctx.client,
+      fileMediaType: 'image',
+      preferUploadId: true,
+    }),
+  )
+  const analyzeImage = productionAnalyzeSourceFromSource(source!)
+  const config = buildAutomationConfig(compose)
+  const body = {
+    images: [analyzeImage],
+    agentVersion,
+    ...(config ? {config} : {}),
+    ...(maxCostCredits != null ? {maxCostCredits} : {}),
+  } as ProductionAutomationRequest
+
+  const queued = (await executeRecorded(
+    session,
+    'production.automation',
+    body,
+    executionOptions(ctx.flags),
+  )) as unknown as ProductionAutomationResult & {execution: CanvasExecution}
+  stderr.write(`[run] batch=${queued.batchId}\n`)
+
+  // `estimatedCostBreakdown`'s presence on the automation response itself
+  // (assethub-web #8179) is the proof that this server understood
+  // `partComposerAgentVersion` and already ran Composer V6 server-side, in
+  // the same call — no client-side fallback compose is needed. Its absence
+  // means an older, currently-deployed server silently ignored that field,
+  // so the CLI still has to pair parts and run compose itself below.
+  const serverHandledV6Compose =
+    compose === 'v6' &&
+    serverSupportsV6Compose(queued as unknown as Record<string, unknown>)
+  const needsFallbackCompose = compose === 'v6' && !serverHandledV6Compose
+
+  let batchStatus: ProductionAutomationBatchStatusResult | undefined
+  if (hasFlag(ctx.flags, 'wait') || needsFallbackCompose) {
+    batchStatus = await pollAutomationBatch({
+      getStatus: () => ctx.client.v1.getProductionAutomationStatus(queued.batchId),
+      sleep: ms => delay(ms),
+      intervalMs: parsePositiveIntegerFlag(ctx.flags, 'interval-ms', 5000),
+      timeoutMs: parsePositiveIntegerFlag(ctx.flags, 'timeout-ms', 1800000),
+      onProgress: lines => lines.forEach(line => stderr.write(`${line}\n`)),
+    })
+  }
+
+  let composeExecution: CanvasExecution | undefined
+  if (needsFallbackCompose) {
+    const order = queued.images[0]
+    if (!order)
+      throw new Error('Automation did not return an order for the requested image.')
+    if (
+      batchStatus?.images.find(image => image.orderId === order.orderId)
+        ?.status === 'failed'
+    )
+      throw new Error(
+        `Automation failed for order ${order.orderId}; there is nothing to compose.`,
+      )
+    const runs = await ctx.client.v2.listCanvasRuns(session.canvas.id, {limit: 200})
+    const parts: MeshComposerPart[] = buildComposerPartsFromMeshExecutions(
+      runs.items,
+      order.orderId,
+    )
+    const fullBodyImageAssetId =
+      resolveFullBodyImageAssetId(runs.items, order.orderId) ??
+      (detected.kind === 'resourceId' ? detected.resourceId : undefined)
+    if (parts.length === 0 || fullBodyImageAssetId == null) {
+      throw withErrorHint(
+        new Error(
+          'Could not find mesh part outputs (and the source image they were generated from) to compose for this order.',
+        ),
+      )
+    }
+    try {
+      const composeQueued = await executeRecorded(
+        session,
+        'mesh.compose',
+        {
+          parts,
+          fullBodyImageAssetId,
+          agentVersion: 'v6',
+        } as Omit<MeshComposeRequest, 'executionContext'>,
+        executionOptions(ctx.flags),
+      )
+      composeExecution = composeQueued.execution
+    } catch (error) {
+      throw error instanceof Error ? withErrorHint(error) : error
+    }
+  }
+
+  // The automation receipt (`queued.execution`) is only the split stage's own
+  // execution row; the real completion signal for the whole order (mesh gen
+  // across every part, plus compose when the server ran it) is the batch
+  // status polled above. Once that says the order is done, re-fetch the
+  // execution so `--download`/the printed summary reflect the final state
+  // rather than the split-stage snapshot from right after submission.
+  const finalExecution =
+    composeExecution ??
+    (batchStatus != null
+      ? await ctx.client.v2.getRun(queued.execution.runId)
+      : queued.execution)
+
+  // Prefer the server's own reported cost (#8179) over our preflight
+  // best-effort `estimate` once we actually have it; absent on a server
+  // that has not deployed #8179 yet, in which case only `estimate` (used
+  // for the --max-cost gate above) is available.
+  const serverCost = readServerCostBreakdown(
+    queued as unknown as Record<string, unknown>,
+  )
+
+  // The machine-readable summary this prints is always JSON, matching every
+  // other command in this CLI; --json is accepted (it is a no-op) rather than
+  // rejected, since there is no plain-text mode here to opt out of.
+  print(
+    await withOptionalDownloads(
+      ctx.flags,
+      sanitizeProductionOutput({
+        batchId: queued.batchId,
+        estimatedCostCredits: queued.estimatedCostCredits,
+        ...(serverCost ?? {}),
+        images: queued.images,
+        estimate,
+        batchStatus,
+        compose: composeExecution,
+        execution: finalExecution,
+      }) as Record<string, unknown>,
+    ),
+  )
+  process.exitCode = executionExitCode(finalExecution)
+}
+
 const commandProduction = async (
   subcommand: string | undefined,
   positionals: string[],
@@ -4325,6 +4551,14 @@ const commandProduction = async (
   }
 
   if (subcommand === 'run') {
+    // `production run --image <file|assetId>` is a different command in
+    // everything but name: the one-shot image -> finished-asset flow, not
+    // confirmed-task mission execution. Intercept before `--order-id` is
+    // required so the mission flow below is completely untouched when
+    // --image is absent.
+    if (getFlag(ctx.flags, 'image') != null) {
+      return commandProductionRunOneShot(ctx)
+    }
     const orderId = requireFlag(ctx.flags, 'order-id')
     const missionId = requireFlag(ctx.flags, 'mission-id')
     const runMode = parseRunModeFlag(ctx.flags)
@@ -5305,13 +5539,21 @@ const commandRuns = async (
     print(await ctx.client.v2.listCanvasRuns(canvas.id, pageOptions(ctx.flags)))
     return
   }
-  if (subcommand === 'get' || subcommand === 'watch') {
+  if (subcommand === 'get' || subcommand === 'watch' || subcommand === 'wait') {
     const id = requirePositional(positionals, 2, 'run-id')
+    // `wait` is `watch` under a name that matches how long-running waits are
+    // asked for elsewhere in the CLI; both poll the same way (429s are
+    // retried inside the client's own request layer, same as every other
+    // poll loop in this file) and accept the same --interval-ms/--timeout-ms.
     const execution =
       subcommand === 'get'
         ? await ctx.client.v2.getRun(id)
         : await waitForExecution(ctx.client, id, watchOptions(ctx.flags))
-    print({execution})
+    if (subcommand === 'get' && hasFlag(ctx.flags, 'summary')) {
+      stdout.write(`${formatExecutionSummaryLines(execution).join('\n')}\n`)
+    } else {
+      print({execution})
+    }
     process.exitCode = executionExitCode(execution)
     return
   }
