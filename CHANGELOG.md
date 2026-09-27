@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.30 / API client 0.1.16
+
+- Add the Composer Alpha `effort` option to the mesh refinement client request. The CLI accepts `--effort light|standard|thorough`, forwards it from JSON input, and preserves it across `--from-run` continuation.
+- Check the selected effort's round limit before dispatch.
+
 ## CLI 0.1.29 / API client 0.1.15
 
 - Send `--compose v6` as the top-level `partComposerAgentVersion` field that the production automation API reads. CLI 0.1.28 sent it inside `config`, so the server silently used its default Composer model.

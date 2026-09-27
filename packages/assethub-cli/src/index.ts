@@ -340,7 +340,7 @@ Usage:
   assethub skills accept <proposal-id> --input-json <json|@file|@->
   assethub composer models
   assethub composer refine --list-modes
-  assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
+  assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--effort light|standard|thorough] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --part <mesh-asset-id>[:<part-image-asset-id>] [--part <mesh-asset-id>[:<part-image-asset-id>]...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
@@ -3007,7 +3007,7 @@ const refinementModeInfo = (
 }
 
 const refinementContinuationFields = [
-  'assemblyPolicy', 'dressingGeneration',
+  'assemblyPolicy', 'dressingGeneration', 'effort',
   'geometryBackend', 'referenceMode', 'calibration', 'referenceViews',
   'geometrySources', 'reviewContext', 'background',
 ] as const
@@ -3151,6 +3151,11 @@ const commandComposerRefine = async (ctx: CommandContext) => {
   if (mode !== 'codex' && (input.geometryBackend || input.referenceMode === 'all_angles' || input.background))
     throw new Error('Saved Blender-backend, all-angle or background settings require codex mode; use --input-json with settings matching the new mode')
   const modeInfo = refinementModeInfo(capabilities, mode)
+  const effort = getFlag(ctx.flags, 'effort') ?? input.effort
+  if (effort != null && (typeof effort !== 'string' || !['light', 'standard', 'thorough'].includes(effort)))
+    throw new Error('--effort must be light, standard, or thorough')
+  if (effort != null && mode !== 'codex')
+    throw new Error('--effort requires codex mode')
   const maxRoundsFlag = getFlag(ctx.flags, 'max-rounds')
   const inputMaxRounds = input.maxRounds
   if (
@@ -3174,6 +3179,9 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     throw new Error(
       `--max-rounds must be at most ${roundLimit} for ${mode}`,
     )
+  const effortRoundLimit = effort === 'light' ? 6 : effort === 'thorough' ? 24 : 12
+  if (effort != null && maxRounds != null && maxRounds > effortRoundLimit)
+    throw new Error(`--max-rounds must be at most ${effortRoundLimit} for ${effort} effort`)
   const transformsFlag = getFlag(ctx.flags, 'transforms-json')
   const transforms = transformsFlag
     ? refinementTransforms(
@@ -3207,6 +3215,7 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     transforms,
     ...(referenceTransform ? {referenceTransform} : {}),
     mode,
+    ...(effort ? {effort: effort as MeshRefineRequest['effort']} : {}),
     instruction,
     ...(maxRounds != null ? {maxRounds} : {}),
     ...(input.agentRuntime

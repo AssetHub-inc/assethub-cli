@@ -1184,6 +1184,7 @@ export type ComposerReferenceViews = {
   }
 }
 export type MeshRefineRequest = {
+  effort?: 'light' | 'standard' | 'thorough'
   assemblyPolicy?: 'body_first_v1'
   dressingGeneration?: {maxCredits: number; sourceImageAssetIds: Record<string, string>}
   geometryBackend?: 'blender'
