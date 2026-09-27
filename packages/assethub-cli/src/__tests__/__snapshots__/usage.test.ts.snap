@@ -62,7 +62,7 @@ Usage:
   assethub composer refine --list-modes
   assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
-  assethub composer run --part <mesh-asset-id> [--part <mesh-asset-id>...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer run --part <mesh-asset-id>[:<part-image-asset-id>] [--part <mesh-asset-id>[:<part-image-asset-id>]...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --from-run <run-id> [--transforms-json <json|@file>] [--mode quick|quality] [--wait]
   assethub composer run --node <shape:id> --canvas <id> [--model <id>] [--mode quick|quality] [--operation-id <uuid>] [--wait]
