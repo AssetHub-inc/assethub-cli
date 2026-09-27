@@ -302,23 +302,38 @@ with `--file`/`--source-id`/other source flags — it already resolves one.
 `--compose` controls the compose stage:
 
 - Omitted: automation's own server-side default applies, untouched.
-- `--compose none`: disables automation's compose stage; the run stops once every
-  part's mesh is generated.
-- `--compose v6`: disables automation's own compose stage and, once mesh
-  generation finishes, runs an explicit Composer V6 pass itself, pairing each
-  produced mesh with the part image it was generated from automatically (read
-  back from the batch's own `mesh.generate` executions) — you never have to pair
-  mesh and image assets by hand.
+- `--compose none`: disables automation's compose stage (`config.autoCompose:
+  false`); the run stops once every part's mesh is generated.
+- `--compose v6`: requests an explicit Composer V6 pass via
+  `config.partComposerAgentVersion: "part_composer_v6_auto_assemble"`
+  (`autoCompose` is left at its default of `true` — sending both together is
+  rejected by the server). A server that has shipped this (assethub-web PR
+  #8179) does the V6 compose itself, in the same automation call, pairing
+  each part's mesh with its source image automatically. Against an older,
+  currently-deployed server (detected by the automation response lacking
+  `estimatedCostBreakdown`), the CLI instead reads the batch's own
+  `mesh.generate` executions itself, pairs each produced mesh with the part
+  image it was generated from, and runs an explicit `composer run` — same
+  end result, either way you never pair mesh and image assets by hand.
 
-`--mesh-model <id>` and `--max-parts <n>` (default 9) only affect `--estimate`'s
-math (mesh unit cost x an assumed worst-case part count — the CLI cannot know the
-real part count before splitting runs); they do not cap or select anything on the
+`--mesh-model <id>` and `--max-parts <n>` (default 24, matching the server's
+own conservative constant for this math) only affect `--estimate`'s math (mesh
+unit cost x an assumed worst-case part count — the CLI cannot know the real
+part count before splitting runs); they do not cap or select anything on the
 real run. `--max-cost <credits>` refuses to run at all, before anything is
 submitted, once the best-effort estimate exceeds it, and is also sent to the
 server as `maxCostCredits` on the real run as a backstop. `--estimate`'s numbers
 come only from side-effect-free catalog reads (mesh model credit cost, compose
-quotes); part-extraction/split has no dry-run price today, so that line is
-reported as unknown rather than guessed.
+quotes) shaped like the server's own `split`/`meshGeneration`/`compose`
+breakdown; part-extraction/split has no dry-run price today, so that line is
+reported as unknown rather than guessed. On a real (non-`--estimate`) run
+against a server that has shipped #8179, the printed output additionally
+includes the server's own `estimatedTotalCredits`/`estimatedCostBreakdown`
+in place of the CLI's own preflight guess.
+
+This depends on assethub-web PR #8179 for the `partComposerAgentVersion` field
+and the richer cost breakdown; it is not merged/deployed as of this writing.
+The CLI degrades gracefully against the currently-deployed API (see above).
 
 `runs get <run-id> --summary` prints a handful of plain-text lines (status, stage,
 credits, output asset, error) instead of the full JSON execution. `runs wait

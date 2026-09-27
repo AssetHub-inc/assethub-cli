@@ -45,100 +45,148 @@ export const parseComposeFlag = (value: string | undefined): ComposeMode | undef
 }
 
 /**
+ * The confirmed field name (assethub-web PR #8179, `web-cli-ux`) for
+ * requesting an explicit Composer V6 pass from `production automation`
+ * itself. Not `composeModel` — that was this module's pre-#8179 best guess.
+ */
+export const PART_COMPOSER_V6_AGENT_VERSION = 'part_composer_v6_auto_assemble'
+
+/**
  * Builds the `config` object for the `production automation` request.
  *
  * - `--compose` omitted: returns `undefined` so the request carries no
  *   `config.autoCompose` at all, leaving the server default in effect.
  * - `--compose none`: disables automation's own compose stage entirely.
- * - `--compose v6`: automation's request schema has no confirmed field yet
- *   for "force this compose model" (tracked by `web-cli-ux`; field name is
- *   still TBD). Rather than let automation's default compose spend credits
- *   on a non-V6 model and then redo it, this always disables autoCompose
- *   and lets the CLI run the explicit V6 compose itself afterward (see
- *   `buildComposerPartsFromMeshExecutions`) — one compose call, not two.
- *   `composeModel` is still sent as a best-guess, forward-compatible hint;
- *   servers that don't recognize it simply ignore an unknown field.
+ * - `--compose v6`: asks the server to run Composer V6 itself, in the same
+ *   call, via `partComposerAgentVersion`. `autoCompose` is deliberately left
+ *   unset (defaults to `true`) — the server 400s with
+ *   `PART_COMPOSER_VERSION_REQUIRES_AUTO_COMPOSE` if both are sent together,
+ *   so this function must never combine them. A server that predates #8179
+ *   ignores the unrecognized field and runs its own default compose instead;
+ *   `serverSupportsV6Compose` inspects the response afterward so the caller
+ *   can still fall back to the client-side lineage-pairing compose
+ *   (`buildComposerPartsFromMeshExecutions`) on that older server.
  */
 export const buildAutomationConfig = (
   compose: ComposeMode | undefined,
 ): Record<string, unknown> | undefined => {
   if (compose == null) return undefined
   if (compose === 'none') return {autoCompose: false}
-  return {autoCompose: false, composeModel: 'v6'}
+  return {partComposerAgentVersion: PART_COMPOSER_V6_AGENT_VERSION}
 }
 
-export const DEFAULT_PART_COUNT_CAP = 9
+/**
+ * `estimatedCostBreakdown` (added by #8179) only appears on a server new
+ * enough to also honor `partComposerAgentVersion` — its presence in the
+ * automation response is the signal that the server already did the V6
+ * compose server-side in that same call, so no client-side fallback compose
+ * is needed. Its absence means an older, currently-deployed server: it
+ * silently ignored `partComposerAgentVersion` and ran its own default
+ * compose (if any), so the caller must still run the explicit fallback.
+ */
+export const serverSupportsV6Compose = (
+  automationResult: Record<string, unknown>,
+): boolean => automationResult.estimatedCostBreakdown != null
 
-export type CostLineItem = {
-  credits: number | null
-  note?: string
+export const DEFAULT_MAX_PARTS = 24
+
+export type CostLineItem = {total: number | null; note?: string}
+
+export type OneShotCostBreakdown = {
+  split: CostLineItem & {perImage: number | null}
+  meshGeneration: CostLineItem & {perPart: number | null; maxParts: number}
+  compose: CostLineItem & {perLane: number | null; lanesPerImage: number}
 }
 
 export type OneShotCostEstimate = {
-  split: CostLineItem
-  mesh: CostLineItem & {unitCost: number | null; partCountCap: number}
-  compose: CostLineItem
+  breakdown: OneShotCostBreakdown
   totalCredits: number
   notes: string[]
 }
 
 /**
- * Best-effort cost breakdown for `--estimate`. Nothing here calls
- * `production automation`/`analyze` (that would start real, billable work);
- * every number comes from a side-effect-free GET (`models` catalog,
- * `mesh/compose` capabilities). Today's API has no dry-run cost for part
- * extraction/split, so that line is reported as unknown rather than guessed.
+ * Best-effort cost breakdown for `--estimate`, shaped like the server's own
+ * `estimatedCostBreakdown` (#8179: `split`/`meshGeneration`/`compose`, each
+ * with a per-unit price and a total). Nothing here calls `production
+ * automation`/`analyze` (that would start real, billable work); every
+ * number comes from a side-effect-free GET (`models` catalog, `mesh/compose`
+ * capabilities). Today's API has no dry-run cost for part extraction/split,
+ * so that line is reported as unknown rather than guessed. `maxParts`
+ * mirrors the server's own conservative constant for this math (24, per
+ * #8179) rather than a locally invented cap; `--max-parts` overrides it.
  */
 export const estimateOneShotCost = (options: {
   meshModel: ModelSummary | undefined
-  partCountCap: number
+  maxParts: number
   composeRequested: boolean
   composeCredits: number | null | undefined
 }): OneShotCostEstimate => {
   const notes: string[] = []
 
-  const split: CostLineItem = {
-    credits: null,
+  const split: OneShotCostBreakdown['split'] = {
+    perImage: null,
+    total: null,
     note:
       'part extraction/split cost has no dry-run price source today; the actual cost is reported after the run (see `production status` or `runs get --summary`)',
   }
   notes.push(split.note!)
 
-  const unitCost =
+  const perPart =
     options.meshModel?.creditCost ?? options.meshModel?.defaultCreditCost ?? null
-  const meshCredits = unitCost == null ? null : unitCost * options.partCountCap
-  const mesh: OneShotCostEstimate['mesh'] = {
-    credits: meshCredits,
-    unitCost,
-    partCountCap: options.partCountCap,
-    ...(unitCost == null
+  const meshTotal = perPart == null ? null : perPart * options.maxParts
+  const meshGeneration: OneShotCostBreakdown['meshGeneration'] = {
+    perPart,
+    maxParts: options.maxParts,
+    total: meshTotal,
+    ...(perPart == null
       ? {
           note: options.meshModel
             ? `mesh generation cost not included: no credit price found for model "${options.meshModel.id}"`
             : 'mesh generation cost not included: mesh model was not found in the catalog',
         }
       : {
-          note: `assumes up to ${options.partCountCap} parts at ${unitCost} credits each; the CLI has no way to know the actual part count before splitting runs`,
+          note: `assumes up to ${options.maxParts} parts at ${perPart} credits each; the CLI has no way to know the actual part count before splitting runs`,
         }),
   }
-  notes.push(mesh.note!)
+  notes.push(meshGeneration.note!)
 
-  const compose: CostLineItem = options.composeRequested
+  const lanesPerImage = 1
+  const compose: OneShotCostBreakdown['compose'] = options.composeRequested
     ? options.composeCredits == null
       ? {
-          credits: null,
+          perLane: null,
+          lanesPerImage,
+          total: null,
           note: 'compose cost not included: no quote found for the requested compose model',
         }
-      : {credits: options.composeCredits}
-    : {credits: 0, note: 'compose disabled by --compose none'}
+      : {perLane: options.composeCredits, lanesPerImage, total: options.composeCredits * lanesPerImage}
+    : {
+        perLane: null,
+        lanesPerImage,
+        total: 0,
+        note: 'compose disabled by --compose none',
+      }
   if (compose.note) notes.push(compose.note)
 
-  const known = [split.credits, mesh.credits, compose.credits].filter(
-    (value): value is number => value != null,
-  )
-  const totalCredits = known.reduce((sum, value) => sum + value, 0)
+  const totalCredits = (meshGeneration.total ?? 0) + (compose.total ?? 0)
 
-  return {split, mesh, compose, totalCredits, notes}
+  return {breakdown: {split, meshGeneration, compose}, totalCredits, notes}
+}
+
+/**
+ * Reads the server's own `estimatedTotalCredits`/`estimatedCostBreakdown`
+ * off a real (non-estimate) automation response, when present (#8179).
+ * These fields are not yet in `ProductionAutomationResult`'s shipped type,
+ * so this reads them optionally/untyped rather than guessing a schema;
+ * absent on a server that has not deployed #8179 yet.
+ */
+export const readServerCostBreakdown = (
+  automationResult: Record<string, unknown>,
+): {estimatedTotalCredits: number; estimatedCostBreakdown: unknown} | undefined => {
+  const total = automationResult.estimatedTotalCredits
+  const breakdown = automationResult.estimatedCostBreakdown
+  if (typeof total !== 'number' || breakdown == null) return undefined
+  return {estimatedTotalCredits: total, estimatedCostBreakdown: breakdown}
 }
 
 /** Whether the estimated (or actual, server-reported) total would exceed `--max-cost`. */
@@ -287,18 +335,43 @@ export const resolveFullBodyImageAssetId = (
   return undefined
 }
 
-export type KnownErrorLike = {status?: number; code?: string; message: string}
+export type KnownErrorLike = {
+  status?: number
+  code?: string
+  message: string
+  details?: {
+    meshAssetId?: string
+    assetId?: string
+    actualType?: string
+    expectedType?: string
+  }
+}
 
 /**
  * Actionable next steps appended to (never replacing) a known
- * `AssetHubApiError`'s own message. Matched on message content rather than
- * `error.code`, because the exact server error codes for these cases are
- * not confirmed in this codebase (no generated error-code catalog was
- * found) — the message text is the one piece of real evidence available
- * (e.g. "Asset not found" from composing an image-typed asset, quoted
- * directly from the reported failure).
+ * `AssetHubApiError`'s own message. Matches on `error.code`/`error.details`
+ * first — `PART_IMAGE_REQUIRED` and `ASSET_WRONG_MEDIA_TYPE` are confirmed
+ * `/mesh/compose` error codes (assethub-web PR #8179) with a structured
+ * `details` payload. Falls back to matching on message content for a server
+ * that has not shipped those codes yet (e.g. today's deployed API, where
+ * the same failures still surface as a plain `404 ASSET_NOT_FOUND` or a
+ * generic validation message — "Asset not found" is quoted directly from
+ * the originally reported failure). `ASSET_NOT_FOUND` itself (asset does
+ * not exist / isn't yours) is left alone; it is not one of these cases.
  */
 export const errorHintFor = (error: KnownErrorLike): string | undefined => {
+  if (error.code === 'PART_IMAGE_REQUIRED') {
+    const meshAssetId = error.details?.meshAssetId ?? '<mesh-asset-id>'
+    return `pass --part ${meshAssetId}:<part-image-asset-id>, or regenerate with mesh generate --derived-from-run <split-run-id>`
+  }
+  if (error.code === 'ASSET_WRONG_MEDIA_TYPE') {
+    const {assetId, actualType, expectedType} = error.details ?? {}
+    if (expectedType === 'mesh' && actualType === 'image') {
+      return `asset ${assetId ?? '<asset-id>'} is an image; run mesh generate (or production run --image) first`
+    }
+    return `asset ${assetId ?? '<asset-id>'} has the wrong type: expected ${expectedType ?? 'unknown'}, got ${actualType ?? 'unknown'}`
+  }
+
   const message = error.message.toLowerCase()
   if (message.includes('asset not found') || message.includes('not found')) {
     return 'compose expects a mesh part asset id, not an image asset — run `mesh generate` (or `production run --image <file|assetId>`) first, then compose the resulting mesh asset ids'

@@ -5,7 +5,8 @@ import type {
 } from '@assethub/api-client'
 import {describe, expect, it} from 'vitest'
 import {
-  DEFAULT_PART_COUNT_CAP,
+  DEFAULT_MAX_PARTS,
+  PART_COMPOSER_V6_AGENT_VERSION,
   batchProgressLines,
   buildAutomationConfig,
   buildComposerPartsFromMeshExecutions,
@@ -16,7 +17,9 @@ import {
   formatExecutionSummaryLines,
   parseComposeFlag,
   pollAutomationBatch,
+  readServerCostBreakdown,
   resolveFullBodyImageAssetId,
+  serverSupportsV6Compose,
   stageLabelForOrderStatus,
   withErrorHint,
 } from '../productionOneShot.js'
@@ -61,8 +64,36 @@ describe('buildAutomationConfig', () => {
     expect(buildAutomationConfig('none')).toEqual({autoCompose: false})
   })
 
-  it('disables autoCompose and hints composeModel for --compose v6, so automation never auto-composes with a non-V6 model', () => {
-    expect(buildAutomationConfig('v6')).toEqual({autoCompose: false, composeModel: 'v6'})
+  it('requests server-side V6 compose for --compose v6 without touching autoCompose', () => {
+    const config = buildAutomationConfig('v6')
+    expect(config).toEqual({partComposerAgentVersion: PART_COMPOSER_V6_AGENT_VERSION})
+    // The invariant that must never be violated: the server 400s
+    // (PART_COMPOSER_VERSION_REQUIRES_AUTO_COMPOSE) if both are sent together.
+    expect(config).not.toHaveProperty('autoCompose')
+  })
+})
+
+describe('serverSupportsV6Compose', () => {
+  it('is true once the automation response carries estimatedCostBreakdown (#8179)', () => {
+    expect(serverSupportsV6Compose({estimatedCostBreakdown: {}})).toBe(true)
+  })
+
+  it('is false on an older server that never returns that field', () => {
+    expect(serverSupportsV6Compose({batchId: 'batch-1'})).toBe(false)
+  })
+})
+
+describe('readServerCostBreakdown', () => {
+  it('reads estimatedTotalCredits/estimatedCostBreakdown when both are present', () => {
+    const breakdown = {split: {perImage: 1, total: 1}}
+    expect(
+      readServerCostBreakdown({estimatedTotalCredits: 42, estimatedCostBreakdown: breakdown}),
+    ).toEqual({estimatedTotalCredits: 42, estimatedCostBreakdown: breakdown})
+  })
+
+  it('returns undefined when either field is missing (a server that has not shipped #8179)', () => {
+    expect(readServerCostBreakdown({batchId: 'batch-1'})).toBeUndefined()
+    expect(readServerCostBreakdown({estimatedTotalCredits: 42})).toBeUndefined()
   })
 })
 
@@ -96,29 +127,34 @@ describe('estimateOneShotCost', () => {
     deprecated: false,
   }
 
-  it('multiplies the per-part mesh unit cost by the part-count cap', () => {
+  it('multiplies the per-part mesh unit cost by maxParts', () => {
     const estimate = estimateOneShotCost({
       meshModel,
-      partCountCap: DEFAULT_PART_COUNT_CAP,
+      maxParts: DEFAULT_MAX_PARTS,
       composeRequested: false,
       composeCredits: undefined,
     })
-    expect(estimate.mesh.credits).toBe(12 * DEFAULT_PART_COUNT_CAP)
-    expect(estimate.mesh.unitCost).toBe(12)
-    expect(estimate.compose.credits).toBe(0)
-    expect(estimate.split.credits).toBeNull()
+    expect(estimate.breakdown.meshGeneration.total).toBe(12 * DEFAULT_MAX_PARTS)
+    expect(estimate.breakdown.meshGeneration.perPart).toBe(12)
+    expect(estimate.breakdown.meshGeneration.maxParts).toBe(DEFAULT_MAX_PARTS)
+    expect(estimate.breakdown.compose.total).toBe(0)
+    expect(estimate.breakdown.split.total).toBeNull()
     // total only sums the known parts (split is unknown, compose is 0 when disabled)
-    expect(estimate.totalCredits).toBe(12 * DEFAULT_PART_COUNT_CAP)
+    expect(estimate.totalCredits).toBe(12 * DEFAULT_MAX_PARTS)
+  })
+
+  it('defaults maxParts to the server\'s own conservative constant (24, #8179)', () => {
+    expect(DEFAULT_MAX_PARTS).toBe(24)
   })
 
   it('notes when the mesh model has no credit price', () => {
     const estimate = estimateOneShotCost({
       meshModel: {...meshModel, creditCost: null, defaultCreditCost: null},
-      partCountCap: DEFAULT_PART_COUNT_CAP,
+      maxParts: DEFAULT_MAX_PARTS,
       composeRequested: false,
       composeCredits: undefined,
     })
-    expect(estimate.mesh.credits).toBeNull()
+    expect(estimate.breakdown.meshGeneration.total).toBeNull()
     expect(estimate.notes.some(note => note.includes('mesh generation cost not included'))).toBe(
       true,
     )
@@ -127,11 +163,11 @@ describe('estimateOneShotCost', () => {
   it('notes when no mesh model was resolved at all', () => {
     const estimate = estimateOneShotCost({
       meshModel: undefined,
-      partCountCap: DEFAULT_PART_COUNT_CAP,
+      maxParts: DEFAULT_MAX_PARTS,
       composeRequested: false,
       composeCredits: undefined,
     })
-    expect(estimate.mesh.credits).toBeNull()
+    expect(estimate.breakdown.meshGeneration.total).toBeNull()
     expect(estimate.notes.some(note => note.includes('mesh generation cost not included'))).toBe(
       true,
     )
@@ -140,22 +176,23 @@ describe('estimateOneShotCost', () => {
   it('includes a resolved compose quote in the total', () => {
     const estimate = estimateOneShotCost({
       meshModel,
-      partCountCap: 3,
+      maxParts: 3,
       composeRequested: true,
       composeCredits: 40,
     })
-    expect(estimate.compose.credits).toBe(40)
+    expect(estimate.breakdown.compose.total).toBe(40)
+    expect(estimate.breakdown.compose.lanesPerImage).toBe(1)
     expect(estimate.totalCredits).toBe(12 * 3 + 40)
   })
 
   it('notes when compose was requested but no quote was found', () => {
     const estimate = estimateOneShotCost({
       meshModel,
-      partCountCap: 3,
+      maxParts: 3,
       composeRequested: true,
       composeCredits: null,
     })
-    expect(estimate.compose.credits).toBeNull()
+    expect(estimate.breakdown.compose.total).toBeNull()
     expect(estimate.notes.some(note => note.includes('compose cost not included'))).toBe(true)
   })
 })
@@ -345,13 +382,54 @@ describe('resolveFullBodyImageAssetId', () => {
 })
 
 describe('errorHintFor / withErrorHint', () => {
-  it('hints at mesh generate / production run when the asset was not found', () => {
+  // Confirmed codes (assethub-web PR #8179): matched first, with the
+  // structured `details` payload used verbatim in the hint.
+  it('hints with --part <meshAssetId>:<image> for PART_IMAGE_REQUIRED, using details.meshAssetId', () => {
+    const hint = errorHintFor({
+      status: 400,
+      code: 'PART_IMAGE_REQUIRED',
+      message: 'Part image required',
+      details: {meshAssetId: 'mesh_1'},
+    })
+    expect(hint).toBe(
+      'pass --part mesh_1:<part-image-asset-id>, or regenerate with mesh generate --derived-from-run <split-run-id>',
+    )
+  })
+
+  it('hints to run mesh generate first for ASSET_WRONG_MEDIA_TYPE image-for-mesh', () => {
+    const hint = errorHintFor({
+      status: 400,
+      code: 'ASSET_WRONG_MEDIA_TYPE',
+      message: 'Wrong asset type',
+      details: {assetId: 'asset_1', actualType: 'image', expectedType: 'mesh'},
+    })
+    expect(hint).toBe('asset asset_1 is an image; run mesh generate (or production run --image) first')
+  })
+
+  it('describes any other ASSET_WRONG_MEDIA_TYPE combination generically', () => {
+    const hint = errorHintFor({
+      status: 400,
+      code: 'ASSET_WRONG_MEDIA_TYPE',
+      message: 'Wrong asset type',
+      details: {assetId: 'asset_2', actualType: 'mesh', expectedType: 'image'},
+    })
+    expect(hint).toBe('asset asset_2 has the wrong type: expected image, got mesh')
+  })
+
+  it('leaves ASSET_NOT_FOUND alone (not one of these cases)', () => {
+    expect(
+      errorHintFor({status: 404, code: 'ASSET_NOT_FOUND', message: 'Asset does not exist'}),
+    ).toBeUndefined()
+  })
+
+  // Message-based fallback: an older server that has not shipped the codes above.
+  it('falls back to message matching for mesh generate / production run when the asset was not found', () => {
     const hint = errorHintFor({message: 'Asset not found', status: 404, code: 'NOT_FOUND'})
     expect(hint).toMatch(/mesh generate/)
     expect(hint).toMatch(/production run/)
   })
 
-  it('hints at --part <mesh>:<image> when a part image is missing', () => {
+  it('falls back to message matching for --part <mesh>:<image> when a part image is missing', () => {
     const hint = errorHintFor({message: 'partImageAssetId is required for this part'})
     expect(hint).toMatch(/--part <mesh-asset-id>:<part-image-asset-id>/)
   })

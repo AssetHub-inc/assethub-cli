@@ -1602,6 +1602,10 @@ export class AssetHubApiError extends Error {
   readonly payload: unknown
   readonly requestId?: string
   readonly runId?: string
+  /** The error envelope's own `error.details`, e.g. `{meshAssetId}` on
+   * `PART_IMAGE_REQUIRED` or `{assetId, actualType, expectedType}` on
+   * `ASSET_WRONG_MEDIA_TYPE`. Undefined when the server sent none. */
+  readonly details?: Record<string, unknown>
 
   constructor({
     status,
@@ -1622,7 +1626,8 @@ export class AssetHubApiError extends Error {
     this.code = code
     this.payload = payload
     this.requestId = requestId
-    const runId = (payload as ApiErrorPayload | null)?.error?.details?.runId
+    this.details = (payload as ApiErrorPayload | null)?.error?.details
+    const runId = this.details?.runId
     this.runId = typeof runId === 'string' ? runId : undefined
   }
 }

@@ -82,7 +82,7 @@ import {readGraphFolder} from './runsUpload/graphFolder.js'
 import {uploadRun} from './runsUpload/uploadRun.js'
 import {existsSync} from 'node:fs'
 import {
-  DEFAULT_PART_COUNT_CAP,
+  DEFAULT_MAX_PARTS,
   buildAutomationConfig,
   buildComposerPartsFromMeshExecutions,
   detectOneShotImageInput,
@@ -91,7 +91,9 @@ import {
   formatExecutionSummaryLines,
   parseComposeFlag,
   pollAutomationBatch,
+  readServerCostBreakdown,
   resolveFullBodyImageAssetId,
+  serverSupportsV6Compose,
   withErrorHint,
 } from './productionOneShot.js'
 
@@ -4219,9 +4221,9 @@ const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> =
 
   const compose = parseComposeFlag(getFlag(ctx.flags, 'compose'))
   const meshModelId = getFlag(ctx.flags, 'mesh-model') ?? defaultMeshModelId
-  const partCountCap =
+  const maxParts =
     getFlag(ctx.flags, 'max-parts') == null
-      ? DEFAULT_PART_COUNT_CAP
+      ? DEFAULT_MAX_PARTS
       : parsePositiveIntegerFlag(ctx.flags, 'max-parts', 1)
   const maxCostCredits =
     getFlag(ctx.flags, 'max-cost') == null
@@ -4244,7 +4246,7 @@ const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> =
       : undefined
   const estimate = estimateOneShotCost({
     meshModel,
-    partCountCap,
+    maxParts,
     composeRequested: compose === 'v6',
     composeCredits,
   })
@@ -4287,8 +4289,19 @@ const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> =
   )) as unknown as ProductionAutomationResult & {execution: CanvasExecution}
   stderr.write(`[run] batch=${queued.batchId}\n`)
 
+  // `estimatedCostBreakdown`'s presence on the automation response itself
+  // (assethub-web #8179) is the proof that this server understood
+  // `partComposerAgentVersion` and already ran Composer V6 server-side, in
+  // the same call — no client-side fallback compose is needed. Its absence
+  // means an older, currently-deployed server silently ignored that field,
+  // so the CLI still has to pair parts and run compose itself below.
+  const serverHandledV6Compose =
+    compose === 'v6' &&
+    serverSupportsV6Compose(queued as unknown as Record<string, unknown>)
+  const needsFallbackCompose = compose === 'v6' && !serverHandledV6Compose
+
   let batchStatus: ProductionAutomationBatchStatusResult | undefined
-  if (hasFlag(ctx.flags, 'wait') || compose === 'v6') {
+  if (hasFlag(ctx.flags, 'wait') || needsFallbackCompose) {
     batchStatus = await pollAutomationBatch({
       getStatus: () => ctx.client.v1.getProductionAutomationStatus(queued.batchId),
       sleep: ms => delay(ms),
@@ -4299,7 +4312,7 @@ const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> =
   }
 
   let composeExecution: CanvasExecution | undefined
-  if (compose === 'v6') {
+  if (needsFallbackCompose) {
     const order = queued.images[0]
     if (!order)
       throw new Error('Automation did not return an order for the requested image.')
@@ -4354,6 +4367,14 @@ const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> =
       ? await ctx.client.v2.getRun(queued.execution.runId)
       : queued.execution)
 
+  // Prefer the server's own reported cost (#8179) over our preflight
+  // best-effort `estimate` once we actually have it; absent on a server
+  // that has not deployed #8179 yet, in which case only `estimate` (used
+  // for the --max-cost gate above) is available.
+  const serverCost = readServerCostBreakdown(
+    queued as unknown as Record<string, unknown>,
+  )
+
   // The machine-readable summary this prints is always JSON, matching every
   // other command in this CLI; --json is accepted (it is a no-op) rather than
   // rejected, since there is no plain-text mode here to opt out of.
@@ -4363,6 +4384,7 @@ const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> =
       sanitizeProductionOutput({
         batchId: queued.batchId,
         estimatedCostCredits: queued.estimatedCostCredits,
+        ...(serverCost ?? {}),
         images: queued.images,
         estimate,
         batchStatus,

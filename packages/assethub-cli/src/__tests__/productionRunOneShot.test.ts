@@ -99,6 +99,9 @@ const meshComposerCapabilities = {
  * per path. */
 const startServer = (options: {
   onRequest?: (path: string, method: string, body: unknown) => unknown | undefined
+  /** Merged into the `production automation` POST response's data, e.g. to
+   * simulate a server new enough to return `estimatedCostBreakdown` (#8179). */
+  automationResultExtra?: Record<string, unknown>
 } = {}) => {
   const posted: Array<{path: string; body: Record<string, unknown>}> = []
   const meshExecutions = new Map<string, CanvasExecution>()
@@ -187,6 +190,7 @@ const startServer = (options: {
             publicAccessToken: 'tok',
           },
         ],
+        ...options.automationResultExtra,
       }
     } else if (path.startsWith('/api/v2/runs/')) {
       data = meshExecutions.get(path.split('/').at(-1)!)
@@ -226,7 +230,11 @@ describe('production run --image (one-shot)', () => {
       '--estimate',
     ])
     expect(result.code, result.stderr).toBe(0)
-    expect(result.json.estimate.mesh).toMatchObject({unitCost: 12, partCountCap: 9, credits: 108})
+    expect(result.json.estimate.breakdown.meshGeneration).toMatchObject({
+      perPart: 12,
+      maxParts: 24,
+      total: 12 * 24,
+    })
     expect(posted.filter(entry => entry.path.includes('/production/automation'))).toEqual([])
   })
 
@@ -301,7 +309,7 @@ describe('production run --image (one-shot)', () => {
     expect(posted.some(entry => entry.path === '/api/v1/production/automation')).toBe(true)
   })
 
-  it('disables autoCompose and runs an explicit V6 compose using the mesh<->image pairing from the batch\'s own executions', async () => {
+  it('old server (no estimatedCostBreakdown): falls back to the explicit V6 compose using the mesh<->image pairing from the batch\'s own executions', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-oneshot-v6-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))
     const {server, posted} = startServer({
@@ -367,9 +375,8 @@ describe('production run --image (one-shot)', () => {
     ])
     expect(result.code, result.stderr).toBe(0)
     const automationPost = posted.find(entry => entry.path === '/api/v1/production/automation')
-    expect((automationPost!.body as any).config).toMatchObject({
-      autoCompose: false,
-      composeModel: 'v6',
+    expect((automationPost!.body as any).config).toEqual({
+      partComposerAgentVersion: 'part_composer_v6_auto_assemble',
     })
     const composePost = posted.find(entry => entry.path === '/api/v2/mesh/compose')
     expect(composePost!.body).toMatchObject({
@@ -378,6 +385,73 @@ describe('production run --image (one-shot)', () => {
       fullBodyImageAssetId: 'existing-asset-id',
     })
     expect(result.json.compose).toMatchObject({status: 'completed'})
+  })
+
+  it('new server (estimatedCostBreakdown present): trusts the server\'s own V6 compose and never runs the fallback', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-oneshot-v6-new-server-'))
+    cleanup.push(() => rm(dir, {recursive: true, force: true}))
+    const {server, posted} = startServer({
+      automationResultExtra: {
+        estimatedTotalCredits: 55,
+        estimatedCostBreakdown: {
+          split: {perImage: 5, total: 5},
+          meshGeneration: {perPart: 10, maxParts: 5, total: 50},
+          compose: {perLane: null, lanesPerImage: 1, total: 0},
+        },
+      },
+      onRequest: path => {
+        if (path === '/api/v1/production/automation/batch-1') {
+          return {
+            batchId: 'batch-1',
+            images: [
+              {
+                orderId: 'order-1',
+                projectId: 1,
+                imageIndex: 0,
+                status: 'completed',
+                name: null,
+                url: null,
+                createdAt: '',
+                updatedAt: '',
+              },
+            ],
+            summary: {total: 1, completed: 1, failed: 0, inProgress: 0},
+          }
+        }
+        if (path === '/api/v2/canvases/42/runs') {
+          throw new Error(
+            'the CLI should never list canvas runs when the server already handled V6 compose itself',
+          )
+        }
+        return undefined
+      },
+    })
+    cleanup.push(() => new Promise<void>(done => server.close(() => done())))
+    const baseUrl = await listen(server)
+
+    const result = await cli(baseUrl, dir, [
+      'production',
+      'run',
+      '--image',
+      'existing-asset-id',
+      '--canvas',
+      '42',
+      '--compose',
+      'v6',
+      '--wait',
+      '--interval-ms',
+      '1',
+    ])
+    expect(result.code, result.stderr).toBe(0)
+    const automationPost = posted.find(entry => entry.path === '/api/v1/production/automation')
+    expect((automationPost!.body as any).config).toEqual({
+      partComposerAgentVersion: 'part_composer_v6_auto_assemble',
+    })
+    // No client-side compose call and no canvas-runs listing: the server did it all in one call.
+    expect(posted.find(entry => entry.path === '/api/v2/mesh/compose')).toBeUndefined()
+    expect(result.json.compose).toBeUndefined()
+    expect(result.json.estimatedTotalCredits).toBe(55)
+    expect(result.json.estimatedCostBreakdown).toMatchObject({split: {total: 5}})
   })
 })
 
