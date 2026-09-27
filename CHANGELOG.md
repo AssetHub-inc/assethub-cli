@@ -1,5 +1,14 @@
 # Changelog
 
+## CLI 0.1.28
+
+- Add `production run --image <file|asset-id>`, a one-shot "image to finished asset" command: a thin wrapper around `production automation` (which already does split, mesh generation, and server-side compose) plus waiting, downloads, and cost estimation. `--image` auto-detects an existing local path (uploaded like `--file`) versus an asset id (used like `--source-id`). This is a different command from the existing `production run --order-id --mission-id` mission-execution flow, which is unchanged; the two are disambiguated by whether `--image` is present.
+- Add `--compose v6|none` to the one-shot command. `--compose none` disables automation's compose stage. `--compose v6` disables automation's own compose stage and runs an explicit Composer V6 pass afterward, pairing each produced mesh with its source part image automatically by reading the batch's own `mesh.generate` executions — no manual mesh/image pairing required.
+- Add `--estimate` to the one-shot command: prints a cost breakdown (mesh generation unit cost x an assumed part-count cap, plus a compose quote when `--compose v6` is requested) from side-effect-free catalog reads only, without submitting anything. Part-extraction/split cost has no dry-run price source today and is reported as unknown rather than guessed. Add `--max-cost <credits>`, which refuses to run (non-zero exit, nothing submitted) once the estimate exceeds it, and is also sent to the server as `maxCostCredits` on the real run.
+- Wire up `getProductionAutomationStatus` (already present in the API client but unused until now): the one-shot command's `--wait` polls it and prints one line per per-image stage transition and per batch-completion change.
+- Add `runs get --summary`, a condensed plain-text view (status, credits, output asset, error) instead of the full JSON execution dump. Add `runs wait <run-id>` as a named alias for `runs watch`.
+- Append an actionable hint to a handful of known error messages from the one-shot command's own compose calls (e.g. composing an image-typed asset, or a V6 compose missing a part's source image) without replacing the original message or code.
+
 ## CLI 0.1.27 / API client 0.1.13
 
 - Retry 429 responses in the shared client request path instead of failing the command: wait the server's `Retry-After` header (or the parsed "Try again in N seconds" message), add jitter, and bound both the per-wait delay and the attempt count while replaying the exact same request (including any `Idempotency-Key`).

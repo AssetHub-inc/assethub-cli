@@ -70,7 +70,7 @@ Usage:
   assethub canvas list [--cursor <cursor>] [--limit <n>]
   assethub canvas get|use|open [<id>]
   assethub runs list [--canvas <id>] [--cursor <cursor>] [--limit <n>]
-  assethub runs get|watch <run-id> [--timeout-ms <n>]
+  assethub runs get|watch|wait <run-id> [--interval-ms <ms>] [--timeout-ms <n>] [--summary]
   assethub runs resume <operation-id> [--wait]
   assethub graph list [--cursor <cursor>] [--limit <n>]
   assethub graph show|export [--canvas <id> | --graph <id>] [--source generated|upload] [--artifact <node-id>] [--out <path>] [--allow-truncated]
@@ -101,6 +101,7 @@ Usage:
   assethub production status <order-id> [--wait] [--download --out-dir <dir>]
   assethub production execute --order-id <id> --mission-id <id> --task-id <id> [--task-id <id>...] [--part-extractor <name>] [--part-extraction-mode fast|high_quality] [--wait] [--download --out-dir <dir>]
   assethub production run --order-id <id> --mission-id <id> [--run-mode full_auto|approval] [--task-id <id>...] [--part-extractor <name>] [--part-extraction-mode fast|high_quality] [--allowed-model-id <id>...] [--max-iterations <n>] [--max-cost-credits <n>] [--wait] [--download --out-dir <dir>]
+  assethub production run --image <file|asset-id> [--canvas <id>] [--part-extractor <name>] [--compose v6|none] [--mesh-model <id>] [--max-parts <n>] [--max-cost <credits>] [--estimate] [--wait] [--download --out-dir <dir>] [--json]
   assethub production watch <order-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
   assethub production intervene <order-id> (--exclude <target-id> | --include <target-id> | --add-part <name> | --rename <target-id>=<name> | --reject <target-id>[=<reason>] | --regenerate <target-id>=<mode> | --set-param <key>=<value> | --ops-json <json|@file|@->)... [--idempotency-key <key>]
   assethub production interventions <order-id>
@@ -137,7 +138,11 @@ Examples:
   assethub animate retarget --resource-id rig_x --animation preset:idle --wait
   assethub production analyze --file ./input.png --part-extractor "V1.5" --wait
   assethub production run --order-id ord_x --mission-id ms_x --run-mode full_auto --max-cost-credits 200 --wait
+  assethub production run --image ./character.png --estimate
+  assethub production run --image ./character.png --compose v6 --max-cost 500 --wait --download --out-dir ./out/asset
   assethub production watch ord_x
+  assethub runs get run_x --summary
+  assethub runs wait run_x --timeout-ms 3600000
   assethub production intervene ord_x --exclude 7 --rename 3="left wing" --idempotency-key review-2026-07-29
   assethub production interventions ord_x
   assethub runs upload ./out/pluffy-run-2026-07-30 --dry-run

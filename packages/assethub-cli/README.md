@@ -276,6 +276,64 @@ or an `imageUrl` to import), `config`, and optional `maxCostCredits`.
 An uncertain Trigger acknowledgement remains recoverable as `needs_review` with
 pending history; retrying the same operation never silently launches another run.
 
+### One-shot: image to finished asset
+
+`production run --image <file|asset-id>` is the fastest path from a single image to
+a finished, composed asset. It is a thin wrapper around `production automation`
+(split, mesh generation per part, and — by default — server-side compose, all in
+one call) plus waiting, cost estimation and downloads. It never re-runs the manual
+split/mesh/compose sequence itself.
+
+```sh
+# Estimate cost first; nothing is submitted, nothing is billed.
+assethub production run --image ./character.png --estimate
+
+# Run it, wait for every part and the compose stage, download the result.
+assethub production run --image ./character.png --wait --download --out-dir ./out/asset
+
+# An existing asset id works the same way as a local file.
+assethub production run --image "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --wait
+```
+
+`--image` auto-detects its argument: an existing local path is uploaded like
+`--file`; anything else is treated like `--source-id`. Do not combine `--image`
+with `--file`/`--source-id`/other source flags — it already resolves one.
+
+`--compose` controls the compose stage:
+
+- Omitted: automation's own server-side default applies, untouched.
+- `--compose none`: disables automation's compose stage; the run stops once every
+  part's mesh is generated.
+- `--compose v6`: disables automation's own compose stage and, once mesh
+  generation finishes, runs an explicit Composer V6 pass itself, pairing each
+  produced mesh with the part image it was generated from automatically (read
+  back from the batch's own `mesh.generate` executions) — you never have to pair
+  mesh and image assets by hand.
+
+`--mesh-model <id>` and `--max-parts <n>` (default 9) only affect `--estimate`'s
+math (mesh unit cost x an assumed worst-case part count — the CLI cannot know the
+real part count before splitting runs); they do not cap or select anything on the
+real run. `--max-cost <credits>` refuses to run at all, before anything is
+submitted, once the best-effort estimate exceeds it, and is also sent to the
+server as `maxCostCredits` on the real run as a backstop. `--estimate`'s numbers
+come only from side-effect-free catalog reads (mesh model credit cost, compose
+quotes); part-extraction/split has no dry-run price today, so that line is
+reported as unknown rather than guessed.
+
+`runs get <run-id> --summary` prints a handful of plain-text lines (status, stage,
+credits, output asset, error) instead of the full JSON execution. `runs wait
+<run-id>` is `runs watch` under a name that matches a long-running wait; both
+accept `--interval-ms`/`--timeout-ms` and retry rate limits the same way every
+other poll loop in the CLI does.
+
+The one-shot command's stdout is always a single JSON object (`batchId`,
+`estimate`, `batchStatus`, `compose`, `execution`, and `downloads` when
+requested) — the same convention every other command in this CLI already
+follows. `--json` is accepted for compatibility with that convention but has
+no effect, since there is no alternate plain-text mode to opt out of (`runs
+get --summary` is the one deliberate exception, and it is opt-in by its own
+flag).
+
 `evaluate list` discovers server evaluators. Server evaluation dispatch is currently
 unavailable. Graph exports are bounded to 100 runs/evaluations and 1,000 nodes;
 truncated exports require `--allow-truncated`. Other commands, including production run/intervene, rig and retopology,

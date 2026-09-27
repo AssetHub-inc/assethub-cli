@@ -72,6 +72,26 @@ assethub api call "POST /mesh/compose" --input-json @request.json --operation-id
 - `--operation-id <uuid>` makes a paid request idempotent. Reuse the **same** ID with the **same** input to retry; a new candidate needs a new ID.
 - Generation returns `execution` with the canvas URL, run and job IDs, and the output asset IDs. Chain those IDs into the next step with `--source-id`.
 
+### Fast path: image to a finished, composed asset
+
+Turning one image into a finished 3D asset does **not** need manual `parts split`
+→ `mesh generate` (once per part) → `composer run`. Use the one-shot command instead:
+
+```bash
+assethub production run --image ./character.png --estimate
+assethub production run --image ./character.png --wait --download --out-dir ./out/asset
+```
+
+`--image` accepts a local file path or an existing asset id — it auto-detects
+which. This wraps `production automation` (split, mesh generation per part, and
+compose all happen server-side) plus waiting and downloads; it never leaves you
+to pair mesh outputs with their source part images by hand. `--compose v6`
+requests a Composer V6 pass explicitly (still pairs parts and images
+automatically); `--compose none` stops after mesh generation. `--max-cost
+<credits>` refuses to run at all once the estimate exceeds it. `runs get <run-id>
+--summary` is the readable alternative to the full JSON dump for checking on a
+long run.
+
 ### 5. Wait or recover — never resubmit blindly
 
 ```bash

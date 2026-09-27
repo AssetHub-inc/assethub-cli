@@ -9,6 +9,24 @@ describe('CLI usage / --help', () => {
     expect(usage).toContain('assethub production watch <order-id>')
   })
 
+  // The one-shot "image -> finished asset" flow is a different command from
+  // the mission-based `production run --order-id ...` above (same verb,
+  // gated on --image), so both usage lines need to keep coexisting.
+  it('documents production run --image (the one-shot flow) alongside the mission-based run', () => {
+    expect(usage).toContain('assethub production run --image <file|asset-id>')
+    expect(usage).toContain('[--compose v6|none]')
+    expect(usage).toContain('[--mesh-model <id>]')
+    expect(usage).toContain('[--max-cost <credits>]')
+    expect(usage).toContain('[--estimate]')
+    expect(usage).toContain('production run --order-id <id> --mission-id <id>')
+  })
+
+  it('documents runs get --summary and runs wait', () => {
+    expect(usage).toContain('assethub runs get|watch|wait <run-id>')
+    expect(usage).toContain('[--summary]')
+    expect(usage).toContain('assethub runs wait run_x')
+  })
+
   // Both verbs are documented, not only the write. An append is one write per op
   // rather than one transaction, so a caller who cannot list the log has no way
   // to establish what a partial failure left behind.
