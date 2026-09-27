@@ -1016,6 +1016,7 @@ describe('@assethub/api-client v1 Production contracts', () => {
       api.runProductionAutomation({
         images: [{imageUrl: 'https://example.test/source.png'}],
         agentVersion: 'V1.5',
+        partComposerAgentVersion: 'part_composer_v6_auto_assemble',
         allowedModelIds: ['meshGen.tripo_3_1'],
       }),
     ).resolves.toEqual(automation)
@@ -1028,6 +1029,9 @@ describe('@assethub/api-client v1 Production contracts', () => {
       `${BASE_URL}/api/v1/production/automation`,
       `${BASE_URL}/api/v1/production/automation/batch%2F1`,
     ])
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+      partComposerAgentVersion: 'part_composer_v6_auto_assemble',
+    })
   })
 })
 

@@ -6,7 +6,6 @@ import type {
 import {describe, expect, it} from 'vitest'
 import {
   DEFAULT_MAX_PARTS,
-  PART_COMPOSER_V6_AGENT_VERSION,
   batchProgressLines,
   buildAutomationConfig,
   buildComposerPartsFromMeshExecutions,
@@ -64,12 +63,9 @@ describe('buildAutomationConfig', () => {
     expect(buildAutomationConfig('none')).toEqual({autoCompose: false})
   })
 
-  it('requests server-side V6 compose for --compose v6 without touching autoCompose', () => {
+  it('leaves config unset for --compose v6; the version is sent at the top level', () => {
     const config = buildAutomationConfig('v6')
-    expect(config).toEqual({partComposerAgentVersion: PART_COMPOSER_V6_AGENT_VERSION})
-    // The invariant that must never be violated: the server 400s
-    // (PART_COMPOSER_VERSION_REQUIRES_AUTO_COMPOSE) if both are sent together.
-    expect(config).not.toHaveProperty('autoCompose')
+    expect(config).toBeUndefined()
   })
 })
 

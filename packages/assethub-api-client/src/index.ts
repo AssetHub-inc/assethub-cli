@@ -1260,6 +1260,7 @@ export type ProductionAutomationRequest = {
   images: ProductionAutomationImage[]
   config?: ProductionAutomationConfig
   agentVersion: string
+  partComposerAgentVersion?: string
   writeToCanvas?: boolean
   allowedModelIds?: string[]
   partExtractionMode?: ProductionPartExtractionMode

@@ -305,9 +305,8 @@ with `--file`/`--source-id`/other source flags — it already resolves one.
 - `--compose none`: disables automation's compose stage (`config.autoCompose:
   false`); the run stops once every part's mesh is generated.
 - `--compose v6`: requests an explicit Composer V6 pass via
-  `config.partComposerAgentVersion: "part_composer_v6_auto_assemble"`
-  (`autoCompose` is left at its default of `true` — sending both together is
-  rejected by the server). A server that has shipped this (assethub-web PR
+  top-level `partComposerAgentVersion: "part_composer_v6_auto_assemble"`
+  (`config.autoCompose` is left at its default of `true`). A server that has shipped this (assethub-web PR
   #8179) does the V6 compose itself, in the same automation call, pairing
   each part's mesh with its source image automatically. Against an older,
   currently-deployed server (detected by the automation response lacking

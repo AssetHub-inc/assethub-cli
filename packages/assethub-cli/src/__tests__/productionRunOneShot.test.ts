@@ -375,9 +375,10 @@ describe('production run --image (one-shot)', () => {
     ])
     expect(result.code, result.stderr).toBe(0)
     const automationPost = posted.find(entry => entry.path === '/api/v1/production/automation')
-    expect((automationPost!.body as any).config).toEqual({
+    expect(automationPost!.body).toMatchObject({
       partComposerAgentVersion: 'part_composer_v6_auto_assemble',
     })
+    expect((automationPost!.body as any).config).toBeUndefined()
     const composePost = posted.find(entry => entry.path === '/api/v2/mesh/compose')
     expect(composePost!.body).toMatchObject({
       agentVersion: 'v6',
@@ -444,9 +445,10 @@ describe('production run --image (one-shot)', () => {
     ])
     expect(result.code, result.stderr).toBe(0)
     const automationPost = posted.find(entry => entry.path === '/api/v1/production/automation')
-    expect((automationPost!.body as any).config).toEqual({
+    expect(automationPost!.body).toMatchObject({
       partComposerAgentVersion: 'part_composer_v6_auto_assemble',
     })
+    expect((automationPost!.body as any).config).toBeUndefined()
     // No client-side compose call and no canvas-runs listing: the server did it all in one call.
     expect(posted.find(entry => entry.path === '/api/v2/mesh/compose')).toBeUndefined()
     expect(result.json.compose).toBeUndefined()
