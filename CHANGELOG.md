@@ -5,6 +5,7 @@
 - Retry 429 responses in the shared client request path instead of failing the command: wait the server's `Retry-After` header (or the parsed "Try again in N seconds" message), add jitter, and bound both the per-wait delay and the attempt count while replaying the exact same request (including any `Idempotency-Key`).
 - Stop treating a 429 as a `--wait` failure: `waitForExecution` keeps polling until the `--wait` deadline instead of exiting with a failure status when the run is still rate-limited.
 - Add a floor and jitter to the `--wait` poll cadence so parallel invocations stop polling in lockstep against the same rate-limit window.
+- Accept `<mesh-asset-id>:<part-image-asset-id>` as a `composer run --part` and `composer refine --part` value, forwarding the reference image as `partImageAssetId` on that part so Composer V6 (`part_composer_v6_auto_assemble`) runs no longer fail with a missing-part-image error; plain mesh-only `--part` values keep working unchanged.
 
 ## CLI 0.1.26
 
