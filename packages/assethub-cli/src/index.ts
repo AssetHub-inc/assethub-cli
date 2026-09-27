@@ -83,6 +83,7 @@ import {uploadRun} from './runsUpload/uploadRun.js'
 import {existsSync} from 'node:fs'
 import {
   DEFAULT_MAX_PARTS,
+  PART_COMPOSER_V6_AGENT_VERSION,
   buildAutomationConfig,
   buildComposerPartsFromMeshExecutions,
   detectOneShotImageInput,
@@ -4278,6 +4279,7 @@ const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> =
     images: [analyzeImage],
     agentVersion,
     ...(config ? {config} : {}),
+    ...(compose === 'v6' ? {partComposerAgentVersion: PART_COMPOSER_V6_AGENT_VERSION} : {}),
     ...(maxCostCredits != null ? {maxCostCredits} : {}),
   } as ProductionAutomationRequest
 

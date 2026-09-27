@@ -57,22 +57,13 @@ export const PART_COMPOSER_V6_AGENT_VERSION = 'part_composer_v6_auto_assemble'
  * - `--compose` omitted: returns `undefined` so the request carries no
  *   `config.autoCompose` at all, leaving the server default in effect.
  * - `--compose none`: disables automation's own compose stage entirely.
- * - `--compose v6`: asks the server to run Composer V6 itself, in the same
- *   call, via `partComposerAgentVersion`. `autoCompose` is deliberately left
- *   unset (defaults to `true`) — the server 400s with
- *   `PART_COMPOSER_VERSION_REQUIRES_AUTO_COMPOSE` if both are sent together,
- *   so this function must never combine them. A server that predates #8179
- *   ignores the unrecognized field and runs its own default compose instead;
- *   `serverSupportsV6Compose` inspects the response afterward so the caller
- *   can still fall back to the client-side lineage-pairing compose
- *   (`buildComposerPartsFromMeshExecutions`) on that older server.
+ * - `--compose v6`: leaves config unset. The version is a top-level automation
+ *   request field, added by the caller; `autoCompose` defaults to `true`.
  */
 export const buildAutomationConfig = (
   compose: ComposeMode | undefined,
 ): Record<string, unknown> | undefined => {
-  if (compose == null) return undefined
-  if (compose === 'none') return {autoCompose: false}
-  return {partComposerAgentVersion: PART_COMPOSER_V6_AGENT_VERSION}
+  return compose === 'none' ? {autoCompose: false} : undefined
 }
 
 /**
