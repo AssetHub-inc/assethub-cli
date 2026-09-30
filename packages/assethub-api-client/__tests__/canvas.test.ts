@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from 'vitest'
-import {createAssetHubClient} from '../src/index.js'
+import {createAssetHubClient, type MeshRefineRequest} from '../src/index.js'
 
 const ok = (data: unknown) =>
   new Response(JSON.stringify({success: true, data}), {
@@ -7,6 +7,16 @@ const ok = (data: unknown) =>
   })
 
 describe('canvas execution API', () => {
+  it.each([{mode: 'off' as const, skillIds: []}, {mode: 'manual' as const, skillIds: ['skill-one']}])('posts $mode composition selection through the shared client without changing its paid identity', async skillSelection => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(ok({execution: {runId: 'compose-run', operation: 'mesh.compose'}}))
+    const client = createAssetHubClient({apiKey: 'test-key', fetch: request})
+    const body = {parts: [{assetId: 'mesh_1'}, {assetId: 'mesh_2'}], fullBodyImageAssetId: 'image_1', skillSelection, executionContext: {canvasId: 42, clientOperationId: '84e8530b-b362-45c7-9064-2b03b6f95b24', source: 'cli' as const}}
+    await client.v2.composeMesh(body, {idempotencyKey: body.executionContext.clientOperationId})
+    const [, init] = request.mock.calls[0]!
+    expect(JSON.parse(String(init?.body))).toEqual(body)
+    expect(new Headers(init?.headers).get('Idempotency-Key')).toBe(body.executionContext.clientOperationId)
+  })
+
   it('discovers native Composer refinement modes', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(
       ok({
@@ -29,41 +39,71 @@ describe('canvas execution API', () => {
     )
   })
 
-  it('posts a native Composer refinement with the idempotency key', async () => {
-    const request = vi.fn<typeof fetch>().mockResolvedValue(
-      ok({execution: {runId: 'refine-run', operation: 'mesh.refine'}}),
-    )
-    const client = createAssetHubClient({
-      apiKey: 'test-key',
-      baseUrl: 'https://api.test',
-      fetch: request,
-    })
-    const body = {
-      parts: [{assetId: 'mesh-a', canonicalKey: 'body'}],
-      fullBodyImageAssetId: 'reference',
-      transforms: {
-        'mesh-a': [1, 0, 0, 0, 0, 0, 1, 1, 1, 1],
-      },
-      mode: 'placement' as const,
-      instruction: 'align the feet to the ground',
-      maxRounds: 1,
-      executionContext: {
-        canvasId: 42,
-        clientOperationId: '84e8530b-b362-45c7-9064-2b03b6f95b24',
-        source: 'cli' as const,
-      },
-    }
-    const result = await client.v2.refineMesh(body, {
-      idempotencyKey: body.executionContext.clientOperationId,
-    })
-    expect(result.execution.runId).toBe('refine-run')
-    const [url, init] = request.mock.calls[0]!
-    expect(url).toBe('https://api.test/api/v2/mesh/refine')
-    expect(JSON.parse(String(init?.body))).toEqual(body)
-    expect(new Headers(init?.headers).get('Idempotency-Key')).toBe(
-      body.executionContext.clientOperationId,
-    )
-  })
+  // @testdoc The typed native refinement client preserves explicit coarse-only and legacy requests with the same durable operation identity.
+  it.each([undefined, true])(
+    'posts a native Composer refinement with initialPlacementOnly=%s and the idempotency key',
+    async initialPlacementOnly => {
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          ok({execution: {runId: 'refine-run', operation: 'mesh.refine'}}),
+        )
+      const client = createAssetHubClient({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.test',
+        fetch: request,
+      })
+      const body: MeshRefineRequest = {
+        parts: [{assetId: 'mesh-a', canonicalKey: 'body'}],
+        fullBodyImageAssetId: 'reference',
+        transforms: {
+          'mesh-a': [1, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+        },
+        mode: 'codex' as const,
+        geometryBackend: 'blender' as const,
+        ...(initialPlacementOnly
+          ? {
+              initialPlacementOnly,
+              assemblyPolicy: 'body_first_v1' as const,
+              agentRuntime: {
+                provider: 'responses-api' as const,
+                model: 'gpt-6-astra' as const,
+              },
+            }
+          : {}),
+        skillSelection: {
+          mode: 'manual' as const,
+          skillIds: ['assethub-mesh-part-assembly'],
+        },
+        instruction: 'align the feet to the ground',
+        reviewContext: {
+          frozenAssemblyPlan: {
+            artifactId: 'plan-1',
+            planHash: 'a'.repeat(64),
+            content: JSON.stringify({policy: 'concept-to-character-v1'}),
+          },
+          issues: [],
+          parts: [],
+        },
+        maxRounds: 1,
+        executionContext: {
+          canvasId: 42,
+          clientOperationId: '84e8530b-b362-45c7-9064-2b03b6f95b24',
+          source: 'cli' as const,
+        },
+      }
+      const result = await client.v2.refineMesh(body, {
+        idempotencyKey: body.executionContext.clientOperationId,
+      })
+      expect(result.execution.runId).toBe('refine-run')
+      const [url, init] = request.mock.calls[0]!
+      expect(url).toBe('https://api.test/api/v2/mesh/refine')
+      expect(JSON.parse(String(init?.body))).toEqual(body)
+      expect(new Headers(init?.headers).get('Idempotency-Key')).toBe(
+        body.executionContext.clientOperationId,
+      )
+    },
+  )
 
   it('sends the same canvas creation operation in its body and header', async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(ok({id: 42}))

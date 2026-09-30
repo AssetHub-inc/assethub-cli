@@ -746,7 +746,9 @@ describe('@assethub/api-client v2 animation preset discovery', () => {
   } satisfies AnimationPresetsResult
 
   it('lists presets with an encoded filter and with no filter at all', async () => {
-    fetchMock.mockResolvedValueOnce(ok(presets)).mockResolvedValueOnce(ok(presets))
+    fetchMock
+      .mockResolvedValueOnce(ok(presets))
+      .mockResolvedValueOnce(ok(presets))
 
     await expect(
       client().v2.listAnimationPresets({
@@ -881,6 +883,23 @@ describe('@assethub/api-client v1 Production contracts', () => {
           transformModelVariants: ['nano_banana_2', 'nano_banana_pro'],
           supportedOnClassicEndpoint: true,
           supportedOnAutomation: true,
+        },
+        {
+          agentVersion: 'V3.6.2',
+          internalVersion: 'ah_agent_graph_v3_6_2',
+          label: 'V3.6.2',
+          defaultAgent: false,
+          extractionModes: [],
+          supportedRunModes: [],
+          partImageModelVariants: [],
+          partImageModelScopes: [],
+          transformModelVariants: [],
+          supportedOnClassicEndpoint: false,
+          supportedOnAutomation: false,
+          supportedOnGraphEndpoint: false,
+          supportedAssemblyPolicies: ['concept-to-character-v1'],
+          requiredAssemblyPipelineDepth: 'composition',
+          graphEndpoint: '/api/v1/production/analyze',
         },
       ],
       extractionModes: ['fast', 'high_quality'],

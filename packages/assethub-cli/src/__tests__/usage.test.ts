@@ -2,6 +2,10 @@ import {describe, expect, it} from 'vitest'
 import {usage} from '../index.js'
 
 describe('CLI usage / --help', () => {
+  it('documents self-update', () => {
+    expect(usage).toContain('assethub update [--check] [--dry-run] [--yes]')
+  })
+
   it('documents the new production run and watch commands', () => {
     expect(usage).toContain('assethub production run --order-id <id> --mission-id <id>')
     expect(usage).toContain('[--run-mode full_auto|approval]')
@@ -35,6 +39,12 @@ describe('CLI usage / --help', () => {
     expect(usage).toContain('assethub production interventions <order-id>')
     expect(usage).toContain('[--idempotency-key <key>]')
     expect(usage).toContain('--ops-json <json|@file|@->')
+  })
+
+  it('documents production resume with its retry-safe count', () => {
+    expect(usage).toContain(
+      'assethub production resume <run-id|order-id> [--expected-resume-count <n>] [--wait]',
+    )
   })
 
   // --dry-run is documented alongside the command rather than buried in a

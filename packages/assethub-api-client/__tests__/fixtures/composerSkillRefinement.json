@@ -1,0 +1,22 @@
+{
+  "parts": [
+    {
+      "assetId": "mesh_1"
+    }
+  ],
+  "fullBodyImageAssetId": "image_a_0_0_color",
+  "transforms": {
+    "mesh_1": [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
+  },
+  "mode": "blender",
+  "instruction": "Keep the face fixed",
+  "skillSelection": {
+    "mode": "manual",
+    "skillIds": ["assethub-mesh-part-assembly"]
+  },
+  "executionContext": {
+    "canvasId": 42,
+    "clientOperationId": "00000000-0000-4000-8000-000000000002",
+    "source": "api"
+  }
+}

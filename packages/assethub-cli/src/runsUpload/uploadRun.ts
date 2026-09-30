@@ -21,6 +21,7 @@ import {
   CONTROL_ERROR_CODES,
   CONTROL_NOT_ENTITLED_STATUS,
   controlRunUploadUrls,
+  type ControlRunUploadUrls,
 } from './controlEndpoints.js'
 import {formatBytes, type PlannedBlob, type RunUploadPlan} from './buildRunUpload.js'
 import {RunUploadError} from './runUploadError.js'
@@ -53,10 +54,15 @@ export type UploadRunInput = {
   plan: RunUploadPlan
   baseUrl: string
   apiKey: string
+  /** Sent as X-AssetHub-Workspace; a personal key is refused without it. */
   workspaceId?: string
   fetchImpl?: typeof fetch
   skipRegister?: boolean
   onProgress?: (event: RunUploadProgressEvent) => void
+  /** Upload to another store with the same contract. Defaults to Production Control. */
+  urls?: ControlRunUploadUrls
+  /** Extra top-level fields for the registration body (e.g. `session`). */
+  registrationExtra?: Record<string, unknown>
 }
 
 export const uploadRun = async ({
@@ -67,10 +73,14 @@ export const uploadRun = async ({
   fetchImpl = globalThis.fetch.bind(globalThis),
   skipRegister = false,
   onProgress = () => {},
+  urls = controlRunUploadUrls(baseUrl),
+  registrationExtra,
 }: UploadRunInput): Promise<RunUploadResult> => {
-  const urls = controlRunUploadUrls(baseUrl)
   // Built once, never logged, never placed in a URL or a query string.
-  const authHeaders = {authorization: `Bearer ${apiKey}`, ...(workspaceId ? {'X-AssetHub-Workspace': workspaceId} : {})}
+  const authHeaders = {
+    authorization: `Bearer ${apiKey}`,
+    ...(workspaceId ? {'x-assethub-workspace': workspaceId} : {}),
+  }
 
   let registered = false
   if (!skipRegister) {
@@ -78,7 +88,8 @@ export const uploadRun = async ({
     await request(fetchImpl, urls.graphs, {
       method: 'POST',
       headers: {...authHeaders, 'content-type': 'application/json'},
-      body: JSON.stringify(plan.registration),
+      // Extra fields may add to the registration, never replace what the plan registers.
+      body: JSON.stringify({...registrationExtra, ...plan.registration}),
     })
     registered = true
   }

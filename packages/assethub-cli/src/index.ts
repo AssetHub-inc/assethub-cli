@@ -1,15 +1,50 @@
 #!/usr/bin/env node
+import {
+  childOperationId,
+  expandProductionBatch,
+  planProductionNodeMeshes,
+  callApiOperation,
+  describeApiOperation,
+  discoverApiOperations,
+  searchApiOperations,
+  TERMINAL_WORKSPACE_SKILL_BUILD_STATUSES,
+  WORKSPACE_SKILL_ENHANCE_SECTIONS,
+  type WorkspaceSkillBuild,
+} from '@assethub/api-client'
 import {setTimeout as delay} from 'node:timers/promises'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
 import {AGENT_IDS, initAgents, syncInstalledSkill} from './agentSetup.js'
+import {
+  confirmNo,
+  confirmYes,
+  defaultFileDeps,
+  formatSetupSummary,
+  pickFromList,
+  promptHidden,
+  runProcess,
+  runSetup,
+} from './setupCommand.js'
+import {launchAgentProgram, loadKeyIntoLaunchd} from './appEnv.js'
+import {defaultInstallHooks, type InstallHooks} from './setupHooksBridge.js'
+import {canUploadSessions, installHooks as installSessionHooks, runHooksCommand} from './hooks/index.js'
+import {createNodeUpdateDeps, runUpdate} from './update.js'
 import {ingestProjectSources} from './projectSources.js'
 import {downloadCanvas} from './canvasDownload.js'
+import {downloadCanvasGraphZip} from './canvasGraphDownload.js'
 import {
   executeNodeMeshBatch,
   resumeNodeMeshBatch,
   type NodeMeshBatchResult,
 } from './nodeMeshBatch.js'
 import {writeCanvasComparison} from './canvasComparison.js'
+import {
+  productionBatchLabels,
+  readProductionBatch,
+  runProductionBatch,
+  type ProductionBatchSource,
+  type ProductionBatchItem,
+  type ProductionBatchItemResult,
+} from './productionBatch.js'
 import {importCanvasAssetWithState} from './canvasAssetImport.js'
 import {execFile, spawn} from 'node:child_process'
 import {createHash, randomUUID} from 'node:crypto'
@@ -17,6 +52,7 @@ import {realpathSync} from 'node:fs'
 import {
   chmod,
   mkdir,
+  readdir,
   readFile,
   rename,
   unlink,
@@ -29,13 +65,11 @@ import {fileURLToPath, pathToFileURL} from 'node:url'
 import {promisify} from 'node:util'
 import {
   AssetHubApiError,
-  callApiOperation,
-  describeApiOperation,
-  discoverApiOperations,
-  searchApiOperations,
   WorkspaceClientError,
   createWorkspaceClient,
   type AnimationRetargetRequest,
+  type ApiErrorPayload,
+  type ApiSuccess,
   type BlobLocation,
   type MoodboardInput,
   type CanvasLayoutInput,
@@ -68,7 +102,6 @@ import {
 import {resolveCanvasSelection, saveCanvasSelection} from './canvas.js'
 import {
   activeExecution,
-  childOperationId,
   CliExecutionError,
   executeRecorded,
   hasRecordedOperation,
@@ -76,6 +109,7 @@ import {
   resumeRecorded,
   waitForExecution,
 } from './execution.js'
+import {runProgressLine} from './runProgress.js'
 
 import {buildRunUploadPlan, formatBytes} from './runsUpload/buildRunUpload.js'
 import {readGraphFolder} from './runsUpload/graphFolder.js'
@@ -195,6 +229,81 @@ const partExtractorOptions = [
     aliases: ['v2.1 alpha', 'v2.1-alpha', '2.1 alpha'],
   },
   {
+    publicName: 'V2.1-beta',
+    apiValue: 'ah_part_extractor_v6b',
+    aliases: ['v2.1 beta', 'v2.1-beta', '2.1 beta', '2.1-beta'],
+  },
+  {
+    publicName: 'V1',
+    apiValue: 'ah_part_extractor_v5',
+    aliases: ['v1'],
+  },
+  {
+    publicName: 'V3.0.1',
+    apiValue: 'ah_agent_graph_v3_0_1',
+    aliases: ['v3.0.1', '3.0.1'],
+  },
+  {
+    publicName: 'V3.5.3 Complete Objects',
+    apiValue: 'ah_agent_graph_v3_5_3',
+    aliases: ['v3.5.3', '3.5.3'],
+  },
+  {
+    publicName: 'V3.5.3.1 Reliable Analysis',
+    apiValue: 'ah_agent_graph_v3_5_3_1',
+    aliases: ['v3.5.3.1', '3.5.3.1'],
+  },
+  {
+    publicName: 'V3.5.4 Evidence Review',
+    apiValue: 'ah_agent_graph_v3_5_4',
+    aliases: ['v3.5.4', '3.5.4'],
+  },
+  {
+    publicName: 'V3.5.5 Complete Part Review',
+    apiValue: 'ah_agent_graph_v3_5_5',
+    aliases: ['v3.5.5', '3.5.5'],
+  },
+  {
+    publicName: 'V3.5.6 Golden Recovery',
+    apiValue: 'ah_agent_graph_v3_5_6',
+    aliases: ['v3.5.6', '3.5.6'],
+  },
+  {
+    publicName: 'V3.5.7 Original Source First',
+    apiValue: 'ah_agent_graph_v3_5_7',
+    aliases: ['v3.5.7', '3.5.7'],
+  },
+  {
+    publicName: 'V3.5.8 Concise Inventory',
+    apiValue: 'ah_agent_graph_v3_5_8',
+    aliases: ['v3.5.8', '3.5.8'],
+  },
+  {
+    publicName: 'V3.5.9 Observed Parts',
+    apiValue: 'ah_agent_graph_v3_5_9',
+    aliases: ['v3.5.9', '3.5.9'],
+  },
+  {
+    publicName: 'V3.6 Multiview References',
+    apiValue: 'ah_agent_graph_v3_6',
+    aliases: ['v3.6', '3.6'],
+  },
+  {
+    publicName: 'Chibi Character (Pluffy)',
+    apiValue: 'ah_agent_graph_pluffy_v3',
+    aliases: ['pluffy v3', 'pluffy 3'],
+  },
+  {
+    publicName: 'V3-2.1',
+    apiValue: 'ah_agent_graph_v21',
+    aliases: ['v3-2.1', '3-2.1'],
+  },
+  {
+    publicName: 'V3.6.2 Single Analysis',
+    apiValue: 'ah_agent_graph_v3_6_2',
+    aliases: ['v3.6.2', '3.6.2'],
+  },
+  {
     publicName: 'V3.6.1',
     apiValue: 'ah_agent_graph_v3_6_1',
     aliases: ['v3.6.1', '3.6.1', 'v3.6.1 primary images first'],
@@ -215,20 +324,14 @@ const partExtractorOptions = [
     aliases: ['v3.6.5', '3.6.5'],
   },
   {
-    publicName: 'Chibi Character (Pluffy) v3.1',
-    apiValue: 'ah_agent_graph_pluffy_v3_1',
-    aliases: ['pluffy', 'pluffy v3.1', 'pluffy 3.1'],
-  },
-  {
     publicName: 'V3.0.9 Garment Boundaries',
     apiValue: 'ah_agent_graph_v3_7_2',
     aliases: ['v3.0.9', '3.0.9'],
   },
   {
-    publicName: 'V3.7 Artist Skills',
-    apiValue: 'ah_agent_graph_v3_7',
-    // The web picker and `production agents` call it V3.0.7.
-    aliases: ['v3.7', '3.7', 'v3.0.7 artist skills', 'v3.0.7', '3.0.7'],
+    publicName: 'V3.0.10-dev.1 Body Fit',
+    apiValue: 'ah_agent_graph_v3_7_3',
+    aliases: ['v3.0.10-dev.1', '3.0.10-dev.1'],
   },
   {
     publicName: 'V3.7.1 Building Modules',
@@ -237,11 +340,31 @@ const partExtractorOptions = [
     aliases: ['v3.7.1', '3.7.1', 'v3.0.8 building modules', 'v3.0.8', '3.0.8'],
   },
   {
+    publicName: 'Chibi Character (Pluffy) v3.1',
+    apiValue: 'ah_agent_graph_pluffy_v3_1',
+    aliases: ['pluffy', 'pluffy v3.1', 'pluffy 3.1'],
+  },
+  {
+    publicName: 'V3.7 Artist Skills',
+    apiValue: 'ah_agent_graph_v3_7',
+    // The web picker and `production agents` call it V3.0.7.
+    aliases: ['v3.7', '3.7', 'v3.0.7 artist skills', 'v3.0.7', '3.0.7'],
+  },
+  {
     publicName: 'Humanoid Assembly (internal)',
     apiValue: 'ah_agent_graph_humanoid_assembly_auto',
     aliases: ['humanoid assembly', 'humanoid-assembly', 'humanoid_assembly_auto'],
   },
+  {
+    publicName: 'V4 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v2',
+    aliases: ['v4', '4', 'v4 character assembly', 'character assembly'],
+  },
 ] as const satisfies readonly PartExtractorOption[]
+
+// A V4 Character Assembly run (image → parts → meshes → assembled character) takes
+// about an hour, so `--wait` defaults past the generic 15 minute limit.
+const harpyAssemblyV2WaitMs = 2 * 60 * 60 * 1000
 
 // Graph-engine extractors run through the artifact-graph endpoint. Derived from
 // the option list so a newly listed graph agent cannot miss the graph path.
@@ -287,6 +410,9 @@ CLI and MCP are available to all AssetHub users. Workspace permissions and featu
 
 Usage:
   assethub --version
+  assethub setup [--client claude|codex|both] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
+  assethub env load [--profile <name>]
+  assethub update [--check] [--dry-run] [--yes]
   assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
   assethub init [--agent claude-code|codex|cursor...] [--project] [--dry-run] [--base-url <url>] [--workspace <id>] [--profile <name>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
@@ -330,31 +456,30 @@ Usage:
   assethub api search [query]
   assethub api describe "<METHOD /path>"
   assethub api call "<METHOD /path>" [--path-json <json|@file>] [--query-json <json|@file>] [--input-json <json|@file|@->] [--operation-id <uuid>]
-  assethub skills list [--cursor <cursor>]
-  assethub skills get <skill-id> [--revision <n>]
-  assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
-  assethub skills update <skill-id> --input-json <json|@file|@->
-  assethub skills controls <skill-id> --revision <n> --grant-revision <n> --mode automatic|manual|off [--share]
-  assethub skills prepare --input-json <json|@file|@->
-  assethub skills proposal <proposal-id>
-  assethub skills accept <proposal-id> --input-json <json|@file|@->
   assethub composer models
   assethub composer refine --list-modes
-  assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--effort light|standard|thorough] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
+  assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--effort light|standard|thorough] [--max-rounds <n>] [--agent-model <provider:id|unambiguous-id>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
-  assethub composer run --part <mesh-asset-id>[:<part-image-asset-id>] [--part <mesh-asset-id>[:<part-image-asset-id>]...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer refine --from-run <run-id> --skill-assembly [--reasoning low|medium|high] [--agent-model <agents-api model>] [--wait]
+  assethub composer run --part <mesh-asset-id>[=<part-image-id>] [--part <mesh-asset-id>[=<part-image-id>]...] --reference <image-asset-id> [--model <id>] [--agent-model <provider:id|unambiguous-id>] [--mode quick|quality] [--optimize off|light|medium|heavy] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer run --part <mesh-asset-id>=<part-image-id>... --reference <image-asset-id> --model V6 [--optimize off|light|medium|heavy] [--canvas <id>] [--wait]
+  assethub composer run --part <mesh-asset-id>... --reference <image-asset-id> --model V5.1 [--reasoning low|medium|high] [--agent-model <agents-api model>] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --from-run <run-id> [--transforms-json <json|@file>] [--mode quick|quality] [--wait]
   assethub composer run --node <shape:id> --canvas <id> [--model <id>] [--mode quick|quality] [--operation-id <uuid>] [--wait]
   assethub canvas create [--name <name>] [--operation-id <uuid>]
   assethub canvas list [--cursor <cursor>] [--limit <n>]
   assethub canvas get|use|open [<id>]
+  assethub canvas graph-id <canvas-id>
   assethub runs list [--canvas <id>] [--cursor <cursor>] [--limit <n>]
-  assethub runs get|watch|wait <run-id> [--interval-ms <ms>] [--timeout-ms <n>] [--summary]
+  assethub runs get|watch|wait <run-id> [--interval-ms <ms>] [--timeout-ms <n>] [--summary] [--download --out-dir <dir>]
   assethub runs resume <operation-id> [--wait]
   assethub graph list [--cursor <cursor>] [--limit <n>]
   assethub graph show|export [--canvas <id> | --graph <id>] [--source generated|upload] [--artifact <node-id>] [--out <path>] [--allow-truncated]
   assethub graph lineage --artifact <node-id> [--canvas <id> | --graph <id>] [--source generated|upload] [--direction ancestors|descendants|both] [--depth <n>] [--out <path>]
+  assethub graph snapshot <graph-id> [--offset <n>] [--limit <n>]
+  assethub graph node <graph-id> <node-id>
+  assethub graph image <graph-id> <node-id> [--out <path>]
   assethub evaluate list
   assethub evaluations submit --artifact <asset-id> --report <json|file|@file|@-> [--agent <name>] [--canvas <id>] [--reference <asset-id>...] [--run <run-id>] [--operation-id <uuid>] [--require-pass]
   assethub evaluations list [--canvas <id>] [--artifact <asset-id>]
@@ -375,7 +500,10 @@ Usage:
   assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
   assethub jobs get <job-id> [--download --out-dir <dir>]
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
-  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
+    Production graph options: --pipeline-depth parts|mesh|composition [--assembly-policy concept-to-character-v1] [--mesh-generation-json <json|@file>]
+  assethub production batch (--file <path>... | --files-dir <dir> | --source-id <id>... | --source-url <url>...) --part-extractor <name> [--repeat <n>] [--yes] [--canvas <id>] [--operation-id <uuid>] [--wait [--concurrency <n>]] [--download --out-dir <dir>]
+    One production analyze per image × --repeat, on one canvas. Takes the production analyze options. Rerun with the printed --operation-id to resume; nothing is started twice.
   assethub production agents
   assethub production automation --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--wait]
   assethub production status <order-id> [--wait] [--download --out-dir <dir>]
@@ -385,10 +513,32 @@ Usage:
   assethub production watch <order-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
   assethub production intervene <order-id> (--exclude <target-id> | --include <target-id> | --add-part <name> | --rename <target-id>=<name> | --reject <target-id>[=<reason>] | --regenerate <target-id>=<mode> | --set-param <key>=<value> | --ops-json <json|@file|@->)... [--idempotency-key <key>]
   assethub production interventions <order-id>
+  assethub production resume <run-id|order-id> [--expected-resume-count <n>] [--wait] [--timeout-ms <ms>] [--download --out-dir <dir>]   (internal: after a fix, pick a stopped or stalled graph run back up; no new charge)
   assethub runs upload <path> [--graph-id <id>] [--stream-id <id>] [--rev <n>] [--description <text>] [--tag <tag>...] [--skip-register] [--dry-run]
-  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
+  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
+  assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
+  assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
+  assethub skills list [--cursor <cursor>]
+  assethub skills get <skill-id> [--revision <n>]
+  assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
+  assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
+  assethub skills update <skill-id> --input-json <json|@file|@->
+  assethub skills controls <skill-id> --revision <n> --grant-revision <n> --mode automatic|manual|off [--share]
+  assethub skills prepare --input-json <json|@file|@->
+  assethub skills proposal <proposal-id>
+  assethub skills accept <proposal-id> --input-json <json|@file|@->
+  assethub skills validate --input-json <json|@file|@-> [--build <build-id>]
+  assethub skills schema
+  assethub skills build --goal <text> (--canvas <id>... | --memory <id>...) [--instructions <text>] [--operation-id <uuid>] [--wait] [--dry-run]
+  assethub skills official list
+  assethub skills official install <skill-id> --revision <n> --content-sha256 <sha256> [--expected-revision <n>] [--expected-grant-revision <n>]
+  assethub skills official prepare <skill-id> --input-json <json|@file|@->
+  assethub skills official customize <skill-id> --input-json <json|@file|@->
+  assethub org search <query>
+  assethub org canvases --org <orgId>
+  assethub graph export-canvas --org <orgId> --canvas <id>[,<id>...] [--wait] [--timeout <s>] [--out-dir <dir>]
 
 Global options:
   --api-key <key>       Overrides saved auth and ASSETHUB_API_KEY.
@@ -417,6 +567,8 @@ Examples:
   assethub rig create --source-resource-id mesh_x --rig-type biped --wait
   assethub animate retarget --resource-id rig_x --animation preset:idle --wait
   assethub production analyze --file ./input.png --part-extractor "V1.5" --wait
+  assethub production analyze --file ./concept.png --part-extractor v4 --wait --download --out-dir ./character
+  assethub production batch --file ./harpy.png --file ./satyr.png --repeat 2 --part-extractor v4 --yes --wait --download --out-dir ./batch
   assethub production run --order-id ord_x --mission-id ms_x --run-mode full_auto --max-cost-credits 200 --wait
   assethub production run --image ./character.png --estimate
   assethub production run --image ./character.png --compose v6 --max-cost 500 --wait --download --out-dir ./out/asset
@@ -425,13 +577,17 @@ Examples:
   assethub runs wait run_x --timeout-ms 3600000
   assethub production intervene ord_x --exclude 7 --rename 3="left wing" --idempotency-key review-2026-07-29
   assethub production interventions ord_x
+  assethub production resume ord_x
+  assethub production resume <run-id> --wait --download --out-dir ./character
   assethub runs upload ./out/pluffy-run-2026-07-30 --dry-run
   assethub runs upload ./out/pluffy-run-2026-07-30 --tag pluffy --description "V3 humanoid, 18 parts"
   assethub parts split --file ./input.png --part-extractor "V1.5" --wait --all-ready
   assethub parts compare --file ./input.png --preprocess-prompt "clean white background, centered product photo" --part-extractor "V1.5" --wait --all-ready
 `
 
+let printSuppressed = false
 const print = (value: unknown): void => {
+  if (printSuppressed) return
   stdout.write(`${JSON.stringify(value, null, 2)}\n`)
 }
 
@@ -568,8 +724,8 @@ const resolveProductionSkillSelection = (
   }
   if (mode !== 'auto' && mode !== 'manual' && mode !== 'off')
     throw new Error('--skill-mode must be "auto", "manual", or "off"')
-  if (!['ah_agent_graph_v3_7', 'ah_agent_graph_v3_7_1'].includes(agentVersion))
-    throw new Error('--skill-mode requires V3.7 Artist Skills or V3.7.1 Building Modules')
+  if (agentVersion !== 'ah_agent_graph_v3_7' && agentVersion !== 'ah_agent_graph_v3_7_1' && agentVersion !== 'ah_agent_graph_v3_7_2' && agentVersion !== 'ah_agent_graph_v3_7_3')
+    throw new Error('--skill-mode is supported only with V3 Artist Skills')
   if (skillIds.length > 3)
     throw new Error('--skill-id accepts at most 3 values')
   if (new Set(skillIds).size !== skillIds.length)
@@ -585,6 +741,16 @@ const resolveProductionSkillSelection = (
   if (mode === 'off' && skillIds.length > 0)
     throw new Error('--skill-mode off does not accept --skill-id')
   return {mode, skillIds}
+}
+
+const resolveProductionBaseBody = (flags: Flags): string | undefined => {
+  const value = getFlag(flags, 'base-body')
+  return value == null ? undefined : assertFlagHasValue(value, '--base-body <mesh-asset-id>')
+}
+
+const resolveSkillPlannerModel = (flags: Flags): string | undefined => {
+  const value = getFlag(flags, 'skill-planner-model')
+  return value == null ? undefined : assertFlagHasValue(value, '--skill-planner-model <model>')
 }
 
 const publicPartExtractorName = (
@@ -1067,24 +1233,6 @@ const assertFlagHasValue = (value: string, flagDescription: string): string => {
  * attaches the image the part's mesh was generated from, matching what the
  * canvas node graph supplies automatically for UI-driven runs.
  */
-const parsePartFlagValue = (
-  raw: string,
-): {assetId: string; partImageAssetId?: string} => {
-  const value = assertFlagHasValue(
-    raw,
-    '--part <mesh-asset-id>[:<part-image-asset-id>]',
-  )
-  const separatorIndex = value.indexOf(':')
-  if (separatorIndex === -1) return {assetId: value}
-  const assetId = value.slice(0, separatorIndex)
-  const partImageAssetId = value.slice(separatorIndex + 1)
-  if (!assetId || !partImageAssetId)
-    throw new Error(
-      '--part must be <mesh-asset-id> or <mesh-asset-id>:<part-image-asset-id>',
-    )
-  return {assetId, partImageAssetId}
-}
-
 const sourceInputCount = (flags: Flags): number =>
   [
     getSourceResourceIdFlag(flags) != null,
@@ -1976,138 +2124,6 @@ const commandApi = async (
   }
 }
 
-export const commandSkills = async (
-  subcommand: string | undefined,
-  positionals: string[],
-  ctx: CommandContext,
-): Promise<void> => {
-  if (subcommand === 'list') {
-    print(
-      await ctx.client.v2.listWorkspaceSkills({
-        cursor: getFlag(ctx.flags, 'cursor'),
-      }),
-    )
-    return
-  }
-  if (subcommand === 'get') {
-    print(
-      await ctx.client.v2.getWorkspaceSkill(
-        requirePositional(positionals, 2, 'skill-id'),
-        {
-          revision: hasFlag(ctx.flags, 'revision')
-            ? parsePositiveIntegerFlag(ctx.flags, 'revision', 1)
-            : undefined,
-        },
-      ),
-    )
-    return
-  }
-  if (subcommand === 'controls') {
-    const mode = parseEnumFlag(ctx.flags, 'mode', [
-      'automatic',
-      'manual',
-      'off',
-    ] as const)
-    if (!mode) throw new Error('Missing required flag: --mode')
-    requireFlag(ctx.flags, 'revision')
-    requireFlag(ctx.flags, 'grant-revision')
-    print(
-      await ctx.client.v2.setWorkspaceSkillControls(
-        requirePositional(positionals, 2, 'skill-id'),
-        {
-          expectedRevision: parsePositiveIntegerFlag(
-            ctx.flags,
-            'revision',
-            1,
-          ),
-          expectedGrantRevision: parsePositiveIntegerFlag(
-            ctx.flags,
-            'grant-revision',
-            1,
-          ),
-          mode,
-          ...(hasFlag(ctx.flags, 'share') ? {share: true} : {}),
-        },
-      ),
-    )
-    return
-  }
-  if (subcommand === 'proposal') {
-    print(
-      await ctx.client.v2.getWorkspaceSkillProposal(
-        requirePositional(positionals, 2, 'proposal-id'),
-      ),
-    )
-    return
-  }
-  if (['learn', 'prepare'].includes(subcommand ?? '')) {
-    const input = await readJsonArgument(
-      requireFlag(ctx.flags, 'input-json'),
-      '--input-json',
-    )
-    const operationId =
-      subcommand === 'learn'
-        ? requireFlag(ctx.flags, 'operation-id')
-        : undefined
-    if (
-      operationId != null &&
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        operationId,
-      )
-    )
-      throw new Error(
-        '--operation-id must be a UUID; reuse the same ID and input after an uncertain response',
-      )
-    if (operationId != null) activeExecution.operationId = operationId
-    print(
-      subcommand === 'learn'
-        ? await ctx.client.v2.learnWorkspaceSkill(
-            input as Parameters<
-              typeof ctx.client.v2.learnWorkspaceSkill
-            >[0],
-            {idempotencyKey: operationId!},
-          )
-        : await ctx.client.v2.prepareWorkspaceSkillProposal(
-            input as Parameters<
-              typeof ctx.client.v2.prepareWorkspaceSkillProposal
-            >[0],
-          ),
-    )
-    return
-  }
-  if (['update', 'accept'].includes(subcommand ?? '')) {
-    const id = requirePositional(
-      positionals,
-      2,
-      subcommand === 'update' ? 'skill-id' : 'proposal-id',
-    )
-    const input = await readJsonArgument(
-      requireFlag(ctx.flags, 'input-json'),
-      '--input-json',
-    )
-    print(
-      subcommand === 'update'
-        ? await ctx.client.v2.updateWorkspaceSkill(
-            id,
-            input as Parameters<
-              typeof ctx.client.v2.updateWorkspaceSkill
-            >[1],
-          )
-        : await ctx.client.v2.acceptWorkspaceSkillProposal(
-            id,
-            input as Parameters<
-              typeof ctx.client.v2.acceptWorkspaceSkillProposal
-            >[1],
-          ),
-    )
-    return
-  }
-  throw new Error(
-    'Use skills list|get|learn|update|controls|prepare|proposal|accept',
-  )
-}
-
-
 const commandModels = async (
   subcommand: string | undefined,
   positionals: string[],
@@ -2518,6 +2534,134 @@ const commandAuth = async (
   )
 }
 
+// One-command onboarding. Login and workspace selection reuse commandAuth and
+// commandWorkspace (their JSON output is suppressed); setupCommand.ts owns the
+// client configuration and the summary.
+export const commandSetup = async (
+  flags: Flags,
+  installHooks: InstallHooks = defaultInstallHooks,
+): Promise<void> => {
+  const client = getFlag(flags, 'client') ?? 'both'
+  if (client !== 'claude' && client !== 'codex' && client !== 'both')
+    throw new Error('--client must be claude, codex or both')
+  const config = await readAuthConfig(getConfigPath(flags))
+  // Only name a profile the user chose or one that is saved: a synthetic profile
+  // would make resolveAuth reject a fresh machine before its ASSETHUB_API_KEY fallback.
+  const base: Flags = {...flags}
+  const chosenProfile = hasFlag(flags, 'profile') ? requireFlag(flags, 'profile') : config.defaultProfile
+  if (chosenProfile) base.profile = chosenProfile
+  else delete base.profile
+  delete base.workspace
+  const apiKeyStdin = hasFlag(flags, 'api-key-stdin')
+  const flagKey = hasFlag(flags, 'api-key') ? requireFlag(flags, 'api-key') : undefined
+  const envKey = env.ASSETHUB_API_KEY?.trim() || undefined
+  const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
+    printSuppressed = true
+    try {
+      return await fn()
+    } finally {
+      printSuppressed = false
+    }
+  }
+  const result = await runSetup(
+    {
+      client,
+      workspace: getFlag(flags, 'workspace'),
+      apiKeyStdin,
+      apiKey: flagKey ?? envKey,
+      apiKeySource: flagKey ? 'flag' : envKey ? 'env' : undefined,
+      noHook: hasFlag(flags, 'no-hook'),
+      noAppEnv: hasFlag(flags, 'no-app-env'),
+      saveSessions: hasFlag(flags, 'save-sessions'),
+      dryRun: hasFlag(flags, 'dry-run'),
+      yes: hasFlag(flags, 'yes'),
+      printEnv: hasFlag(flags, 'print-env'),
+    },
+    {
+      ...defaultFileDeps(),
+      launchAgentProgram: launchAgentProgram(
+        process.execPath,
+        realpathSync(argv[1] ?? fileURLToPath(import.meta.url)),
+        ['env', 'load', ...(hasFlag(flags, 'profile') ? ['--profile', requireFlag(flags, 'profile')] : [])],
+      ),
+      interactive: Boolean(stdin.isTTY && stderr.isTTY) && !apiKeyStdin,
+      installHooks,
+      log: line => {
+        stderr.write(`${line}\n`)
+      },
+      hasWorkingKey: async () => {
+        try {
+          const auth = await resolveAuth(base)
+          if (auth.source !== 'profile') return false
+          if (await personalAccount(auth)) return true
+          await createAssetHubClient({apiKey: auth.apiKey, baseUrl: auth.baseUrl}).v2.listModels()
+          return true
+        } catch {
+          return false
+        }
+      },
+      promptApiKey: () => promptHidden('AssetHub API key (input hidden): '),
+      login: ({apiKey}) =>
+        quiet(() => {
+          const loginFlags: Flags = {...base, profile: typeof base.profile === 'string' ? base.profile : defaultProfileName}
+          if (apiKey) {
+            delete loginFlags['api-key-stdin']
+            loginFlags['api-key'] = apiKey
+          }
+          return commandAuth('login', loginFlags)
+        }),
+      resolveAuth: async () => {
+        const auth = await resolveAuth(base)
+        return {apiKey: auth.apiKey, baseUrl: auth.baseUrl, profile: auth.profile, workspaceId: auth.workspaceId}
+      },
+      discoverWorkspace: async auth => {
+        try {
+          const capabilities = await createAssetHubClient({apiKey: auth.apiKey, baseUrl: auth.baseUrl}).v2.getCapabilities()
+          return typeof capabilities.ownerId === 'string' && capabilities.ownerId ? capabilities.ownerId : undefined
+        } catch {
+          return undefined
+        }
+      },
+      useWorkspace: async id => {
+        await quiet(() => commandWorkspace('use', ['workspace', 'use', id], base))
+        // A non-personal `workspace use` stores its key under a new default profile.
+        const saved = await readAuthConfig(getConfigPath(flags))
+        if (saved.defaultProfile) base.profile = saved.defaultProfile
+      },
+      listWorkspaces: async () =>
+        (await (await workspaceAuth(base, true)).client.list()).workspaces.map(item => ({id: item.id, name: item.name})),
+      pickWorkspace: pickFromList,
+      confirm: confirmYes,
+      confirmOptIn: confirmNo,
+      canSaveSessions: auth => canUploadSessions(auth),
+      diagnose: () =>
+        diagnose({
+          resolveAuth: () => resolveAuth(base),
+          includeMcp: true,
+          timeoutMs: parsePositiveIntegerFlag(flags, 'timeout-ms', 15000),
+        }),
+    },
+  )
+  if (hasFlag(flags, 'json')) print(result)
+  else {
+    stdout.write(formatSetupSummary(result))
+    if (result.exportLine) stdout.write(`${result.exportLine}\n`)
+  }
+  if (!result.ok) process.exitCode = 2
+}
+
+// `env load` is what the macOS login agent installed by `setup` runs: it copies
+// the saved key into launchd's user environment so Claude and Codex, started
+// from the Dock, can expand ${ASSETHUB_API_KEY} in their MCP config.
+const commandEnv = async (subcommand: string | undefined, flags: Flags): Promise<void> => {
+  if (subcommand !== 'load') throw new Error('Unknown env command. Use "env load".')
+  if (process.platform !== 'darwin') throw new Error('env load is only needed on macOS.')
+  const auth = await resolveAuth(flags)
+  const loaded = await loadKeyIntoLaunchd(auth.apiKey, runProcess)
+  if (!loaded.ok) throw new Error(loaded.detail)
+  stderr.write(`ASSETHUB_API_KEY loaded for apps (profile ${auth.profile}).\n`)
+}
+
 const commandFiles = async (
   subcommand: string | undefined,
   positionals: string[],
@@ -2570,12 +2714,36 @@ const executionOptions = (flags: Flags) => ({
       }
     : undefined,
 })
+/** How long `--wait` waits by default: the selected agent's run length. */
+const defaultWaitMs = (flags: Flags): number => {
+  const extractor = getPartExtractorFlag(flags)
+  const option =
+    extractor == null
+      ? undefined
+      : partExtractorByInput.get(normalizePartExtractorName(extractor))
+  return option?.apiValue === 'ah_agent_graph_harpy_assembly_v2'
+    ? harpyAssemblyV2WaitMs
+    : 900000
+}
+
 const watchOptions = (flags: Flags) => ({
   intervalMs: parsePositiveIntegerFlag(flags, 'interval-ms', 5000),
-  timeoutMs: parsePositiveIntegerFlag(flags, 'timeout-ms', 900000),
-  onProgress: (run: CanvasExecution) =>
-    stderr.write(`[run] ${run.runId} ${run.status}\n`),
+  timeoutMs: parsePositiveIntegerFlag(flags, 'timeout-ms', defaultWaitMs(flags)),
+  onProgress: progressPrinter(
+    run =>
+      `[run] ${run.runId} ${run.status}${run.progress ? ` · ${runProgressLine(run)}` : ''}`,
+  ),
 })
+/** Prints a run's line only when it changed since the last poll. */
+const progressPrinter = (line: (run: CanvasExecution) => string) => {
+  let last = ''
+  return (run: CanvasExecution) => {
+    const next = line(run)
+    if (next === last) return
+    last = next
+    stderr.write(`${next}\n`)
+  }
+}
 const readJsonArgument = async (
   value: string,
   flag: string,
@@ -2805,20 +2973,7 @@ const commandNodeMesh = async (ctx: CommandContext, nodeId: string) => {
   const finishedOrBusy = (status?: string) =>
     ['complete', 'completed', 'generating'].includes(status ?? '')
   if (target.type === 'production-3d') {
-    if (!target.actions.includes('mesh.generate'))
-      throw new Error('Mesh generation is unavailable for this node')
-    const children = items.filter(
-      item =>
-        item.sourceNodeId === nodeId &&
-        ['mesh-gen', 'preview-asset', 'part-group'].includes(item.type),
-    )
-    if (!children.length)
-      throw new Error('Production node has no saved part nodes to generate')
-    const pending = children.filter(
-      item =>
-        item.actions.includes('mesh.generate') &&
-        !finishedOrBusy(item.meshStatus),
-    )
+    const plan = planProductionNodeMeshes(items, nodeId)
     const batchId = operationId ?? randomUUID()
     stderr.write(`[nodes] batch ${batchId}\n`)
     await printNodeMeshBatch(
@@ -2828,10 +2983,7 @@ const commandNodeMesh = async (ctx: CommandContext, nodeId: string) => {
         operationId: batchId,
         nodeId,
         body,
-        children: pending.map(item => item.nodeId),
-        skipped: children
-          .filter(item => !pending.includes(item))
-          .map(({nodeId, meshStatus}) => ({nodeId, meshStatus})),
+        ...plan,
       }),
     )
     return
@@ -2965,6 +3117,67 @@ const meshRefinementModes = [
   'codex',
 ] as const satisfies readonly MeshRefinementMode[]
 
+const COMPOSER_V6_MODEL = 'part_composer_v6_auto_assemble'
+const COMPOSER_SKILL_ASSEMBLY_MODEL = 'part_composer_v5_1_skill_assembly'
+/** Same text the canvas node sends, so CLI and canvas runs read alike. */
+const COMPOSER_SKILL_ASSEMBLY_INSTRUCTION =
+  'Assemble these parts into one character with the Character Assembly skill.'
+const IDENTITY_TRANSFORM: MeshTransform = [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
+const composerModelAliases: Record<string, string> = {
+  v6: COMPOSER_V6_MODEL,
+  'auto-assemble': COMPOSER_V6_MODEL,
+  'v5.1': COMPOSER_SKILL_ASSEMBLY_MODEL,
+  'skill-assembly': COMPOSER_SKILL_ASSEMBLY_MODEL,
+}
+/** Short names for the picker labels; anything else goes to the server as given. */
+const resolveComposerModel = (value: string | undefined) =>
+  value == null ? undefined : (composerModelAliases[value.toLowerCase()] ?? value)
+/**
+ * `--part <mesh-id>[=<part-image-id>]`: the image is the drawing the mesh was
+ * generated from. `<mesh-id>:<part-image-id>` (CLI 0.1.27+) is accepted too.
+ */
+const composerPartFlag = (value: string) => {
+  const raw = assertFlagHasValue(value, '--part <mesh-asset-id>[=<part-image-id>]')
+  const separator = raw.includes('=') ? '=' : ':'
+  const index = raw.indexOf(separator)
+  const assetId = index === -1 ? raw : raw.slice(0, index)
+  const partImageAssetId = index === -1 ? undefined : raw.slice(index + 1)
+  if (!assetId || partImageAssetId === '')
+    throw new Error('--part must be <mesh-asset-id> or <mesh-asset-id>=<part-image-id>')
+  return {assetId, ...(partImageAssetId ? {partImageAssetId} : {})}
+}
+/** V6 waits up to 81 min on ml and V5.1's sandbox up to 2 h; 15 min cannot see either finish. */
+const defaultComposerWaitTimeout = (flags: Flags, timeoutMs: number) => {
+  if (!hasFlag(flags, 'timeout-ms')) flags['timeout-ms'] = String(timeoutMs)
+}
+
+/** Discovery is the only model manifest; qualify duplicate IDs by their advertised provider. */
+const selectComposerAgentModel = (
+  models:
+    | {
+        id: string
+        provider: NonNullable<MeshRefineRequest['agentRuntime']>['provider']
+      }[]
+    | undefined,
+  value: string | undefined,
+) => {
+  if (!value) return undefined
+  const matches =
+    models?.filter(
+      model => value === `${model.provider}:${model.id}` || value === model.id,
+    ) ?? []
+  if (matches.length > 1)
+    throw new Error(
+      `Ambiguous Composer agent model ${value}; use --agent-model ${matches.map(model => `${model.provider}:${model.id}`).join(' or ')}`,
+    )
+  if (!matches[0])
+    throw new Error(
+      'Composer agent model is not available; inspect composer refine --list-modes',
+    )
+  return matches[0]
+}
+
+
 const refinementTransforms = (value: unknown, flag: string) => {
   if (value == null || typeof value !== 'object' || Array.isArray(value))
     throw new Error(`${flag} must be an object keyed by part asset ID`)
@@ -2973,7 +3186,9 @@ const refinementTransforms = (value: unknown, flag: string) => {
     if (
       !Array.isArray(transform) ||
       transform.length !== 10 ||
-      transform.some(entry => typeof entry !== 'number' || !Number.isFinite(entry))
+      transform.some(
+        entry => typeof entry !== 'number' || !Number.isFinite(entry),
+      )
     )
       throw new Error(`${flag} must contain ten finite numbers for ${assetId}`)
     result[assetId] = transform as MeshTransform
@@ -3009,7 +3224,8 @@ const refinementModeInfo = (
 const refinementContinuationFields = [
   'assemblyPolicy', 'dressingGeneration', 'effort',
   'geometryBackend', 'referenceMode', 'calibration', 'referenceViews',
-  'geometrySources', 'reviewContext', 'background',
+  'geometrySources', 'reviewContext', 'background', 'skillSelection',
+  'skillAssembly', 'skillAssemblyReasoning',
 ] as const
 
 /** Reuse the frozen sources and latest editable scene, never replay server-only receipt fields. */
@@ -3072,6 +3288,17 @@ const composerInputFromRun = (
     for (const key of ['calibration', 'referenceViews', 'geometrySources'] as const) {
       if (previous.refinement?.[key] != null) input[key] = previous.refinement[key]
     }
+    const generation = input.dressingGeneration as MeshRefineRequest['dressingGeneration']
+    if (generation && Array.isArray(input.parts)) {
+      const sources = input.geometrySources as Record<string, string> | undefined
+      input.dressingGeneration = {...generation, sourceImageAssetIds: Object.fromEntries(
+        input.parts.flatMap((part: {assetId: string; sourceAssetId?: string}) => {
+          const image = generation.sourceImageAssetIds[part.assetId] ??
+            generation.sourceImageAssetIds[part.sourceAssetId ?? sources?.[part.assetId] ?? '']
+          return typeof image === 'string' ? [[part.assetId, image]] : []
+        }),
+      )}
+    }
     const reviewContext = previous.refinement?.report?.reviewContext
     if (reviewContext != null) input.reviewContext = reviewContext
     const referenceTransform =
@@ -3084,7 +3311,10 @@ const composerInputFromRun = (
   return input
 }
 
-const commandComposerRefine = async (ctx: CommandContext) => {
+const commandComposerRefine = async (
+  ctx: CommandContext,
+  options: {skillAssembly?: boolean} = {},
+) => {
   const capabilities = await ctx.client.v2.getMeshRefinementModes()
   if (hasFlag(ctx.flags, 'list-modes')) {
     print(capabilities)
@@ -3107,7 +3337,9 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     previous.operation !== 'mesh.compose' &&
     previous.operation !== 'mesh.refine'
   )
-    throw new Error('--from-run must identify a mesh.compose or mesh.refine execution')
+    throw new Error(
+      '--from-run must identify a mesh.compose or mesh.refine execution',
+    )
   if (previous && ['queued', 'running'].includes(previous.status))
     throw new Error(
       '--from-run must identify a finished mesh.compose or mesh.refine checkpoint',
@@ -3118,10 +3350,31 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     : previous
       ? composerInputFromRun(previous, 'mesh.refine')
       : {
-          parts: parts.map(parsePartFlagValue),
+          // Refinement reads meshes and the concept only; a paired part image is not sent.
+          parts: parts.map(value => ({assetId: composerPartFlag(value).assetId})),
           fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
         }
   delete input.executionContext
+  const skillAssembly =
+    options.skillAssembly ||
+    hasFlag(ctx.flags, 'skill-assembly') ||
+    input.skillAssembly === 'assemble-character'
+  const reasoning = parseEnumFlag(ctx.flags, 'reasoning', [
+    'low',
+    'medium',
+    'high',
+  ] as const)
+  if (reasoning && !skillAssembly)
+    throw new Error('--reasoning applies only to Skill assembly (V5.1)')
+  if (skillAssembly) {
+    // The bundled skill runs alone in the codex sandbox; the server refuses anything else.
+    input.skillAssembly = 'assemble-character'
+    if (reasoning) input.skillAssemblyReasoning = reasoning
+    input.mode = 'codex'
+    input.instruction ??= COMPOSER_SKILL_ASSEMBLY_INSTRUCTION
+    if (previous?.operation === 'mesh.compose') delete input.agentRuntime
+    defaultComposerWaitTimeout(ctx.flags, 125 * 60_000)
+  }
   if (!Array.isArray(input.parts) || input.parts.length === 0)
     throw new Error('Composer refinement requires parts[]')
   const refinementParts = input.parts.map((part, index) => {
@@ -3148,6 +3401,8 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     capabilities.defaultMode
   if (!meshRefinementModes.includes(mode))
     throw new Error(`--mode must be one of: ${meshRefinementModes.join(', ')}`)
+  if (skillAssembly && mode !== 'codex')
+    throw new Error('Skill assembly (V5.1) runs in codex mode only')
   if (mode !== 'codex' && (input.geometryBackend || input.referenceMode === 'all_angles' || input.background))
     throw new Error('Saved Blender-backend, all-angle or background settings require codex mode; use --input-json with settings matching the new mode')
   const modeInfo = refinementModeInfo(capabilities, mode)
@@ -3188,7 +3443,11 @@ const commandComposerRefine = async (ctx: CommandContext) => {
         await readJsonArgument(transformsFlag, '--transforms-json'),
         '--transforms-json',
       )
-    : refinementTransforms(input.transforms, 'refinement transforms')
+    : skillAssembly && input.transforms == null
+      ? Object.fromEntries(
+          refinementParts.map(part => [part.assetId, IDENTITY_TRANSFORM]),
+        )
+      : refinementTransforms(input.transforms, 'refinement transforms')
   const referenceTransform =
     input.referenceTransform == null
       ? undefined
@@ -3196,20 +3455,39 @@ const commandComposerRefine = async (ctx: CommandContext) => {
   const explicitCanvas = selectedCanvasId(ctx.flags)
   const canvasId = explicitCanvas ?? previous?.canvas.id
   if (previous && canvasId !== previous.canvas.id)
-    throw new Error(
-      'Refinement must use the original canvas to retain lineage',
-    )
+    throw new Error('Refinement must use the original canvas to retain lineage')
   const session = await openExecutionSession({
     ...stateOptions(ctx),
     canvasId,
     operation: 'mesh.refine',
   })
+  const agentModelFlag = getFlag(ctx.flags, 'agent-model')
+  if (
+    skillAssembly &&
+    agentModelFlag?.includes(':') &&
+    !agentModelFlag.startsWith('agents-api:')
+  )
+    throw new Error('Skill assembly runs on an Agents API model')
+  const modelOption = selectComposerAgentModel(
+    skillAssembly
+      ? capabilities.agentModels?.filter(model => model.provider === 'agents-api')
+      : capabilities.agentModels,
+    agentModelFlag,
+  )
   const body: Omit<MeshRefineRequest, 'executionContext'> = {
     ...Object.fromEntries(
       refinementContinuationFields
         .filter(key => input[key] !== undefined)
         .map(key => [key, input[key]]),
     ),
+    ...(modelOption
+      ? {agentRuntime: {provider: modelOption.provider, model: modelOption.id}}
+      : input.agentRuntime
+        ? {
+            agentRuntime:
+              input.agentRuntime as MeshRefineRequest['agentRuntime'],
+          }
+        : {}),
     parts: refinementParts,
     fullBodyImageAssetId: input.fullBodyImageAssetId,
     transforms,
@@ -3218,9 +3496,6 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     ...(effort ? {effort: effort as MeshRefineRequest['effort']} : {}),
     instruction,
     ...(maxRounds != null ? {maxRounds} : {}),
-    ...(input.agentRuntime
-      ? {agentRuntime: input.agentRuntime as MeshRefineRequest['agentRuntime']}
-      : {}),
   }
   await printRecorded(
     ctx,
@@ -3230,6 +3505,13 @@ const commandComposerRefine = async (ctx: CommandContext) => {
     }),
   )
 }
+
+/**
+ * The Part Composer node's "Optimize output" presets: the share of geometry the full-resolution bake keeps
+ * (textures become WebP). Assembly always uses its own shrunk parts; this only sizes the delivered mesh.
+ */
+const COMPOSER_OPTIMIZE_RATIOS = {light: 0.75, medium: 0.5, heavy: 0.25} as const
+const composerOptimizePresets = ['off', 'light', 'medium', 'heavy'] as const
 
 const commandComposer = async (
   subcommand: string | undefined,
@@ -3243,8 +3525,39 @@ const commandComposer = async (
     await commandComposerRefine(ctx)
     return
   }
-  if (subcommand !== 'run') throw new Error('Use composer models|run')
+  if (subcommand !== 'run') throw new Error('Use composer models|refine|run')
+  const model = resolveComposerModel(getFlag(ctx.flags, 'model'))
+  if (model === COMPOSER_SKILL_ASSEMBLY_MODEL) {
+    // V5.1 is not a compose model: the server runs it as a codex refinement.
+    if (hasFlag(ctx.flags, 'node'))
+      throw new Error(
+        'Skill assembly (V5.1) takes --part and --reference, not --node',
+      )
+    if (hasFlag(ctx.flags, 'mode'))
+      throw new Error('Skill assembly (V5.1) has no quick/quality mode')
+    if (hasFlag(ctx.flags, 'optimize'))
+      throw new Error(
+        '--optimize applies to composition, not Skill assembly (V5.1)',
+      )
+    await commandComposerRefine(ctx, {skillAssembly: true})
+    return
+  }
+  if (hasFlag(ctx.flags, 'reasoning'))
+    throw new Error('--reasoning applies only to Skill assembly (V5.1)')
+  const optimizeFlag = getFlag(ctx.flags, 'optimize')
+  if (
+    optimizeFlag != null &&
+    !(composerOptimizePresets as readonly string[]).includes(optimizeFlag)
+  )
+    throw new Error('--optimize must be off, light, medium or heavy')
+  const optimize = optimizeFlag as
+    | (typeof composerOptimizePresets)[number]
+    | undefined
   const nodeId = canvasNodeFlag(ctx.flags)
+  if (optimize && nodeId)
+    throw new Error(
+      "--optimize is not available with --node; set the node's Optimize output instead",
+    )
   const fromRun = getFlag(ctx.flags, 'from-run')
   const json = getFlag(ctx.flags, 'input-json')
   const parts = getFlagValues(ctx.flags, 'part')
@@ -3265,7 +3578,7 @@ const commandComposer = async (
       : json
         ? await readJsonArgument(json, '--input-json')
         : {
-            parts: parts.map(parsePartFlagValue),
+            parts: parts.map(composerPartFlag),
             fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
           }
   delete input.executionContext
@@ -3280,8 +3593,44 @@ const commandComposer = async (
   if (mode != null && mode !== 'quick' && mode !== 'quality')
     throw new Error('--mode must be quick or quality')
   if (mode) input.mode = mode
-  const model = getFlag(ctx.flags, 'model')
   if (model) input.agentVersion = model
+  if (input.agentVersion === COMPOSER_V6_MODEL) {
+    // V6 re-plans every part from its own drawing; ml fails the run without one.
+    const missing = (Array.isArray(input.parts) ? input.parts : [])
+      .filter(
+        (part: {assetId?: string; partImageAssetId?: string; partTaskId?: string}) =>
+          !part.partImageAssetId && !part.partTaskId,
+      )
+      .map((part: {assetId?: string}) => part.assetId)
+    if (missing.length)
+      throw new Error(
+        `Auto assemble (V6) needs each part's drawing; pass --part <mesh-id>=<part-image-id> for: ${missing.join(', ')}`,
+      )
+    defaultComposerWaitTimeout(ctx.flags, 95 * 60_000)
+  }
+  const agentModel = getFlag(ctx.flags, 'agent-model')
+  if (agentModel) {
+    const capabilities = await ctx.client.v2.getMeshRefinementModes()
+    const selected = selectComposerAgentModel(
+      capabilities.agentModels,
+      agentModel,
+    )!
+    input.agentRuntime = {provider: selected.provider, model: selected.id}
+  }
+  if (optimize) {
+    // --from-run rebuilds its input without the base body, so the previous run is asked too.
+    const previousSource =
+      previous?.resolvedInput ?? previous?.input ?? previous?.requestedInput
+    if (
+      optimize !== 'off' &&
+      (input.baseBodyAssetId || previousSource?.baseBodyAssetId)
+    )
+      throw new Error(
+        '--optimize cannot be combined with a base body (baseBodyAssetId)',
+      )
+    if (optimize === 'off') delete input.decimateRatio
+    else input.decimateRatio = COMPOSER_OPTIMIZE_RATIOS[optimize]
+  }
   const name = getFlag(ctx.flags, 'name')
   if (name) input.projectName = name
   const transforms = getFlag(ctx.flags, 'transforms-json')
@@ -4407,6 +4756,238 @@ const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> =
   process.exitCode = executionExitCode(finalExecution)
 }
 
+const productionBatchImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+const productionBatchUnsupportedSources = [
+  'image-url', 'url', 'source-resource-id', 'resource-id', 'file-ref-json',
+  'stdin', 'stdin-base64', 'stdin-data-uri', 'stdin-json', 'source-json',
+  'data-uri', 'clipboard', 'upload-id',
+]
+
+/** Images in command order: --files-dir (by name), --file, --source-id, --source-url. */
+const productionBatchSources = async (
+  flags: Flags,
+): Promise<ProductionBatchSource[]> => {
+  const unsupported = productionBatchUnsupportedSources.find(name => hasFlag(flags, name))
+  if (unsupported)
+    throw new Error(
+      `production batch does not take --${unsupported}; pass images with --file, --files-dir, --source-id or --source-url`,
+    )
+  const sources: ProductionBatchSource[] = []
+  for (const dir of getFlagValues(flags, 'files-dir')) {
+    const names = (await readdir(resolve(dir), {withFileTypes: true}))
+      .filter(entry => entry.isFile() && productionBatchImageExtensions.has(extname(entry.name).toLowerCase()))
+      .map(entry => entry.name)
+      .sort()
+    if (names.length === 0)
+      throw new Error(`--files-dir ${dir} has no .png, .jpg, .jpeg or .webp images`)
+    sources.push(...names.map(name => ({flag: 'file' as const, value: resolve(dir, name)})))
+  }
+  for (const flag of ['file', 'source-id', 'source-url'] as const)
+    for (const value of getFlagValues(flags, flag))
+      sources.push({flag, value: flag === 'file' ? resolve(value) : value})
+  if (sources.length === 0)
+    throw new Error(
+      'production batch needs images: --file <path>... , --files-dir <dir>, --source-id <id>... or --source-url <url>...',
+    )
+  return sources
+}
+
+/**
+ * One `production analyze` per image (× --repeat) with the same agent, on one
+ * canvas. The batch is pinned locally before the first paid request, so
+ * rerunning with its --operation-id resumes it and never starts an item twice.
+ */
+const commandProductionBatch = async (ctx: CommandContext) => {
+  const sources = await productionBatchSources(ctx.flags)
+  const repeat = parsePositiveIntegerFlag(ctx.flags, 'repeat', 1)
+  const entries = expandProductionBatch(sources, repeat)
+  const labels = productionBatchLabels(sources)
+  if (entries.length > 1 && !hasFlag(ctx.flags, 'yes'))
+    throw new Error(
+      `production batch would start ${entries.length} paid runs (${sources.length} image(s) × ${repeat}). Pass --yes to start them.`,
+    )
+  const {options, projectContext} = await resolveProductionAnalyzeOptions(ctx)
+  const {agent, parentRunId} = executionOptions(ctx.flags)
+  const operationId = getFlag(ctx.flags, 'operation-id') ?? randomUUID()
+  const state = stateOptions(ctx)
+  const saved = await readProductionBatch(state.stateDir, operationId)
+  const requestedCanvasId = selectedCanvasId(ctx.flags) ?? projectContext?.canvasId
+  if (saved && requestedCanvasId != null && requestedCanvasId !== saved.canvasId)
+    throw new Error(`Batch ${operationId} runs on canvas ${saved.canvasId}; drop --canvas or pass that canvas`)
+  const session = await productionSession(
+    ctx,
+    'production.analyze',
+    saved?.canvasId ?? requestedCanvasId,
+  )
+  stderr.write(
+    `[batch] ${operationId} · ${entries.length} run(s) on canvas ${session.canvas.id}. Rerun with --operation-id ${operationId} to resume.\n`,
+  )
+  const wait = hasFlag(ctx.flags, 'wait')
+  const concurrency = parsePositiveIntegerFlag(ctx.flags, 'concurrency', 2)
+  const printItem = (item: ProductionBatchItemResult) =>
+    stderr.write(
+      `[batch] ${item.key} ${item.label} ${item.status}${item.runId ? ` ${item.runId}` : ''}${item.execution?.progress ? ` · ${runProgressLine(item.execution)}` : ''}${item.message ? ` · ${item.message}` : ''}\n`,
+    )
+  const result = await runProductionBatch(session, {
+    operationId,
+    request: {sources, repeat, options, agent, parentRunId},
+    agent,
+    parentRunId,
+    buildItems: async () => {
+      const resolved: Array<Awaited<ReturnType<typeof resolveProductionAnalyzeSource>>> = []
+      for (const source of sources) {
+        const flags = {...ctx.flags}
+        for (const flag of ['file', 'files-dir', 'source-id', 'source-url']) delete flags[flag]
+        resolved.push(await resolveProductionAnalyzeSource({...ctx, flags: {...flags, [source.flag]: source.value}}))
+      }
+      return entries.map((entry): ProductionBatchItem => {
+        const label = labels[entry.index]!
+        const name = `${options.name ? `${options.name} ` : ''}${label}${repeat > 1 ? ` #${entry.repeat}` : ''}`
+        return {
+          key: entry.key,
+          label,
+          imageIndex: entry.index,
+          repeat: entry.repeat,
+          attempt: 0,
+          body: {...resolved[entry.index]!, ...options, name},
+        }
+      })
+    },
+    ...(wait
+      ? {
+          wait: {
+            concurrency,
+            intervalMs: parsePositiveIntegerFlag(ctx.flags, 'interval-ms', 5000),
+            timeoutMs: parsePositiveIntegerFlag(
+              ctx.flags,
+              'timeout-ms',
+              defaultWaitMs(ctx.flags) * Math.ceil(entries.length / concurrency),
+            ),
+            onProgress: printItem,
+          },
+        }
+      : {}),
+  })
+  if (!wait) result.items.forEach(printItem)
+
+  const downloads = []
+  if (hasFlag(ctx.flags, 'download')) {
+    const outDir = getFlag(ctx.flags, 'out-dir') ?? getFlag(ctx.flags, 'out')
+    for (const item of result.items) {
+      if (!item.execution?.outputs.length) continue
+      const downloaded = await maybeDownloadUrls(
+        {...ctx.flags, 'out-dir': join(outDir ?? '', item.label, `run-${item.repeat}`)},
+        item.execution.outputs,
+      )
+      if (downloaded) downloads.push({key: item.key, ...downloaded})
+    }
+  }
+  const count = (status: ProductionBatchItemResult['status']) =>
+    result.items.filter(item => item.status === status).length
+  print({
+    batchOperationId: result.batchOperationId,
+    canvasId: result.canvasId,
+    agentVersion: options.agentVersion,
+    items: result.items,
+    counts: {
+      dispatched: count('dispatched'),
+      deferred: count('deferred'),
+      pending: count('pending'),
+      failed: count('failed'),
+      finished: result.items.filter(item => item.execution && !['dispatched', 'deferred', 'failed', 'pending'].includes(item.status)).length,
+    },
+    ...(result.timedOut ? {timedOut: true} : {}),
+    ...(downloads.length ? {downloads} : {}),
+  })
+  process.exitCode = Math.max(
+    0,
+    ...result.items.map(item =>
+      item.status === 'failed'
+        ? 1
+        : item.status === 'deferred' || item.status === 'pending'
+          ? 3
+          : wait && item.execution && item.status !== 'dispatched'
+            ? executionExitCode(item.execution)
+            : wait
+              ? 3
+              : 0,
+    ),
+  )
+}
+
+/**
+ * Everything `production analyze` sends besides the image source; shared with
+ * `production batch` so a batch item is the same request.
+ */
+const resolveProductionAnalyzeOptions = async (ctx: CommandContext) => {
+    const agentVersion = resolvePartExtractorForAnalyze(ctx.flags)
+    const baseBodyAssetId = resolveProductionBaseBody(ctx.flags)
+    const skillPlannerModel = resolveSkillPlannerModel(ctx.flags)
+    const autoRepair = parseBooleanFlag(ctx.flags, 'auto-repair')
+    const skillSelection = resolveProductionSkillSelection(
+      ctx.flags,
+      agentVersion,
+    )
+    if (skillPlannerModel !== undefined && !['auto', 'manual'].includes(skillSelection?.mode ?? ''))
+      throw new Error('--skill-planner-model requires --skill-mode auto or manual')
+    const projectContext =
+      hasFlag(ctx.flags, 'context') || hasFlag(ctx.flags, 'context-version')
+        ? {
+            canvasId: Number(requireFlag(ctx.flags, 'context')),
+            version: Number(requireFlag(ctx.flags, 'context-version')),
+          }
+        : undefined
+    if (projectContext) {
+      if (
+        Object.values(projectContext).some(
+          value => !Number.isSafeInteger(value) || value <= 0,
+        )
+      )
+        throw new Error(
+          '--context and --context-version must be positive integers',
+        )
+      const canvasId = selectedCanvasId(ctx.flags)
+      if (canvasId != null && canvasId !== projectContext.canvasId)
+        throw new Error('--context must match --canvas')
+    }
+    const pipelineDepth = getFlag(ctx.flags, 'pipeline-depth')
+    if (
+      pipelineDepth !== undefined &&
+      pipelineDepth !== 'parts' &&
+      pipelineDepth !== 'mesh' &&
+      pipelineDepth !== 'composition'
+    )
+      throw new Error('--pipeline-depth must be parts, mesh or composition')
+    const assemblyPolicy = getFlag(ctx.flags, 'assembly-policy')
+    const meshGenerationInput = getFlag(ctx.flags, 'mesh-generation-json')
+    const meshGeneration =
+      meshGenerationInput === undefined
+        ? undefined
+        : await readJsonArgument(meshGenerationInput, '--mesh-generation-json')
+    if (
+      assemblyPolicy !== undefined &&
+      assemblyPolicy !== 'concept-to-character-v1'
+    )
+      throw new Error('--assembly-policy must be concept-to-character-v1')
+    if (assemblyPolicy && pipelineDepth !== 'composition')
+      throw new Error('--assembly-policy requires --pipeline-depth composition')
+  return {
+    projectContext,
+    options: {
+      agentVersion,
+      name: getFlag(ctx.flags, 'name'),
+      ...(baseBodyAssetId === undefined ? {} : {baseBodyAssetId}),
+      ...(skillPlannerModel === undefined ? {} : {skillPlannerModel}),
+      ...(autoRepair === undefined ? {} : {autoRepair}),
+      ...(skillSelection == null ? {} : {skillSelection}),
+      ...(projectContext == null ? {} : {projectContext}),
+      ...(pipelineDepth === undefined ? {} : {pipelineDepth}),
+      ...(assemblyPolicy === undefined ? {} : {assemblyPolicy}),
+      ...(meshGeneration === undefined ? {} : {meshGeneration}),
+    },
+  }
+}
+
 const commandProduction = async (
   subcommand: string | undefined,
   positionals: string[],
@@ -4417,39 +4998,27 @@ const commandProduction = async (
     return
   }
   if (subcommand === 'analyze') {
-    const agentVersion = resolvePartExtractorForAnalyze(ctx.flags)
-    const skillSelection = resolveProductionSkillSelection(
-      ctx.flags,
-      agentVersion,
+    const {options, projectContext} = await resolveProductionAnalyzeOptions(ctx)
+    const session = await productionSession(
+      ctx,
+      'production.analyze',
+      projectContext?.canvasId,
     )
-    const projectContext =
-      hasFlag(ctx.flags, 'context') || hasFlag(ctx.flags, 'context-version')
-        ? {
-            canvasId: Number(requireFlag(ctx.flags, 'context')),
-            version: Number(requireFlag(ctx.flags, 'context-version')),
-          }
-        : undefined
-    if (projectContext) {
-      if (Object.values(projectContext).some(value => !Number.isSafeInteger(value) || value <= 0))
-        throw new Error('--context and --context-version must be positive integers')
-      const canvasId = selectedCanvasId(ctx.flags)
-      if (canvasId != null && canvasId !== projectContext.canvasId)
-        throw new Error('--context must match --canvas')
-    }
-    const session = await productionSession(ctx, 'production.analyze', projectContext?.canvasId)
     const analyzed = await executeRecorded(
       session,
       'production.analyze',
       {
         ...(await resolveProductionAnalyzeSource(ctx)),
-        agentVersion,
-        name: getFlag(ctx.flags, 'name'),
-        ...(skillSelection == null ? {} : {skillSelection}),
-        ...(projectContext == null ? {} : {projectContext}),
+        ...options,
       },
       executionOptions(ctx.flags),
     )
     await printRecorded(ctx, analyzed)
+    return
+  }
+
+  if (subcommand === 'batch') {
+    await commandProductionBatch(ctx)
     return
   }
 
@@ -4624,6 +5193,53 @@ const commandProduction = async (
     return
   }
 
+  if (subcommand === 'resume') {
+    const id = requirePositional(positionals, 2, 'run-id|order-id')
+    const expected = getFlag(ctx.flags, 'expected-resume-count')
+    const expectedResumeCount = expected === undefined ? undefined : Number(expected)
+    if (
+      expectedResumeCount !== undefined &&
+      (!Number.isSafeInteger(expectedResumeCount) || expectedResumeCount < 0)
+    )
+      throw new Error('--expected-resume-count must be a whole number')
+    // A run ID resumes that run's graph and can be followed with --wait; an
+    // order ID resumes the graph only. Without --wait a failed run lookup
+    // (not a run, or no access to runs) falls back to the order ID as before.
+    const wait = hasFlag(ctx.flags, 'wait')
+    const run = await ctx.client.v2.getRun(id).catch((error: unknown) => {
+      if (
+        !wait ||
+        (error instanceof AssetHubApiError && error.status === 404)
+      )
+        return undefined
+      throw error
+    })
+    const resumed = await ctx.client.v2.resumeProduction(
+      run?.orderIds[0] ?? id,
+      expectedResumeCount === undefined ? {} : {expectedResumeCount},
+    )
+    if (!wait) {
+      print(run ? {...resumed, runId: run.runId} : resumed)
+      return
+    }
+    if (!run)
+      throw new Error(
+        '--wait follows a run: pass the run ID (runs get shows it) instead of the order ID.',
+      )
+    const execution = await waitForExecution(ctx.client, run.runId, {
+      ...watchOptions(ctx.flags),
+      timeoutMs: parsePositiveIntegerFlag(
+        ctx.flags,
+        'timeout-ms',
+        harpyAssemblyV2WaitMs,
+      ),
+    })
+    const downloads = await maybeDownloadUrls(ctx.flags, execution.outputs)
+    print({resume: resumed, execution, ...(downloads ? {downloads} : {})})
+    process.exitCode = executionExitCode(execution)
+    return
+  }
+
   if (subcommand === 'interventions') {
     const orderId = requirePositional(positionals, 2, 'order-id')
     print(await ctx.client.v2.listInterventions(orderId))
@@ -4675,7 +5291,7 @@ const commandProduction = async (
   }
 
   throw new Error(
-    'Unknown production command. Use "production agents", "production analyze", "production automation", "production run", "production watch", "production status", "production execute", "production intervene", or "production interventions".',
+    'Unknown production command. Use "production agents", "production analyze", "production batch", "production automation", "production run", "production watch", "production status", "production execute", "production intervene", "production interventions", or "production resume".',
   )
 }
 
@@ -4717,8 +5333,17 @@ const commandParts = async (
     source?: ProductionAnalyzeSourceInput,
     operationId = getFlag(ctx.flags, 'operation-id') ?? randomUUID(),
   ): Promise<Record<string, unknown>> => {
+    const autoRepair = parseBooleanFlag(ctx.flags, 'auto-repair')
+    const baseBodyAssetId = resolveProductionBaseBody(ctx.flags)
+    const skillPlannerModel = resolveSkillPlannerModel(ctx.flags)
     let orderId = source == null ? getFlag(ctx.flags, 'order-id') : undefined
     if (orderId != null) {
+      if (autoRepair !== undefined)
+        throw new Error('--auto-repair can only be set when starting a new production run')
+      if (baseBodyAssetId !== undefined)
+        throw new Error('--base-body can only be set when starting a new production run')
+      if (skillPlannerModel !== undefined)
+        throw new Error('--skill-planner-model can only be set when starting a new production run')
       orderId = assertFlagHasValue(orderId, '--order-id <id>')
       if (hasFlag(ctx.flags, 'skill-mode') || hasFlag(ctx.flags, 'skill-id'))
         throw new Error(
@@ -4733,9 +5358,11 @@ const commandParts = async (
           )
         : undefined
     const skillSelection =
-      requestedAgentVersion == null
-        ? undefined
-        : resolveProductionSkillSelection(ctx.flags, requestedAgentVersion)
+      orderId == null && requestedAgentVersion != null
+        ? resolveProductionSkillSelection(ctx.flags, requestedAgentVersion)
+        : undefined
+    if (skillPlannerModel !== undefined && !['auto', 'manual'].includes(skillSelection?.mode ?? ''))
+      throw new Error('--skill-planner-model requires --skill-mode auto or manual')
     if (
       requestedAgentVersion != null &&
       artifactGraphPartExtractorApiValues.has(requestedAgentVersion)
@@ -4765,6 +5392,9 @@ const commandParts = async (
           ...(source ?? (await resolveProductionAnalyzeSource(ctx))),
           agentVersion: resolvePartExtractorForAnalyze(ctx.flags),
           name: getFlag(ctx.flags, 'name'),
+          ...(baseBodyAssetId === undefined ? {} : {baseBodyAssetId}),
+          ...(skillPlannerModel === undefined ? {} : {skillPlannerModel}),
+          ...(autoRepair === undefined ? {} : {autoRepair}),
           ...(skillSelection == null ? {} : {skillSelection}),
         },
         {...executionOptions(ctx.flags), operationId},
@@ -4796,7 +5426,7 @@ const commandParts = async (
           execution,
         )
       stderr.write(`[run] ${execution.runId} order=${orderId}\n`)
-      const executeOperationId = childOperationId(operationId, 'execute')
+      const executeOperationId = await childOperationId(operationId, 'execute')
       if (
         (hasFlag(ctx.flags, 'all-ready') ||
           getFlagValues(ctx.flags, 'task-id').length > 0) &&
@@ -4890,7 +5520,7 @@ const commandParts = async (
         {
           ...executionOptions(ctx.flags),
           operationId: execution
-            ? childOperationId(operationId, 'execute')
+            ? await childOperationId(operationId, 'execute')
             : operationId,
           parentRunId:
             execution?.runId ?? executionOptions(ctx.flags).parentRunId,
@@ -4993,7 +5623,7 @@ const commandParts = async (
     let preprocessed: Record<string, unknown> | null = null
 
     if (preprocessPrompt != null && preprocessPrompt !== 'true') {
-      const preprocessOperationId = childOperationId(
+      const preprocessOperationId = await childOperationId(
         compareOperationId,
         'preprocess',
       )
@@ -5054,7 +5684,7 @@ const commandParts = async (
           },
           split: await runPartSplit(
             generatedSource,
-            childOperationId(compareOperationId, 'preprocessed-split'),
+            await childOperationId(compareOperationId, 'preprocessed-split'),
           ),
         }
       } catch (error) {
@@ -5113,6 +5743,11 @@ const commandCanvas = async (
   positionals: string[],
   ctx: CommandContext,
 ) => {
+  if (subcommand === 'graph-id') {
+    const canvasId = Number(requirePositional(positionals, 2, 'canvas-id'))
+    print(await ctx.client.v2.getCanvasGraphIds(canvasId))
+    return
+  }
   if (subcommand === 'nodes') {
     const {canvas} = await canvasForRead(ctx)
     print(await ctx.client.v2.listCanvasNodes(canvas.id))
@@ -5404,10 +6039,50 @@ const commandMoodboard = async (
   if (revision.status === 'failed') process.exitCode = 1
 }
 
-const commandGraph = async (
+export const commandGraph = async (
   subcommand: string | undefined,
+  positionals: string[],
   ctx: CommandContext,
 ) => {
+  if (subcommand === 'export-canvas') {
+    await runInternalCommand(() => runExportCanvas(ctx))
+    return
+  }
+  // Memorized-graph reads: the same store the Skill Builder agent's own tools
+  // read, distinct from `graph show|lineage|export` below (the
+  // authority/generated store via getGraph/getCanvasGraph).
+  if (subcommand === 'snapshot') {
+    const id = requirePositional(positionals, 2, 'graph-id')
+    print(
+      await ctx.client.v2.getGraphSnapshot(id, {
+        offset: parseNonNegativeIntegerFlag(ctx.flags, 'offset'),
+        limit: parsePositiveIntegerFlag(ctx.flags, 'limit', 80),
+      }),
+    )
+    return
+  }
+  if (subcommand === 'node') {
+    const id = requirePositional(positionals, 2, 'graph-id')
+    const nodeId = requirePositional(positionals, 3, 'node-id')
+    print(await ctx.client.v2.getGraphNode(id, nodeId))
+    return
+  }
+  if (subcommand === 'image') {
+    const id = requirePositional(positionals, 2, 'graph-id')
+    const nodeId = requirePositional(positionals, 3, 'node-id')
+    const image = await ctx.client.v2.getGraphNodeImage(id, nodeId)
+    const out = getFlag(ctx.flags, 'out')
+    if (out) {
+      await mkdir(dirname(resolve(out)), {recursive: true})
+      await writeFile(resolve(out), Buffer.from(image.data, 'base64'))
+      print({mediaType: image.mediaType, bytes: image.bytes, path: resolve(out)})
+      return
+    }
+    // Without --out, print the metadata WITHOUT the base64 blob: a megabyte
+    // of base64 in a terminal is not a result.
+    print({mediaType: image.mediaType, bytes: image.bytes})
+    return
+  }
   const graphId = getFlag(ctx.flags, 'graph')
   if (getFlag(ctx.flags, 'source') && !graphId)
     throw new Error('--source requires --graph')
@@ -5429,7 +6104,10 @@ const commandGraph = async (
       : getFlag(ctx.flags, 'artifact')
   const graph = graphId
     ? await ctx.client.v2.getGraph(graphId, {
-        source: parseEnumFlag(ctx.flags, 'source', ['generated', 'upload'] as const),
+        source: parseEnumFlag(ctx.flags, 'source', [
+          'generated',
+          'upload',
+        ] as const),
         artifactId,
         direction: direction as 'ancestors' | 'descendants' | 'both',
         depth: parsePositiveIntegerFlag(ctx.flags, 'depth', 5),
@@ -5563,7 +6241,8 @@ const commandRuns = async (
     if (subcommand === 'get' && hasFlag(ctx.flags, 'summary')) {
       stdout.write(`${formatExecutionSummaryLines(execution).join('\n')}\n`)
     } else {
-      print({execution})
+      const downloads = await maybeDownloadUrls(ctx.flags, execution.outputs)
+      print({execution, ...(downloads ? {downloads} : {})})
     }
     process.exitCode = executionExitCode(execution)
     return
@@ -5736,6 +6415,1182 @@ const parseNonNegativeIntegerFlag = (
   return parsed
 }
 
+/**
+ * `assethub memory memorize` and `assethub memory replay`.
+ *
+ * Both drive the trajectory-memory feature: memorize captures a canvas as a
+ * reusable recipe, replay re-runs a memory's recipe onto a new image. Neither
+ * route is documented at /docs/api — the four replay addresses are listed in
+ * `INTERNAL_ONLY_EXPOSED_API_PATHS` and memorize does not exist yet — so
+ * neither belongs in `CLI_OPERATIONS`. See the docblock on that file for the
+ * full reasoning.
+ *
+ * `@assethub/api-client` has no memory methods, so this module talks to the
+ * API directly with `fetch`, reusing the client's own envelope types and
+ * error class rather than inventing new ones.
+ */
+
+/** `POST /memory/memorize` rejects a `--nodes` selection larger than this. */
+const MAX_NODE_SELECTION = 256
+
+/**
+ * How many times `/memory/start` may answer `preparing` in a row before this
+ * command gives up. Each round is a fresh pick-scoped search dispatched by the
+ * server, not a client retry, so a bound here is what stops a
+ * `preparing` -> `preparing` cycle from spinning forever.
+ */
+const MAX_PREPARE_ROUNDS = 5
+
+/** Default `--timeout`, in seconds. Matches `pollJob`'s 900_000ms default. */
+const DEFAULT_TIMEOUT_SECONDS = 900
+
+/** Spacing between polls of a search, a pick-scoped search, or a run. */
+const MEMORY_POLL_INTERVAL_MS = 3000
+
+type MemorySelection = {kind: 'whole'} | {kind: 'nodes'; nodeIds: string[]}
+
+type MemorizeStartResponse = {
+  memorizeJobId: string
+  graphId: string
+  canvasId: number
+  nodeIds: string[] | null
+}
+
+/**
+ * `GET /memory/memorize/{jobId}`.
+ *
+ * `status` carries the same four states as a replay walk rather than the
+ * pipeline's internal `done`: the route maps that to `completed` at its
+ * boundary so both memory commands terminate on the same word. Waiting on
+ * `done` here would poll a finished job until the timeout.
+ */
+type MemorizeJobResponse = {
+  memorizeJobId: string
+  status: MemoryRunStatus
+  [key: string]: unknown
+}
+
+type MemoryCandidate = {
+  memoryId: string
+  headline: string | null
+  description: string | null
+  keywords: string[]
+  rank: number
+  confidence?: number
+  reason?: string
+}
+
+type MemoryStepPlan = {
+  id: string
+  level: number
+  title: string
+  status: string
+  op?: string
+  code?: string
+}
+
+type MemoryMatchStatus = 'searching' | 'ready' | 'failed'
+
+type MemoryMatchResponse = {
+  matchId: string
+  expiresAt: string
+  status: MemoryMatchStatus
+  reason?: string
+  preparedMemoryId?: string | null
+  candidates?: MemoryCandidate[]
+  steps?: MemoryStepPlan[]
+}
+
+type MemoryMatchStatusResponse = MemoryMatchResponse & {
+  consumed: boolean
+}
+
+type MemoryStartResponse =
+  | {status: 'queued'; runId: string}
+  | {status: 'preparing'; matchId: string; expiresAt: string; memoryId: string}
+
+type MemoryRunStep = {
+  id: string
+  level: number
+  title: string
+  status: string
+  op?: string
+  jobId?: string
+  outputAssetIds: string[]
+  error?: string
+  code?: string
+}
+
+type MemoryRunOutput = {
+  stepId: string
+  assetId: string
+  url: string | null
+}
+
+type MemoryRunStatus = 'queued' | 'running' | 'completed' | 'failed'
+
+type MemoryRunResponse = {
+  runId: string
+  status: MemoryRunStatus
+  createdAt: string | null
+  steps: MemoryRunStep[]
+  outputs: MemoryRunOutput[]
+}
+
+/**
+ * Every status this module treats as an input, auth, or capability problem
+ * rather than a platform fault — see the "Exit codes" section of the brief.
+ * A status outside this set (5xx, network) is left to propagate to the
+ * top-level catch, which is the existing exit(1) path every other command
+ * already uses for an infrastructure failure.
+ */
+const CALLER_ERROR_STATUSES = new Set([400, 401, 403, 404, 409, 410, 422])
+
+/**
+ * Why 404 and 403 are not told apart here, and must not be.
+ *
+ * A canvas belonging to another organization answers 404, not 403 — the same
+ * answer a canvas that does not exist gets, and the same choice `/memory/start`
+ * makes. Canvas ids are sequential enough that a distinguishable 403 would let
+ * a caller walk the id space and learn which ones exist, so the server refuses
+ * to be that oracle.
+ *
+ * The CLI's job is to not undo that. Both statuses land in the set above, both
+ * print the server's own message, and both exit 2. Do not add a branch that
+ * words them differently, and do not "improve" the message by asserting the
+ * canvas is missing — from here the two cases are genuinely indistinguishable,
+ * which is the point.
+ */
+
+const internalV2Request = async <T>(
+  ctx: CommandContext,
+  method: 'GET' | 'POST',
+  path: string,
+  body?: unknown,
+): Promise<T> => {
+  const baseUrl = ctx.auth.baseUrl.replace(/\/+$/, '')
+  const response = await fetch(`${baseUrl}/api/v2${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${ctx.auth.apiKey}`,
+      ...(ctx.auth.workspaceId ? {'X-AssetHub-Workspace': ctx.auth.workspaceId} : {}),
+      'Content-Type': 'application/json',
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const payload = (await response.json().catch(() => ({}))) as
+    | ApiSuccess<T>
+    | ApiErrorPayload
+  if (!response.ok || payload.success !== true) {
+    const errorPayload = payload as ApiErrorPayload
+    throw new AssetHubApiError({
+      status: response.status,
+      code: errorPayload.error?.code ?? 'UNKNOWN_ERROR',
+      message:
+        errorPayload.error?.message ??
+        `AssetHub API request failed with status ${response.status}`,
+      payload,
+      requestId: errorPayload.error?.requestId,
+    })
+  }
+  return (payload as ApiSuccess<T>).data
+}
+
+const parseNodeIds = (raw: string): string[] => {
+  const nodeIds = raw
+    .split(',')
+    .map(id => id.trim())
+    .filter(id => id.length > 0)
+  if (nodeIds.length > MAX_NODE_SELECTION) {
+    throw new Error(
+      `--nodes accepts at most ${MAX_NODE_SELECTION} node ids, got ${nodeIds.length}.`,
+    )
+  }
+  return nodeIds
+}
+
+const runMemorize = async (ctx: CommandContext): Promise<void> => {
+  const canvasId = Number(requireFlag(ctx.flags, 'canvas'))
+  if (!Number.isSafeInteger(canvasId) || canvasId <= 0)
+    throw new Error('--canvas must be a positive integer')
+  const nodesFlag = getFlag(ctx.flags, 'nodes')
+  const selection: MemorySelection =
+    nodesFlag == null
+      ? {kind: 'whole'}
+      : {kind: 'nodes', nodeIds: parseNodeIds(nodesFlag)}
+
+  const started = await internalV2Request<MemorizeStartResponse>(
+    ctx,
+    'POST',
+    '/memory/memorize',
+    {
+      canvasId,
+      selection,
+    },
+  )
+
+  if (!hasFlag(ctx.flags, 'wait')) {
+    print(started)
+    return
+  }
+
+  const deadline =
+    Date.now() +
+    parsePositiveIntegerFlag(ctx.flags, 'timeout', DEFAULT_TIMEOUT_SECONDS) *
+      1000
+  let job = await internalV2Request<MemorizeJobResponse>(
+    ctx,
+    'GET',
+    `/memory/memorize/${started.memorizeJobId}`,
+  )
+  while (job.status !== 'completed' && job.status !== 'failed') {
+    if (Date.now() >= deadline) {
+      print({...started, job, timedOut: true})
+      process.exitCode = 3
+      return
+    }
+    stderr.write(
+      `[poll] memorizeJobId=${started.memorizeJobId} status=${job.status}\n`,
+    )
+    await delay(MEMORY_POLL_INTERVAL_MS)
+    job = await internalV2Request<MemorizeJobResponse>(
+      ctx,
+      'GET',
+      `/memory/memorize/${started.memorizeJobId}`,
+    )
+  }
+
+  print({...started, job})
+  if (job.status === 'failed') {
+    process.exitCode = 1
+  }
+}
+
+/**
+ * Resolves a `searching` match to a terminal one (`ready` or `failed`),
+ * polling `GET /memory/match/{matchId}` on `MEMORY_POLL_INTERVAL_MS`. Returns
+ * `undefined` once `deadline` passes without a terminal answer — the caller
+ * has already been told (`print` + `process.exitCode = 3`) and should return.
+ */
+const resolveMatch = async (
+  ctx: CommandContext,
+  match: MemoryMatchResponse,
+  deadline: number,
+): Promise<MemoryMatchResponse | undefined> => {
+  let current = match
+  while (current.status === 'searching') {
+    if (Date.now() >= deadline) {
+      print({matchId: current.matchId, status: 'searching', timedOut: true})
+      process.exitCode = 3
+      return undefined
+    }
+    stderr.write(`[poll] matchId=${current.matchId} status=searching\n`)
+    await delay(MEMORY_POLL_INTERVAL_MS)
+    current = await internalV2Request<MemoryMatchStatusResponse>(
+      ctx,
+      'GET',
+      `/memory/match/${current.matchId}`,
+    )
+  }
+  return current
+}
+
+const runReplay = async (
+  ctx: CommandContext,
+  positionals: string[],
+): Promise<void> => {
+  const memoryId = requirePositional(positionals, 2, 'memory-id')
+  const source = requireFlag(ctx.flags, 'source')
+  const wait = hasFlag(ctx.flags, 'wait')
+  const deadline =
+    Date.now() +
+    parsePositiveIntegerFlag(ctx.flags, 'timeout', DEFAULT_TIMEOUT_SECONDS) *
+      1000
+
+  const initialMatch = await internalV2Request<MemoryMatchResponse>(
+    ctx,
+    'POST',
+    '/memory/match',
+    {
+      source: {resourceId: source},
+    },
+  )
+
+  const match = await resolveMatch(ctx, initialMatch, deadline)
+  if (match == null) {
+    return
+  }
+  if (match.status === 'failed') {
+    print({matchId: match.matchId, status: 'failed', reason: match.reason})
+    process.exitCode = 1
+    return
+  }
+  if (match.preparedMemoryId == null) {
+    print({
+      matchId: match.matchId,
+      status: 'ready',
+      matched: false,
+      message: 'The organization has curated no memories to replay.',
+      candidates: match.candidates ?? [],
+    })
+    return
+  }
+
+  let matchId = match.matchId
+  let dispatched: {status: 'queued'; runId: string} | undefined
+  for (let round = 0; round < MAX_PREPARE_ROUNDS; round += 1) {
+    const started = await internalV2Request<MemoryStartResponse>(
+      ctx,
+      'POST',
+      '/memory/start',
+      {
+        matchId,
+        memoryId,
+      },
+    )
+    if (started.status === 'queued') {
+      dispatched = started
+      break
+    }
+
+    // `preparing`: the server dispatched a fresh, pick-scoped search rather
+    // than a walk. Poll it to `ready`, then loop to call /start again.
+    stderr.write(
+      `[poll] matchId=${started.matchId} status=preparing (pick-scoped search for ${memoryId})\n`,
+    )
+    const preparedMatch = await resolveMatch(
+      ctx,
+      await internalV2Request<MemoryMatchStatusResponse>(
+        ctx,
+        'GET',
+        `/memory/match/${started.matchId}`,
+      ),
+      deadline,
+    )
+    if (preparedMatch == null) {
+      return
+    }
+    if (preparedMatch.status === 'failed') {
+      print({
+        matchId: preparedMatch.matchId,
+        status: 'failed',
+        reason: preparedMatch.reason,
+      })
+      process.exitCode = 1
+      return
+    }
+    matchId = preparedMatch.matchId
+  }
+
+  if (dispatched == null) {
+    print({
+      status: 'timeout',
+      message: `Could not confirm memoryId ${memoryId} after ${MAX_PREPARE_ROUNDS} pick-scoped search rounds.`,
+      matchId,
+    })
+    process.exitCode = 3
+    return
+  }
+
+  if (!wait) {
+    print(dispatched)
+    return
+  }
+
+  let run = await internalV2Request<MemoryRunResponse>(
+    ctx,
+    'GET',
+    `/memory/runs/${dispatched.runId}`,
+  )
+  while (run.status !== 'completed' && run.status !== 'failed') {
+    if (Date.now() >= deadline) {
+      print({...run, timedOut: true})
+      process.exitCode = 3
+      return
+    }
+    stderr.write(`[poll] runId=${run.runId} status=${run.status}\n`)
+    await delay(MEMORY_POLL_INTERVAL_MS)
+    run = await internalV2Request<MemoryRunResponse>(
+      ctx,
+      'GET',
+      `/memory/runs/${dispatched.runId}`,
+    )
+  }
+
+  print(run)
+  if (run.status === 'failed') {
+    process.exitCode = 1
+  }
+}
+
+export const commandMemory = async (
+  subcommand: string | undefined,
+  positionals: string[],
+  ctx: CommandContext,
+): Promise<void> => {
+  try {
+    if (subcommand === 'memorize') {
+      await runMemorize(ctx)
+      return
+    }
+    if (subcommand === 'replay') {
+      await runReplay(ctx, positionals)
+      return
+    }
+    if (subcommand === 'match') {
+      // Finding a memory id is the step BEFORE `skills build --memory`:
+      // without it that source is only usable by someone who already knows
+      // the ids, which nobody does.
+      print(
+        await ctx.client.v2.matchMemory({
+          goal: getFlag(ctx.flags, 'goal'),
+          imageAssetId: getFlag(ctx.flags, 'image-asset'),
+          imageUrl: getFlag(ctx.flags, 'image-url'),
+        }),
+      )
+      return
+    }
+  } catch (error) {
+    if (
+      error instanceof AssetHubApiError &&
+      CALLER_ERROR_STATUSES.has(error.status)
+    ) {
+      print({
+        error: {code: error.code, message: error.message, status: error.status},
+      })
+      process.exitCode = 2
+      return
+    }
+    throw error
+  }
+
+  throw new Error(
+    'Unknown memory command. Use "memory memorize" or "memory replay".',
+  )
+}
+
+/**
+ * Runs one internal-API command with the same caller-error boundary
+ * `commandMemory` uses: a 4xx in `CALLER_ERROR_STATUSES` prints the server's
+ * own error and exits 2 (the 404 a non-internal key gets included — see the
+ * note above `internalV2Request` on why it is not reworded); anything else
+ * propagates to the top-level catch.
+ */
+const runInternalCommand = async (
+  operation: () => Promise<void>,
+): Promise<void> => {
+  try {
+    await operation()
+  } catch (error) {
+    if (
+      error instanceof AssetHubApiError &&
+      CALLER_ERROR_STATUSES.has(error.status)
+    ) {
+      print({
+        error: {code: error.code, message: error.message, status: error.status},
+      })
+      process.exitCode = 2
+      return
+    }
+    throw error
+  }
+}
+
+/* ─── Canvas → artifact-graph export ─────────────────────────────────── */
+
+/** Mirrors `MAX_EXPORTS_PER_CALL` on the server: a longer POST is a 400, so
+ *  `export-canvas` chunks instead of letting the API refuse the batch. */
+const CANVAS_EXPORT_CHUNK_SIZE = 50
+
+/** An export is a Trigger task that reads a room, builds a graph and zips its
+ *  blobs — minutes, not seconds — so poll slower than the memory family. */
+const CANVAS_EXPORT_POLL_INTERVAL_MS = 5000
+
+/** Default `--timeout` for `export-canvas --wait`, in seconds. A 50-canvas
+ *  batch of large rooms can take a while; twice the memory default. */
+const CANVAS_EXPORT_DEFAULT_TIMEOUT_SECONDS = 1800
+
+/** Per-file download deadline. The signal covers the WHOLE body, and a
+ *  canvas zip carries up to 400 MiB of blobs — the `canvas download` deadline
+ *  (120 s) would need >3 MB/s to finish one, so give a file the same budget
+ *  as the batch. */
+const CANVAS_EXPORT_DOWNLOAD_TIMEOUT_MS = 1_800_000
+
+type CanvasExportStatus = 'queued' | 'running' | 'ready' | 'failed'
+
+type CanvasExportQueuedJob = {
+  jobId: string
+  projectId: number
+  graphId: string
+}
+
+type CanvasExportJobsResponse = {jobs: CanvasExportQueuedJob[]}
+
+type CanvasExportJobResponse = {
+  jobId: string
+  projectId: number | null
+  graphId: string | null
+  status: CanvasExportStatus
+  rev: number | null
+  sizeBytes: number | null
+  blobCount: number | null
+  error: string | null
+  createdAt: string
+  completedAt: string | null
+  download: {url: string; fileName: string; expiresAt: string} | null
+}
+
+const CANVAS_EXPORT_TERMINAL_STATUSES: ReadonlySet<CanvasExportStatus> =
+  new Set(['ready', 'failed'])
+
+/** Global `setTimeout` rather than `timers/promises`' `delay`, so a test's
+ *  fake clock can drive the poll loop instead of waiting the real interval. */
+const sleep = (ms: number): Promise<void> =>
+  new Promise(resolvePromise => setTimeout(resolvePromise, ms))
+
+/** What `export-canvas` prints for a job: the status row WITHOUT the signed
+ *  archive URL. The zip is already on disk (or recorded under `failed`), and a
+ *  signed link in stdout is a credential in a log — same rule as
+ *  `canvas download`, which never writes signed URLs into its bundle. */
+const printableExportJob = (
+  job: CanvasExportJobResponse | CanvasExportQueuedJob,
+): Record<string, unknown> => {
+  if (!('download' in job) || job.download == null) return job
+  const {url: _url, ...download} = job.download
+  return {...job, download}
+}
+
+/** `--canvas 1,2,3` → `[1, 2, 3]`: positive integers, deduplicated, in order. */
+const parseCanvasIdList = (raw: string): number[] => {
+  const ids = raw
+    .split(',')
+    .map(part => part.trim())
+    .filter(part => part.length > 0)
+    .map(part => {
+      const id = Number(part)
+      if (!Number.isInteger(id) || id <= 0)
+        throw new Error(`--canvas ids must be positive integers, got "${part}"`)
+      return id
+    })
+  const unique = [...new Set(ids)]
+  if (unique.length === 0)
+    throw new Error('--canvas needs at least one canvas id')
+  return unique
+}
+
+const chunk = <T>(items: T[], size: number): T[][] => {
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size)
+    chunks.push(items.slice(index, index + size))
+  return chunks
+}
+
+/**
+ * `assethub graph export-canvas --org <orgId> --canvas <id>[,<id>...]`.
+ *
+ * Without `--wait` it prints the queued jobs. With it, it polls every job to
+ * a terminal status, downloads each ready zip to `<out-dir>/<projectId>-rev<rev>.zip`
+ * and exits 1 if any job failed or any download failed, 3 on the deadline
+ * (with the partial job list printed), 0 otherwise.
+ */
+const runExportCanvas = async (ctx: CommandContext): Promise<void> => {
+  const orgId = requireFlag(ctx.flags, 'org')
+  const canvasIds = parseCanvasIdList(requireFlag(ctx.flags, 'canvas'))
+
+  const jobs: CanvasExportQueuedJob[] = []
+  for (const ids of chunk(canvasIds, CANVAS_EXPORT_CHUNK_SIZE)) {
+    const created = await internalV2Request<CanvasExportJobsResponse>(
+      ctx,
+      'POST',
+      '/artifact-graph/canvas-exports',
+      {orgId, projectIds: ids},
+    )
+    jobs.push(...created.jobs)
+  }
+  // The API silently drops an id that is not a workflow canvas owned by
+  // `--org` (missing, foreign, wrong type). For a research batch that is an
+  // incomplete export, not a success: name the ids and exit 1.
+  const queuedIds = new Set(jobs.map(job => job.projectId))
+  const omitted = canvasIds.filter(id => !queuedIds.has(id))
+  if (omitted.length > 0) process.exitCode = 1
+
+  if (!hasFlag(ctx.flags, 'wait')) {
+    print({jobs, omitted})
+    return
+  }
+
+  const deadline =
+    Date.now() +
+    parsePositiveIntegerFlag(
+      ctx.flags,
+      'timeout',
+      CANVAS_EXPORT_DEFAULT_TIMEOUT_SECONDS,
+    ) *
+      1000
+  const statuses = new Map<string, CanvasExportJobResponse>()
+  const pending = () =>
+    jobs.filter(job => {
+      const status = statuses.get(job.jobId)?.status
+      return status == null || !CANVAS_EXPORT_TERMINAL_STATUSES.has(status)
+    })
+
+  let remaining = pending()
+  while (remaining.length > 0) {
+    for (const job of remaining) {
+      statuses.set(
+        job.jobId,
+        await internalV2Request<CanvasExportJobResponse>(
+          ctx,
+          'GET',
+          `/artifact-graph/canvas-exports/${job.jobId}`,
+        ),
+      )
+    }
+    remaining = pending()
+    if (remaining.length === 0) break
+    if (Date.now() >= deadline) {
+      print({
+        jobs: jobs.map(job =>
+          printableExportJob(statuses.get(job.jobId) ?? job),
+        ),
+        omitted,
+        timedOut: true,
+      })
+      process.exitCode = 3
+      return
+    }
+    stderr.write(
+      `[poll] ${remaining.length}/${jobs.length} canvas exports still running\n`,
+    )
+    await sleep(CANVAS_EXPORT_POLL_INTERVAL_MS)
+  }
+
+  const outDir = resolve(getFlag(ctx.flags, 'out-dir') ?? '.')
+  const downloaded: {
+    jobId: string
+    projectId: number | null
+    rev: number | null
+    path: string
+    bytes: number
+    sha256: string
+  }[] = []
+  const failed: {jobId: string; projectId: number | null; error: string}[] = []
+  const finalJobs = jobs.map(job => statuses.get(job.jobId) ?? job)
+
+  for (const job of finalJobs) {
+    if (!('status' in job) || job.status !== 'ready') continue
+    const fileName = `${job.projectId ?? job.jobId}-rev${job.rev ?? 0}.zip`
+    try {
+      // The poll stops re-reading a job once it is `ready`, so its signed URL
+      // dates from that moment; by the time a long batch reaches this file
+      // (every zip is downloaded after the LAST job settles) the hour may be
+      // over. Re-read the row for a URL signed now.
+      const fresh = await internalV2Request<CanvasExportJobResponse>(
+        ctx,
+        'GET',
+        `/artifact-graph/canvas-exports/${job.jobId}`,
+      )
+      if (fresh.download == null)
+        throw new Error('No download URL is available')
+      const file = await downloadCanvasGraphZip({
+        url: fresh.download.url,
+        destinationPath: join(outDir, fileName),
+        timeoutMs: CANVAS_EXPORT_DOWNLOAD_TIMEOUT_MS,
+      })
+      downloaded.push({
+        jobId: job.jobId,
+        projectId: job.projectId,
+        rev: job.rev,
+        ...file,
+      })
+    } catch (error) {
+      failed.push({
+        jobId: job.jobId,
+        projectId: job.projectId,
+        error: error instanceof Error ? error.message : 'File download failed',
+      })
+    }
+  }
+
+  print({jobs: finalJobs.map(printableExportJob), omitted, downloaded, failed})
+  const anyJobFailed = finalJobs.some(
+    job => 'status' in job && job.status === 'failed',
+  )
+  if (anyJobFailed || failed.length > 0 || omitted.length > 0)
+    process.exitCode = 1
+}
+
+type OrgSearchResponse = {
+  orgs: {orgId: string; name: string; type: string; memberEmails: string[]}[]
+}
+
+type OrgWorkflowCanvasesResponse = {
+  canvases: {
+    projectId: number
+    name: string
+    updatedAt: string
+    lastExport: {
+      jobId: string
+      status: CanvasExportStatus
+      graphId: string | null
+      rev: number | null
+      sizeBytes: number | null
+      error: string | null
+      createdAt: string
+    } | null
+  }[]
+}
+
+/**
+ * Poll a build until it stops changing.
+ *
+ * `ready` counts as done: the agent has finished and a person now has
+ * something to review. Waiting past it would block forever on a human.
+ */
+const waitForSkillBuild = async (
+  ctx: CommandContext,
+  buildId: string,
+): Promise<WorkspaceSkillBuild> => {
+  const deadline = Date.now() + 20 * 60_000
+  for (;;) {
+    const build = await ctx.client.v2.getWorkspaceSkillBuild(buildId)
+    if (
+      build.status === 'ready' ||
+      TERMINAL_WORKSPACE_SKILL_BUILD_STATUSES.includes(build.status)
+    )
+      return build
+    if (Date.now() > deadline)
+      throw new Error(
+        `Timed out waiting for build ${buildId}; it is still ${build.status}. Re-run: skills build-status ${buildId}`,
+      )
+    await new Promise(resolve => setTimeout(resolve, 5_000))
+  }
+}
+
+export const commandSkills = async (
+  subcommand: string | undefined,
+  positionals: string[],
+  ctx: CommandContext,
+): Promise<void> => {
+  if (subcommand === 'list') {
+    print(
+      await ctx.client.v2.listWorkspaceSkills({
+        cursor: getFlag(ctx.flags, 'cursor'),
+      }),
+    )
+    return
+  }
+  if (subcommand === 'get') {
+    print(
+      await ctx.client.v2.getWorkspaceSkill(
+        requirePositional(positionals, 2, 'skill-id'),
+        {
+          revision: hasFlag(ctx.flags, 'revision')
+            ? parsePositiveIntegerFlag(ctx.flags, 'revision', 1)
+            : undefined,
+        },
+      ),
+    )
+    return
+  }
+  if (subcommand === 'memory') {
+    // `skills get` hands back workflowRef and evidence[] as bare ids. This
+    // resolves each one into the memory it points at, and gives every cited
+    // memory a memoryId that `memory replay` takes directly.
+    const skillId = requirePositional(positionals, 2, 'skill-id')
+    const links = await ctx.client.v2.getSkillMemoryLinks(skillId, {
+      revision: hasFlag(ctx.flags, 'revision')
+        ? parsePositiveIntegerFlag(ctx.flags, 'revision', 1)
+        : undefined,
+    })
+    const imagesDir = getFlag(ctx.flags, 'images')
+    if (!imagesDir) {
+      print(links)
+      return
+    }
+    // Images are fetched one node at a time through the EXISTING image
+    // operation rather than inlined into the resolve response: a skill citing
+    // eight memories would otherwise be a multi-megabyte JSON body on every
+    // read. A node whose image is over that endpoint's cap answers 413 and is
+    // recorded as a failure here, not silently skipped.
+    const downloaded: {memoryId: string; path: string; bytes: number}[] = []
+    const failed: {memoryId: string; error: string}[] = []
+    // Every citing shape, flattened to the (graph, node) the image operation
+    // takes: workflowRef, evidence[], and a built skill's references[].nodes,
+    // whose graph id lives on the parent reference rather than the node.
+    const candidates: {memoryId: string; graphId: string; nodeId: string}[] = [
+      ...(links.workflowRef
+        ? [
+            {
+              ref: links.workflowRef,
+              graphId: links.workflowRef.graphId,
+              nodeId: links.workflowRef.nodeId,
+            },
+          ]
+        : []),
+      ...links.evidence.map(ref => ({
+        ref,
+        graphId: ref.graphId ?? '',
+        nodeId: ref.artifactId ?? '',
+      })),
+      ...links.references.flatMap(reference =>
+        reference.nodes.map(node => ({
+          ref: node,
+          graphId: reference.graphId ?? '',
+          nodeId: node.nodeId,
+        })),
+      ),
+    ]
+      .filter(
+        entry =>
+          entry.ref.status === 'resolved' &&
+          entry.ref.node?.hasImage === true &&
+          entry.graphId !== '' &&
+          entry.nodeId !== '',
+      )
+      .map(entry => ({
+        memoryId: entry.ref.memoryId ?? '',
+        graphId: entry.graphId,
+        nodeId: entry.nodeId,
+      }))
+    await mkdir(resolve(imagesDir), {recursive: true})
+    for (const ref of candidates) {
+      const memoryId = ref.memoryId
+      try {
+        const image = await ctx.client.v2.getGraphNodeImage(
+          ref.graphId,
+          ref.nodeId,
+        )
+        // The memory id carries colons and, for a node id, slashes are
+        // possible — neither is safe in a file name.
+        const name = `${memoryId.replaceAll(/[^A-Za-z0-9._-]/gu, '_')}.${
+          image.mediaType.split('/')[1] ?? 'bin'
+        }`
+        const path = resolve(imagesDir, name)
+        await writeFile(path, Buffer.from(image.data, 'base64'))
+        downloaded.push({memoryId, path, bytes: image.bytes})
+      } catch (error) {
+        failed.push({
+          memoryId,
+          error: error instanceof Error ? error.message : 'download failed',
+        })
+      }
+    }
+    print({...links, images: {downloaded, failed}})
+    if (failed.length > 0) process.exitCode = 1
+    return
+  }
+  if (subcommand === 'controls') {
+    const mode = parseEnumFlag(ctx.flags, 'mode', [
+      'automatic',
+      'manual',
+      'off',
+    ] as const)
+    if (!mode) throw new Error('Missing required flag: --mode')
+    requireFlag(ctx.flags, 'revision')
+    requireFlag(ctx.flags, 'grant-revision')
+    print(
+      await ctx.client.v2.setWorkspaceSkillControls(
+        requirePositional(positionals, 2, 'skill-id'),
+        {
+          expectedRevision: parsePositiveIntegerFlag(
+            ctx.flags,
+            'revision',
+            1,
+          ),
+          expectedGrantRevision: parsePositiveIntegerFlag(
+            ctx.flags,
+            'grant-revision',
+            1,
+          ),
+          mode,
+          ...(hasFlag(ctx.flags, 'share') ? {share: true} : {}),
+        },
+      ),
+    )
+    return
+  }
+  if (subcommand === 'proposal') {
+    print(
+      await ctx.client.v2.getWorkspaceSkillProposal(
+        requirePositional(positionals, 2, 'proposal-id'),
+      ),
+    )
+    return
+  }
+  if (['learn', 'prepare'].includes(subcommand ?? '')) {
+    const input = await readJsonArgument(
+      requireFlag(ctx.flags, 'input-json'),
+      '--input-json',
+    )
+    const operationId =
+      subcommand === 'learn'
+        ? requireFlag(ctx.flags, 'operation-id')
+        : undefined
+    if (
+      operationId != null &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        operationId,
+      )
+    )
+      throw new Error(
+        '--operation-id must be a UUID; reuse the same ID and input after an uncertain response',
+      )
+    if (operationId != null) activeExecution.operationId = operationId
+    print(
+      subcommand === 'learn'
+        ? await ctx.client.v2.learnWorkspaceSkill(
+            input as Parameters<
+              typeof ctx.client.v2.learnWorkspaceSkill
+            >[0],
+            {idempotencyKey: operationId!},
+          )
+        : await ctx.client.v2.prepareWorkspaceSkillProposal(
+            input as Parameters<
+              typeof ctx.client.v2.prepareWorkspaceSkillProposal
+            >[0],
+          ),
+    )
+    return
+  }
+  if (['update', 'accept'].includes(subcommand ?? '')) {
+    const id = requirePositional(
+      positionals,
+      2,
+      subcommand === 'update' ? 'skill-id' : 'proposal-id',
+    )
+    const input = await readJsonArgument(
+      requireFlag(ctx.flags, 'input-json'),
+      '--input-json',
+    )
+    print(
+      subcommand === 'update'
+        ? await ctx.client.v2.updateWorkspaceSkill(
+            id,
+            input as Parameters<
+              typeof ctx.client.v2.updateWorkspaceSkill
+            >[1],
+          )
+        : await ctx.client.v2.acceptWorkspaceSkillProposal(
+            id,
+            input as Parameters<
+              typeof ctx.client.v2.acceptWorkspaceSkillProposal
+            >[1],
+          ),
+    )
+    return
+  }
+  if (subcommand === 'official') {
+    const action = requirePositional(
+      positionals,
+      2,
+      'list|install|prepare|customize',
+    )
+    if (action === 'list') {
+      print(await ctx.client.v2.listOfficialWorkspaceSkills())
+      return
+    }
+    const skillId = requirePositional(positionals, 3, 'skill-id')
+    if (action === 'install') {
+      requireFlag(ctx.flags, 'revision')
+      print(
+        await ctx.client.v2.installOfficialWorkspaceSkill(skillId, {
+          revision: parsePositiveIntegerFlag(ctx.flags, 'revision', 1),
+          expectedRevision: hasFlag(ctx.flags, 'expected-revision')
+            ? parsePositiveIntegerFlag(ctx.flags, 'expected-revision', 1)
+            : null,
+          expectedGrantRevision: hasFlag(ctx.flags, 'expected-grant-revision')
+            ? parsePositiveIntegerFlag(ctx.flags, 'expected-grant-revision', 1)
+            : null,
+          confirmedContentSha256: requireFlag(ctx.flags, 'content-sha256'),
+        }),
+      )
+      return
+    }
+    if (action === 'prepare') {
+      const input = await readJsonArgument(
+        requireFlag(ctx.flags, 'input-json'),
+        '--input-json',
+      )
+      print(
+        await ctx.client.v2.prepareOfficialWorkspaceSkillCustomization(
+          skillId,
+          input as Parameters<
+            typeof ctx.client.v2.prepareOfficialWorkspaceSkillCustomization
+          >[1],
+        ),
+      )
+      return
+    }
+    // `customize` submits the exact body `prepare` returned, unchanged: the
+    // server checks the confirmed hash against a fresh re-read of the
+    // installed source, so a hand-edited body fails the hash match.
+    if (action === 'customize') {
+      const input = await readJsonArgument(
+        requireFlag(ctx.flags, 'input-json'),
+        '--input-json',
+      )
+      print(
+        await ctx.client.v2.customizeOfficialWorkspaceSkill(
+          skillId,
+          input as Parameters<
+            typeof ctx.client.v2.customizeOfficialWorkspaceSkill
+          >[1],
+        ),
+      )
+      return
+    }
+    throw new Error('Use skills official list|install|prepare|customize')
+  }
+  if (subcommand === 'build') {
+    const canvasIds = getFlagValues(ctx.flags, 'canvas').map(value => {
+      const parsed = Number(value)
+      if (!Number.isInteger(parsed) || parsed <= 0)
+        throw new Error('--canvas must be a positive canvas id')
+      return parsed
+    })
+    const memoryIds = getFlagValues(ctx.flags, 'memory')
+    // Exactly one source. Accepting both would leave the server to pick, and
+    // the caller would not know which half of their request was ignored.
+    if (canvasIds.length > 0 === memoryIds.length > 0)
+      throw new Error('Pass either --canvas (1-5) or --memory (1-8), not both.')
+    const request = {
+      goal: requireFlag(ctx.flags, 'goal'),
+      instructions: getFlag(ctx.flags, 'instructions'),
+      taskKind: 'part_separation' as const,
+      source:
+        canvasIds.length > 0
+          ? {kind: 'canvas_graph' as const, canvasIds}
+          : {kind: 'memory_path' as const, memoryIds},
+    }
+    // FREE preview: no build row, no reservation, no dispatch. Skips
+    // --wait/--operation-id entirely -- there is nothing to poll or replay.
+    if (hasFlag(ctx.flags, 'dry-run')) {
+      print(await ctx.client.v2.dryRunWorkspaceSkillBuild(request))
+      return
+    }
+    const started = await ctx.client.v2.startWorkspaceSkillBuild(
+      request,
+      // Reusing --operation-id after a lost response returns the SAME build
+      // instead of starting a second paid run.
+      {idempotencyKey: getFlag(ctx.flags, 'operation-id') ?? randomUUID()},
+    )
+    print(
+      hasFlag(ctx.flags, 'wait')
+        ? await waitForSkillBuild(ctx, started.buildId)
+        : started,
+    )
+    return
+  }
+  if (subcommand === 'build-status') {
+    const buildId = requirePositional(positionals, 2, 'build-id')
+    print(
+      hasFlag(ctx.flags, 'wait')
+        ? await waitForSkillBuild(ctx, buildId)
+        : await ctx.client.v2.getWorkspaceSkillBuild(buildId),
+    )
+    return
+  }
+  if (subcommand === 'build-accept') {
+    const buildId = requirePositional(positionals, 2, 'build-id')
+    print(
+      await ctx.client.v2.acceptWorkspaceSkillBuild(
+        buildId,
+        {expectedDraftSha256: requireFlag(ctx.flags, 'draft-sha256')},
+        {idempotencyKey: getFlag(ctx.flags, 'operation-id') ?? randomUUID()},
+      ),
+    )
+    return
+  }
+  if (subcommand === 'build-enhance') {
+    // Prints a SUGGESTION. Nothing is written — apply it yourself and then
+    // accept, so a rewrite can never publish something nobody read.
+    print(
+      await ctx.client.v2.enhanceWorkspaceSkillBuildSection(
+        requirePositional(positionals, 2, 'build-id'),
+        {
+          section: parseEnumFlag(ctx.flags, 'section', [
+            ...WORKSPACE_SKILL_ENHANCE_SECTIONS,
+          ]) as (typeof WORKSPACE_SKILL_ENHANCE_SECTIONS)[number],
+          current: JSON.parse(requireFlag(ctx.flags, 'current')),
+          note: getFlag(ctx.flags, 'note'),
+        },
+      ),
+    )
+    return
+  }
+  if (subcommand === 'build-discard') {
+    print(
+      await ctx.client.v2.discardWorkspaceSkillBuild(
+        requirePositional(positionals, 2, 'build-id'),
+      ),
+    )
+    return
+  }
+  // FREE pre-flight checks: neither reserves credits, inserts a build row,
+  // or dispatches anything.
+  if (subcommand === 'validate') {
+    const skill = await readJsonArgument(
+      requireFlag(ctx.flags, 'input-json'),
+      '--input-json',
+    )
+    const buildId = getFlag(ctx.flags, 'build')
+    print(
+      await ctx.client.v2.validateWorkspaceSkillDraft({
+        skill: skill as Record<string, unknown>,
+        ...(buildId ? {buildId} : {}),
+      }),
+    )
+    return
+  }
+  if (subcommand === 'schema') {
+    print(await ctx.client.v2.getWorkspaceSkillDraftSchema())
+    return
+  }
+  throw new Error(
+    'Use skills list|get|memory|learn|update|controls|prepare|proposal|accept|validate|schema|build|build-status|build-enhance|build-accept|build-discard|official',
+  )
+}
+
+/**
+ * `assethub org search <query>` and `assethub org canvases --org <orgId>`:
+ * the two reads an operator needs before `graph export-canvas`. Internal-only
+ * on the server — a non-internal key gets 404, printed as-is with exit 2.
+ */
+export const commandOrg = async (
+  subcommand: string | undefined,
+  positionals: string[],
+  ctx: CommandContext,
+): Promise<void> => {
+  if (subcommand === 'search') {
+    const query = requirePositional(positionals, 2, 'query')
+    await runInternalCommand(async () => {
+      print(
+        await internalV2Request<OrgSearchResponse>(
+          ctx,
+          'GET',
+          `/orgs/search?q=${encodeURIComponent(query)}`,
+        ),
+      )
+    })
+    return
+  }
+  if (subcommand === 'canvases') {
+    const orgId = requireFlag(ctx.flags, 'org')
+    await runInternalCommand(async () => {
+      print(
+        await internalV2Request<OrgWorkflowCanvasesResponse>(
+          ctx,
+          'GET',
+          `/orgs/${encodeURIComponent(orgId)}/workflow-canvases`,
+        ),
+      )
+    })
+    return
+  }
+  throw new Error('Unknown org command. Use "org search" or "org canvases".')
+}
+
 /** Base URL and workspace an MCP entry should target: explicit flags, then the selected profile, then defaults. */
 const resolveMcpTarget = async (
   flags: Flags,
@@ -5787,7 +7642,13 @@ const run = async (): Promise<void> => {
       resolveAuth: async () => {
         if (!hasFlag(parsed.flags, 'account')) return resolveAuth(parsed.flags)
         const auth = await workspaceAuth(parsed.flags)
-        return {apiKey: auth.accessToken, workspaceMfaToken: auth.workspaceMfaToken, baseUrl: auth.baseUrl, profile: auth.profile, source: 'user'}
+        return {
+          apiKey: auth.accessToken,
+          workspaceMfaToken: auth.workspaceMfaToken,
+          baseUrl: auth.baseUrl,
+          profile: auth.profile,
+          source: 'user',
+        }
       },
       account: hasFlag(parsed.flags, 'account'),
       includeMcp: true,
@@ -5800,27 +7661,60 @@ const run = async (): Promise<void> => {
       return
     }
     const check = report.checks.find(check => check.name === 'mcp')
-    const tools = check && 'tools' in check ? check.tools ?? [] : []
+    const tools = check && 'tools' in check ? (check.tools ?? []) : []
     const name = parsed.positionals[2]
     if (name) {
       const tool = tools.find(tool => tool.name === name)
-      if (!tool) throw new Error(`Unknown MCP tool: ${name}. Use mcp tools to list available names.`)
+      if (!tool)
+        throw new Error(
+          `Unknown MCP tool: ${name}. Use mcp tools to list available names.`,
+        )
       print({tool})
     } else {
-      print({total: tools.length, tools: tools.map(({name, title, annotations}) => ({name, title, annotations}))})
+      print({
+        total: tools.length,
+        tools: tools.map(({name, title, annotations}) => ({
+          name,
+          title,
+          annotations,
+        })),
+      })
     }
     return
   }
   if (command === 'mcp') {
     if (subcommand !== 'config')
       throw new Error('Use mcp tools [tool-name] or mcp config --client cursor|codex')
-    const {baseUrl, workspaceId} = await resolveMcpTarget(parsed.flags)
+    const config = await readAuthConfig(getConfigPath(parsed.flags))
+    const explicitProfile = getFlag(parsed.flags, 'profile')
+    const stored = config.profiles?.[explicitProfile ?? config.defaultProfile ?? defaultProfileName]
+    if (explicitProfile && !stored) throw new Error('Selected profile does not exist')
+    const selected = explicitProfile || stored?.workspaceId || isPersonalProfile(stored)
+    const baseUrl = getFlag(parsed.flags, 'base-url') ??
+      (selected ? stored?.baseUrl : env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl) ?? defaultBaseUrl
+    const workspaceId = getFlag(parsed.flags, 'workspace') ??
+      (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin ? stored.workspaceId : undefined)
     stdout.write(
       mcpConfig(
         requireFlag(parsed.flags, 'client'),
         baseUrl,
         hasFlag(parsed.flags, 'account'),
         workspaceId,
+      ),
+    )
+    return
+  }
+  if (command === 'update') {
+    // The verifying doctor checks the same login this command was given.
+    const forwardFlags = (['profile', 'config', 'base-url', 'workspace'] as const).flatMap(name => {
+      const value = getFlag(parsed.flags, name)
+      return value ? [`--${name}`, value] : []
+    })
+    const apiKey = getFlag(parsed.flags, 'api-key')
+    print(
+      await runUpdate(
+        {check: hasFlag(parsed.flags, 'check'), dryRun: hasFlag(parsed.flags, 'dry-run'), yes: hasFlag(parsed.flags, 'yes')},
+        createNodeUpdateDeps(forwardFlags, apiKey ? {ASSETHUB_API_KEY: apiKey} : {}),
       ),
     )
     return
@@ -5854,7 +7748,18 @@ const run = async (): Promise<void> => {
     return
   }
   if (command === 'workspace') {
-    if (['list', 'get', 'create', 'use', 'members', 'invite', 'set-role', 'remove-member'].includes(subcommand ?? '')) {
+    if (
+      [
+        'list',
+        'get',
+        'create',
+        'use',
+        'members',
+        'invite',
+        'set-role',
+        'remove-member',
+      ].includes(subcommand ?? '')
+    ) {
       await commandWorkspace(subcommand, parsed.positionals, parsed.flags)
       return
     }
@@ -5901,6 +7806,20 @@ const run = async (): Promise<void> => {
     })
     return
   }
+  if (command === 'setup') {
+    await commandSetup(parsed.flags, installSessionHooks)
+    return
+  }
+  if (command === 'env') {
+    await commandEnv(subcommand, parsed.flags)
+    return
+  }
+  if (command === 'hooks') {
+    // hooks parses its own flags: `save` reads the Claude Code hook JSON on stdin.
+    const code = await runHooksCommand(argv.slice(3))
+    if (code !== 0) process.exitCode = code
+    return
+  }
   if (command === 'auth') {
     await commandAuth(subcommand, parsed.flags)
     return
@@ -5917,9 +7836,6 @@ const run = async (): Promise<void> => {
     case 'api':
       await commandApi(subcommand, parsed.positionals, ctx)
       return
-    case 'skills':
-      await commandSkills(subcommand, parsed.positionals, ctx)
-      return
     case 'composer':
       await commandComposer(subcommand, ctx)
       return
@@ -5933,7 +7849,7 @@ const run = async (): Promise<void> => {
       await commandCanvas(subcommand, parsed.positionals, ctx)
       return
     case 'graph':
-      await commandGraph(subcommand, ctx)
+      await commandGraph(subcommand, parsed.positionals, ctx)
       return
     case 'evaluations':
       await commandEvaluations(subcommand, parsed.positionals, ctx)
@@ -5977,6 +7893,15 @@ const run = async (): Promise<void> => {
       return
     case 'runs':
       await commandRuns(subcommand, parsed.positionals, ctx)
+      return
+    case 'memory':
+      await commandMemory(subcommand, parsed.positionals, ctx)
+      return
+    case 'skills':
+      await commandSkills(subcommand, parsed.positionals, ctx)
+      return
+    case 'org':
+      await commandOrg(subcommand, parsed.positionals, ctx)
       return
     case 'parts':
       await commandParts(subcommand, ctx)

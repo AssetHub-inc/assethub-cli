@@ -52,6 +52,11 @@ or `generateMesh`, with the same `clientOperationId` as `idempotencyKey`.
 Responses retain existing fields and add `execution`. Poll `getRun(runId)` for
 durable outputs; `listCanvasRuns`, `getCanvasGraph`, and the evaluation submission/
 list/get methods use the same owner-scoped records. `getRun` accepts an AbortSignal.
+V4 Character Assembly runs also carry `progress` (`CharacterAssemblyProgress`):
+the phase, a one-line `summary`, each part's state and the Blender assembly
+rounds, while running and after they finish; a failed one carries
+`error.code: 'CHARACTER_ASSEMBLY_NOT_ACCEPTED'`. See
+`docs/api-character-assembly-progress.md`.
 
 Existing generation requests without context keep their previous behavior.
 `listCanvasNodes(canvasId)` discovers saved UI shape IDs and available actions.

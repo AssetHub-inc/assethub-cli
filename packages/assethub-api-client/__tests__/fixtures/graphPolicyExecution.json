@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "data": {
+    "schemaVersion": "assethub.execution.v1",
+    "runId": "22222222-2222-4222-8222-222222222222",
+    "operation": "production.execute",
+    "status": "completed",
+    "orderIds": ["3f04f291-c03d-5949-80b2-d6f6de5da51c"],
+    "judgmentPolicy": "complete-object-evidence-body-neutral-v1",
+    "outputs": [
+      {
+        "assetId": "retried-body-image",
+        "mediaType": "image"
+      }
+    ],
+    "history": {
+      "status": "recorded"
+    }
+  }
+}

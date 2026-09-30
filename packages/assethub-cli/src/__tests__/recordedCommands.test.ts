@@ -32,7 +32,14 @@ const cli = (baseUrl: string, stateDir: string, args: string[]) =>
   }>((resolveResult, reject) => {
     const child = spawn(
       process.execPath,
-      [resolve('packages/assethub-cli/dist/index.js'), ...args],
+      [
+        resolve('packages/assethub-cli/dist/index.js'),
+        ...args,
+        '--base-url',
+        baseUrl,
+        '--api-key',
+        'test-key-not-secret',
+      ],
       {
         env: {
           ...process.env,
@@ -278,17 +285,33 @@ describe('built recorded CLI', () => {
   // @testdoc Graph extractor names and aliases preserve one analysis receipt on replay, reject classic continuation flags and raw internal IDs.
   it.each([
     ['V3.6.1', 'ah_agent_graph_v3_6_1', 'V3.6.1 Primary Images First', []],
+    ['V3.6.2 Single Analysis', 'ah_agent_graph_v3_6_2', 'V3.6.2 Single Analysis', ['v3.6.2', '3.6.2']],
     ['V3.6.3', 'ah_agent_graph_v3_6_3', 'V3.6.3 Fast Analysis', []],
     ['V3.6.4', 'ah_agent_graph_v3_6_4', 'V3.6.4 Fast Analysis', []],
     ['V3.6.5 Primary Images', 'ah_agent_graph_v3_6_5', 'V3.6.5 Primary Images', ['v3.6.5', '3.6.5']],
-    ['Chibi Character (Pluffy) v3.1', 'ah_agent_graph_pluffy_v3_1', 'Chibi Character (Pluffy) v3.1', ['pluffy', 'pluffy v3.1', 'pluffy 3.1']],
-    ['V3.7 Artist Skills', 'ah_agent_graph_v3_7', 'V3.7 Artist Skills', ['v3.7', '3.7', 'v3.0.7 artist skills', 'v3.0.7', '3.0.7']],
-    ['V3.7.1 Building Modules', 'ah_agent_graph_v3_7_1', 'V3.7.1 Building Modules', ['v3.7.1', '3.7.1', 'v3.0.8 building modules', 'v3.0.8', '3.0.8']],
+    ['V3.7.1 Building Modules', 'ah_agent_graph_v3_7_1', 'V3.7.1 Building Modules', ['v3.7.1', '3.7.1', 'V3.0.8 Building Modules', '3.0.8']],
     ['V3.0.9 Garment Boundaries', 'ah_agent_graph_v3_7_2', 'V3.0.9 Garment Boundaries', ['v3.0.9', '3.0.9']],
+    ['V3.0.10-dev.1 Body Fit', 'ah_agent_graph_v3_7_3', 'V3.0.10-dev.1 Body Fit', ['v3.0.10-dev.1', '3.0.10-dev.1']],
+    ['Chibi Character (Pluffy) v3.1', 'ah_agent_graph_pluffy_v3_1', 'Chibi Character (Pluffy) v3.1', ['pluffy', 'pluffy v3.1', 'pluffy 3.1']],
+    ['V3.7 Artist Skills', 'ah_agent_graph_v3_7', 'V3.7 Artist Skills', ['v3.7', '3.7', 'V3.0.7 Artist Skills', '3.0.7']],
     ['Humanoid Assembly (internal)', 'ah_agent_graph_humanoid_assembly_auto', 'Humanoid Assembly (internal)', ['humanoid assembly', 'humanoid-assembly', 'humanoid_assembly_auto']],
+    ['V4 Character Assembly', 'ah_agent_graph_harpy_assembly_v2', 'V4 Character Assembly', ['v4', '4', 'v4 character assembly', 'character assembly']],
   ] as const)('splits and replays %s graphs', async (name, apiValue, label, aliases) => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))
+    await writeFile(
+      join(dir, 'auth.json'),
+      JSON.stringify({
+        defaultProfile: 'unrelated-workspace',
+        profiles: {
+          'unrelated-workspace': {
+            baseUrl: 'http://127.0.0.1:1',
+            workspaceId: 'unrelated',
+            apiKey: 'unused-test-key',
+          },
+        },
+      }),
+    )
     const posted: Array<{path: string; body: Record<string, unknown>}> = []
     const classicRequests: string[] = []
     let runReads = 0
@@ -494,7 +517,103 @@ describe('built recorded CLI', () => {
       })
     }
     let expectedPostCount = 2 + aliases.length
-    if (['ah_agent_graph_v3_7', 'ah_agent_graph_v3_7_1'].includes(apiValue)) {
+    expect(posted.at(-1)?.body).not.toHaveProperty('autoRepair')
+    if (apiValue === 'ah_agent_graph_v3_7_2') {
+      const meshGeneration = {
+        modelId: 'meshGen.tripo_p2_preview',
+        faceLimit: 10000,
+        params: {quad: true},
+      }
+      const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--pipeline-depth', 'composition', '--assembly-policy', 'concept-to-character-v1', '--mesh-generation-json', JSON.stringify(meshGeneration)])
+      expect(result.code, result.stderr).toBe(0)
+      expect(posted.at(-1)?.body).toMatchObject({pipelineDepth: 'composition', assemblyPolicy: 'concept-to-character-v1', meshGeneration})
+      expectedPostCount += 1
+      const invalid = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--pipeline-depth', 'parts', '--assembly-policy', 'concept-to-character-v1'])
+      expect(invalid.code).not.toBe(0)
+      expect(posted).toHaveLength(expectedPostCount)
+    }
+    if (
+      apiValue === 'ah_agent_graph_v3_7' ||
+      (apiValue === 'ah_agent_graph_v3_7_1' || apiValue === 'ah_agent_graph_v3_7_2' || apiValue === 'ah_agent_graph_v3_7_3')
+    ) {
+      for (const autoRepair of [false, true]) {
+        const analyzed = await cli(baseUrl, dir, [
+          'production',
+          'analyze',
+          '--source-id',
+          'image-asset',
+          '--canvas',
+          '42',
+          '--part-extractor',
+          name,
+          '--auto-repair',
+          String(autoRepair),
+          ...((apiValue === 'ah_agent_graph_v3_7_1' || apiValue === 'ah_agent_graph_v3_7_2') ? ['--skill-mode', 'auto'] : []),
+        ])
+        expect(analyzed.code, analyzed.stderr).toBe(0)
+        expect(posted.at(-1)?.body.autoRepair).toBe(autoRepair)
+        if ((apiValue === 'ah_agent_graph_v3_7_1' || apiValue === 'ah_agent_graph_v3_7_2'))
+          expect(posted.at(-1)?.body.skillSelection).toEqual({mode: 'auto', skillIds: []})
+        expectedPostCount++
+      }
+      const splitWithoutRepair = await cli(baseUrl, dir, [
+        'parts',
+        'split',
+        '--source-id',
+        'image-asset',
+        '--canvas',
+        '42',
+        '--part-extractor',
+        name,
+        '--auto-repair',
+        'false',
+        ...((apiValue === 'ah_agent_graph_v3_7_1' || apiValue === 'ah_agent_graph_v3_7_2') ? ['--skill-mode', 'auto'] : []),
+      ])
+      expect(splitWithoutRepair.code, splitWithoutRepair.stderr).toBe(0)
+      expect(posted.at(-1)?.body.autoRepair).toBe(false)
+      if ((apiValue === 'ah_agent_graph_v3_7_1' || apiValue === 'ah_agent_graph_v3_7_2'))
+        expect(posted.at(-1)?.body.skillSelection).toEqual({mode: 'auto', skillIds: []})
+      expectedPostCount++
+      if (apiValue === 'ah_agent_graph_v3_7' || apiValue === 'ah_agent_graph_v3_7_3') {
+        const bodyAware = await cli(baseUrl, dir, [
+          'parts', 'split', '--source-id', 'image-asset', '--canvas', '42',
+          '--part-extractor', name, '--base-body', 'mesh_42', '--skill-mode', 'auto',
+          '--skill-planner-model', 'openai/gpt-5.6-luna',
+        ])
+        expect(bodyAware.code, bodyAware.stderr).toBe(0)
+        expect(posted.at(-1)?.body).toMatchObject({
+          baseBodyAssetId: 'mesh_42',
+          skillSelection: {mode: 'auto', skillIds: []},
+          skillPlannerModel: 'openai/gpt-5.6-luna',
+        })
+        expectedPostCount++
+      }
+      const invalid = await cli(baseUrl, dir, [
+        'production',
+        'analyze',
+        '--source-id',
+        'image-asset',
+        '--canvas',
+        '42',
+        '--part-extractor',
+        name,
+        '--auto-repair',
+        'off',
+      ])
+      expect(invalid.code).not.toBe(0)
+      expect(invalid.json.error?.message).toContain(
+        '--auto-repair must be true or false',
+      )
+      expect(posted).toHaveLength(expectedPostCount)
+      const existingOrder = await cli(baseUrl, dir, [
+        'parts', 'split', '--order-id', 'existing-order', '--part-extractor', name,
+        '--auto-repair', 'false',
+      ])
+      expect(existingOrder.code).not.toBe(0)
+      expect(existingOrder.json.error?.message).toContain('--auto-repair can only be set when starting a new production run')
+      expect(posted).toHaveLength(expectedPostCount)
+    }
+    if (apiValue === 'ah_agent_graph_v3_7' || (apiValue === 'ah_agent_graph_v3_7_1' || apiValue === 'ah_agent_graph_v3_7_2' || apiValue === 'ah_agent_graph_v3_7_3')) {
       const selected = await cli(baseUrl, dir, [
         'production', 'analyze', '--source-id', 'image-asset',
         '--canvas', '42', '--part-extractor', name,
@@ -895,5 +1014,23 @@ describe('built recorded CLI', () => {
     expect(timedOut.json.execution.orderIds).toEqual(['order-1'])
     expect(downloads).toEqual(['/image.png'])
     expect(JSON.stringify(image.json)).not.toContain('test-key-not-secret')
+
+    // Classic extractors the server offers (production agents) resolve to their API ids.
+    for (const [alias, apiValue] of [
+      ['V2.1-beta', 'ah_part_extractor_v6b'],
+      ['v2.1 beta', 'ah_part_extractor_v6b'],
+      ['2.1-beta', 'ah_part_extractor_v6b'],
+      ['V1', 'ah_part_extractor_v5'],
+    ] as const) {
+      const analyzed = await cli(baseUrl, dir, [
+        'production', 'analyze', '--source-id', 'image-asset',
+        '--part-extractor', alias,
+      ])
+      expect(analyzed.code, analyzed.stderr).toBe(0)
+      expect(
+        posted.filter(item => item.path === '/api/v1/production/analyze').at(-1)
+          ?.body.agentVersion,
+      ).toBe(apiValue)
+    }
   })
 })

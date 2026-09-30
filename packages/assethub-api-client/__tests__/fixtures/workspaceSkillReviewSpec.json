@@ -1,0 +1,4005 @@
+{
+  "paths": {
+    "/workspace-skills/reviews/{outputAssetId}": {
+      "get": {
+        "tags": [
+          "Workspace Skills"
+        ],
+        "summary": "Read the attached output review",
+        "x-assethub-feature-gate": "workspace_skill_memory_enabled",
+        "description": "Read-only current output review. Pending and unknown measurements do not imply approval. No work is created on read.",
+        "parameters": [
+          {
+            "name": "outputAssetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "canvasId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/WorkspaceSkillReview"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "504": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Workspace Skills"
+        ],
+        "summary": "Resume the attached output review",
+        "x-assethub-feature-gate": "workspace_skill_memory_enabled",
+        "description": "Explicitly reconcile the one canonical review. A consumed allowance never dispatches again. No extra user credit; creator approval remains separate.",
+        "parameters": [
+          {
+            "name": "outputAssetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable transport UUID. Changing it never resets the output review allowance.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceSkillReviewCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/WorkspaceSkillReview"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "504": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/workspace-skills/reviews/{outputAssetId}/cancel": {
+      "post": {
+        "tags": [
+          "Workspace Skills"
+        ],
+        "summary": "Cancel the attached output review",
+        "x-assethub-feature-gate": "workspace_skill_memory_enabled",
+        "description": "Commit the original output cancellation fence before child reconciliation. Preserve the generated image and measured usage; no refund or generation restart.",
+        "parameters": [
+          {
+            "name": "outputAssetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable transport UUID for this cancellation.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceSkillReviewCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/WorkspaceSkillReview"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "504": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    }
+  },
+  "schemas": {
+    "WorkspaceSkillReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outputAssetId",
+        "status",
+        "canResume",
+        "canCancel",
+        "usage"
+      ],
+      "properties": {
+        "outputAssetId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "pass",
+            "needs_human_review",
+            "unverified",
+            "cancelled"
+          ]
+        },
+        "canResume": {
+          "type": "boolean"
+        },
+        "canCancel": {
+          "type": "boolean"
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "promptTokens",
+            "completionTokens",
+            "totalTokens",
+            "cost"
+          ],
+          "properties": {
+            "promptTokens": {
+              "type": "integer",
+              "nullable": true
+            },
+            "completionTokens": {
+              "type": "integer",
+              "nullable": true
+            },
+            "totalTokens": {
+              "type": "integer",
+              "nullable": true
+            },
+            "cost": {
+              "type": "number",
+              "nullable": true
+            }
+          }
+        }
+      }
+    },
+    "WorkspaceSkillReviewCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canvasId"
+      ],
+      "properties": {
+        "canvasId": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "SkillMemoryResolution": {
+      "type": "object",
+      "description": "What resolving one (graphId, nodeId) pair produced. status is resolved when the memorized node was found; graph_not_found covers BOTH a graph that does not exist and one this workspace does not own (deliberately indistinguishable); node_not_found means the graph is there but the node is gone; not_a_graph_reference is a citation that names no graph (a v3 publisher_policy evidence entry); not_resolved_truncated means the Skill cites more memories than one call resolves. An infrastructure failure is NOT in this list - the request fails instead, so an outage is never reported as a vanished memory.",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "resolved",
+            "graph_not_found",
+            "node_not_found",
+            "not_a_graph_reference",
+            "not_resolved_truncated"
+          ]
+        },
+        "memoryId": {
+          "type": "string",
+          "description": "graphId:nodeId - the same handle POST /memory/start accepts, so a cited memory can be replayed without reassembling it."
+        },
+        "node": {
+          "type": "object",
+          "description": "The memorized graph node itself. Same projection as GET /graphs/{graphId}/snapshot, plus hasImage.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "artifactKind": {
+              "type": "string"
+            },
+            "semanticType": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "title": {},
+            "hasImage": {
+              "type": "boolean",
+              "description": "Whether GET /graphs/{graphId}/nodes/{nodeId}/image would serve bytes. An image over that endpoint size cap is still true here and answers 413 there."
+            }
+          },
+          "required": [
+            "id",
+            "artifactKind",
+            "tags",
+            "hasImage"
+          ],
+          "additionalProperties": false
+        },
+        "trajectory": {
+          "type": "object",
+          "description": "Curation for this memory, when it has been summarized.",
+          "properties": {
+            "memoryId": {
+              "type": "string"
+            },
+            "headline": {
+              "type": "string",
+              "nullable": true
+            },
+            "description": {
+              "type": "string",
+              "nullable": true
+            },
+            "goalType": {
+              "type": "string",
+              "nullable": true
+            },
+            "keywords": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "memoryId",
+            "headline",
+            "description",
+            "goalType",
+            "keywords"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "SkillMemoryRef": {
+      "allOf": [
+        {
+          "$ref": "#/components/schemas/SkillMemoryResolution"
+        },
+        {
+          "type": "object",
+          "description": "One evidence[] entry. A v3 publisher_policy entry names no graph, which is why the graph fields are nullable.",
+          "properties": {
+            "key": {
+              "type": "string",
+              "nullable": true
+            },
+            "kind": {
+              "type": "string"
+            },
+            "graphId": {
+              "type": "string",
+              "nullable": true
+            },
+            "artifactId": {
+              "type": "string",
+              "nullable": true
+            },
+            "contentSha256": {
+              "type": "string",
+              "nullable": true
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "nullable": true
+            },
+            "decisionKind": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          "required": [
+            "key",
+            "kind",
+            "graphId",
+            "artifactId",
+            "contentSha256",
+            "sourceRevision",
+            "decisionKind"
+          ]
+        }
+      ]
+    },
+    "SkillMemoryWorkflowRef": {
+      "allOf": [
+        {
+          "$ref": "#/components/schemas/SkillMemoryResolution"
+        },
+        {
+          "type": "object",
+          "description": "The canvas trajectory a LEARNED Skill was bound to. Null on a built (ag.memory-skill.v4) Skill, which records provenance in references instead.",
+          "properties": {
+            "graphId": {
+              "type": "string"
+            },
+            "nodeId": {
+              "type": "string"
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "nullable": true
+            },
+            "contentSha256": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          "required": [
+            "graphId",
+            "nodeId",
+            "sourceRevision",
+            "contentSha256"
+          ]
+        }
+      ]
+    },
+    "SkillMemoryReference": {
+      "type": "object",
+      "description": "One references[] entry of a BUILT Skill: a graph plus the nodes in it the Skill Builder drew the method from. For ag.memory-skill.v4 this is the only provenance shape guaranteed to be present - workflowRef is null and evidence may be empty, while the contract requires at least one reference.",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "canvasId": {
+          "type": "integer",
+          "description": "Present when kind is canvas_graph."
+        },
+        "sourceMemoryId": {
+          "type": "string",
+          "description": "The memoryId the reference itself cited, present when kind is memory_path. Distinct from each resolved node own memoryId."
+        },
+        "graphId": {
+          "type": "string",
+          "nullable": true
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "nullable": true
+        },
+        "why": {
+          "type": "string",
+          "nullable": true
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SkillMemoryResolution"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "nodeId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "nodeId"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "graphId",
+        "sourceRevision",
+        "why",
+        "nodes"
+      ],
+      "additionalProperties": false
+    },
+    "SkillMemoryLinks": {
+      "type": "object",
+      "properties": {
+        "skillId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contentSha256": {
+          "type": "string"
+        },
+        "schemaVersion": {
+          "type": "string"
+        },
+        "workflowRef": {
+          "nullable": true,
+          "allOf": [
+            {
+              "$ref": "#/components/schemas/SkillMemoryWorkflowRef"
+            }
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/SkillMemoryRef"
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/SkillMemoryReference"
+          }
+        },
+        "counts": {
+          "type": "object",
+          "description": "Over EVERY graph-shaped citation listed: workflowRef, evidence entries and reference nodes alike.",
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resolved": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unresolved": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "total",
+            "resolved",
+            "unresolved"
+          ],
+          "additionalProperties": false
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when the Skill cites more distinct memories than this operation resolves in one call. Those refs are still listed, with status not_resolved_truncated."
+        }
+      },
+      "required": [
+        "skillId",
+        "revision",
+        "contentSha256",
+        "workflowRef",
+        "evidence",
+        "references",
+        "counts",
+        "truncated"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillBuildRequest": {
+      "type": "object",
+      "required": [
+        "goal",
+        "taskKind",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 800
+        },
+        "instructions": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "taskKind": {
+          "type": "string",
+          "enum": [
+            "part_separation"
+          ]
+        },
+        "source": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "canvasIds"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "canvas_graph"
+                  ]
+                },
+                "canvasIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 5,
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "memoryIds"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "memory_path"
+                  ]
+                },
+                "memoryIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "items": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 512
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WorkspaceSkillBuild": {
+      "type": "object",
+      "required": [
+        "buildId",
+        "status",
+        "progress",
+        "source"
+      ],
+      "properties": {
+        "buildId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "loading_source",
+            "analyzing",
+            "drafting",
+            "ready",
+            "accepted",
+            "discarded",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "progress": {
+          "type": "object",
+          "properties": {
+            "step": {
+              "type": "integer"
+            },
+            "of": {
+              "type": "integer"
+            }
+          }
+        },
+        "source": {
+          "type": "object"
+        },
+        "graphs": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "draft": {
+          "type": "object",
+          "description": "The ag.memory-skill.v4 draft, present once status is ready. Nothing is published until it is accepted."
+        },
+        "skill": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "skillId": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "error": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        },
+        "credits": {
+          "type": "object",
+          "properties": {
+            "reserved": {
+              "type": "integer"
+            },
+            "settled": {
+              "type": "integer",
+              "nullable": true
+            },
+            "settlement": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        }
+      }
+    },
+    "WorkspaceSkillBuildEnhance": {
+      "type": "object",
+      "required": [
+        "section",
+        "current"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "section": {
+          "type": "string",
+          "enum": [
+            "title",
+            "goal",
+            "instructions",
+            "acceptanceCriteria",
+            "failureModes",
+            "steps",
+            "applicability"
+          ]
+        },
+        "current": {
+          "description": "What you have on screen for that section, so a rewrite builds on your edit rather than reverting to what the agent first wrote."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 400
+        }
+      }
+    },
+    "WorkspaceSkillBuildAccept": {
+      "type": "object",
+      "required": [
+        "expectedDraftSha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "expectedDraftSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "The draftSha256 you reviewed. A mismatch returns 409 DRAFT_CHANGED rather than publishing bytes you were never shown."
+        },
+        "edits": {
+          "type": "object",
+          "description": "Optional per-section replacements: title, goal, instructions, acceptanceCriteria, failureModes, steps, applicability. References and evidence are provenance and cannot be edited."
+        }
+      }
+    },
+    "WorkspaceSkillBuildDryRun": {
+      "type": "object",
+      "required": [
+        "wouldStart",
+        "source",
+        "estimatedCredits",
+        "estimatedMinutes",
+        "promptVersion"
+      ],
+      "properties": {
+        "wouldStart": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "canvas_graph",
+            "memory_path"
+          ]
+        },
+        "canvasIds": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "memoryIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 512
+          }
+        },
+        "estimatedCredits": {
+          "type": "integer",
+          "nullable": true
+        },
+        "estimatedMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Wall clock this source will be given, in whole minutes. Grows with the number of canvases or memory paths, because a build costs one model turn per round and rounds grow with the source. A budget, not a prediction: most builds finish well inside it."
+        },
+        "promptVersion": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "WorkspaceSkillDraftValidateRequest": {
+      "type": "object",
+      "required": [
+        "skill"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "skill": {
+          "type": "object",
+          "description": "The partial v4 body as the model writes it. Everything submit_skill_draft stamps (identity, goal, instructions, each reference's graph facts, build) is filled in here from buildId (or a placeholder without one), never read from this field."
+        },
+        "buildId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "When present, resolves that build and checks every reference against its real graphs (referencesChecked: true). Without it, only schema and structure are checked."
+        }
+      }
+    },
+    "WorkspaceSkillDraftValidateResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "valid",
+            "referencesChecked"
+          ],
+          "additionalProperties": false,
+          "description": "The schema-only result (no buildId in the request): contentSha256 is deliberately absent. Identity and provenance come from a build, so this path cannot produce a hash build-accept would recognize.",
+          "properties": {
+            "valid": {
+              "type": "boolean",
+              "enum": [
+                true
+              ]
+            },
+            "referencesChecked": {
+              "type": "boolean",
+              "enum": [
+                false
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "valid",
+            "contentSha256",
+            "referencesChecked"
+          ],
+          "additionalProperties": false,
+          "description": "The build-scoped result (buildId given and every reference checked against its real graphs): contentSha256 is the real hash for that build.",
+          "properties": {
+            "valid": {
+              "type": "boolean",
+              "enum": [
+                true
+              ]
+            },
+            "contentSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "referencesChecked": {
+              "type": "boolean",
+              "enum": [
+                true
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "valid",
+            "errors",
+            "referencesChecked"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "valid": {
+              "type": "boolean",
+              "enum": [
+                false
+              ]
+            },
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "One entry per issue, as \"path: message\"."
+            },
+            "referencesChecked": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "WorkspaceSkillDraftSchema": {
+      "type": "object",
+      "required": [
+        "promptVersion",
+        "shape",
+        "stampedFields",
+        "enums",
+        "limits"
+      ],
+      "properties": {
+        "promptVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "shape": {
+          "type": "string"
+        },
+        "stampedFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Fields the model never writes -- submit_skill_draft fills every one."
+        },
+        "enums": {
+          "type": "object",
+          "properties": {
+            "phases": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "operations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "severities": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "phases",
+            "operations",
+            "roles",
+            "severities"
+          ]
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "steps": {
+              "type": "object",
+              "properties": {
+                "min": {
+                  "type": "integer"
+                },
+                "max": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "additionalProperties": false
+            },
+            "acceptanceCriteria": {
+              "type": "object",
+              "properties": {
+                "min": {
+                  "type": "integer"
+                },
+                "max": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "additionalProperties": false
+            },
+            "failureModes": {
+              "type": "object",
+              "properties": {
+                "min": {
+                  "type": "integer"
+                },
+                "max": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "additionalProperties": false
+            },
+            "references": {
+              "type": "object",
+              "properties": {
+                "min": {
+                  "type": "integer"
+                },
+                "max": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "additionalProperties": false
+            },
+            "uncertainties": {
+              "type": "object",
+              "properties": {
+                "min": {
+                  "type": "integer"
+                },
+                "max": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "steps",
+            "acceptanceCriteria",
+            "failureModes",
+            "references",
+            "uncertainties"
+          ]
+        }
+      }
+    },
+    "WorkspaceSkillEvidenceRef": {
+      "type": "object",
+      "properties": {
+        "graphId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "artifactId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contentSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "graphId",
+        "artifactId",
+        "contentSha256",
+        "sourceRevision"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillImageEvidence": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "graphId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rootArtifactId": {
+          "type": "string"
+        },
+        "artifactId": {
+          "type": "string"
+        },
+        "contentReference": {
+          "type": "string"
+        },
+        "contentSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "decisionKind": {
+          "type": "string",
+          "enum": [
+            "creator_approved",
+            "creator_rejected",
+            "artist_modified",
+            "ai_accepted",
+            "ai_rejected",
+            "operation_succeeded",
+            "operation_failed",
+            "publisher_approved"
+          ]
+        },
+        "decisionRecordId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "graphId",
+        "rootArtifactId",
+        "artifactId",
+        "contentReference",
+        "contentSha256",
+        "sourceRevision",
+        "decisionKind",
+        "decisionRecordId"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillPublisherPolicyEvidence": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "publisher_policy"
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "publisherId": {
+          "type": "string"
+        },
+        "releaseId": {
+          "type": "string"
+        },
+        "sourceSkillId": {
+          "type": "string"
+        },
+        "sourceSkillRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sourceSnapshotSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "reviewRecordId": {
+          "type": "string"
+        },
+        "reviewRecordSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "decisionKind": {
+          "type": "string",
+          "enum": [
+            "publisher_approved"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "key",
+        "publisherId",
+        "releaseId",
+        "sourceSkillId",
+        "sourceSkillRevision",
+        "sourceSnapshotSha256",
+        "reviewRecordId",
+        "reviewRecordSha256",
+        "decisionKind"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillEvidence": {
+      "oneOf": [
+        {
+          "$ref": "#/components/schemas/WorkspaceSkillImageEvidence"
+        },
+        {
+          "$ref": "#/components/schemas/WorkspaceSkillPublisherPolicyEvidence"
+        }
+      ]
+    },
+    "WorkspaceSkill": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "ag.memory-skill.v1",
+            "ag.memory-skill.v2",
+            "ag.memory-skill.v3",
+            "ag.memory-skill.v4",
+            "ag.memory-skill.v5",
+            "ag.memory-skill.v6"
+          ]
+        },
+        "skillId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contentSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "generation",
+            "correction"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "goal": {
+          "type": "string"
+        },
+        "applicability": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string"
+            },
+            "partKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "requiredTraits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "issueKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "exclusions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "requiredReferenceRoles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "category",
+            "partKinds",
+            "requiredTraits",
+            "issueKinds",
+            "exclusions",
+            "requiredReferenceRoles"
+          ],
+          "additionalProperties": false
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "stepId": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "inputRoles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dependsOn": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "instruction": {
+                "type": "string",
+                "maxLength": 1200
+              },
+              "preserve": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "observation",
+                  "generalization",
+                  "proposed_check"
+                ],
+                "nullable": true
+              },
+              "supports": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              },
+              "counterexamples": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              },
+              "documents": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "description": "v6: paths of the skill documents this step relies on."
+              },
+              "run": {
+                "type": "object",
+                "properties": {
+                  "executor": {
+                    "type": "string",
+                    "enum": [
+                      "llm",
+                      "vlm",
+                      "image_model",
+                      "mesh_model",
+                      "blender",
+                      "code",
+                      "human"
+                    ]
+                  },
+                  "operation": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 160
+                  },
+                  "model": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "executor",
+                  "operation",
+                  "model"
+                ],
+                "additionalProperties": false
+              },
+              "gate": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "vlm",
+                      "human",
+                      "schema",
+                      "geometry",
+                      "job_status",
+                      "none"
+                    ]
+                  },
+                  "model": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 128
+                  },
+                  "escalateTo": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "kind",
+                  "model",
+                  "escalateTo"
+                ],
+                "additionalProperties": false
+              },
+              "onFail": {
+                "type": "array",
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "when": {
+                      "type": "string",
+                      "enum": [
+                        "image",
+                        "mesh",
+                        "interface",
+                        "transform",
+                        "unknown",
+                        "any"
+                      ]
+                    },
+                    "goTo": {
+                      "type": "string"
+                    },
+                    "maxAttempts": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 3
+                    }
+                  },
+                  "required": [
+                    "when",
+                    "goTo",
+                    "maxAttempts"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "stepId",
+              "operation",
+              "inputRoles",
+              "dependsOn",
+              "instruction",
+              "preserve",
+              "checks"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "documents": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Relative path inside the skill, e.g. references/planning.md."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "instructions",
+                  "reference",
+                  "template",
+                  "script",
+                  "config"
+                ]
+              },
+              "mediaType": {
+                "type": "string",
+                "enum": [
+                  "text/markdown",
+                  "application/json",
+                  "text/x-python",
+                  "text/yaml",
+                  "text/plain"
+                ]
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40000
+              },
+              "reviewBeforeRun": {
+                "type": "boolean",
+                "description": "Must be true for a script: show it to the user and get approval before running it."
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "mediaType",
+              "content",
+              "reviewBeforeRun"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/WorkspaceSkillEvidence"
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": [
+                      "observation",
+                      "generalization",
+                      "proposed_check"
+                    ],
+                    "nullable": true
+                  },
+                  "supports": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 16
+                  },
+                  "counterexamples": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 16
+                  }
+                },
+                "required": [
+                  "id",
+                  "text"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "acceptanceCriteria": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "must",
+                  "should"
+                ]
+              },
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "observation",
+                  "generalization",
+                  "proposed_check"
+                ],
+                "nullable": true
+              },
+              "supports": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              },
+              "counterexamples": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              }
+            },
+            "required": [
+              "id",
+              "text",
+              "severity"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "failureModes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "observation",
+                  "generalization",
+                  "proposed_check"
+                ],
+                "nullable": true
+              },
+              "supports": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              },
+              "counterexamples": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              }
+            },
+            "required": [
+              "id",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas_graph",
+                  "memory_path"
+                ]
+              },
+              "canvasId": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "memoryId": {
+                "type": "string"
+              },
+              "graphId": {
+                "type": "string"
+              },
+              "sourceRevision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "nodeIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "why": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "graphId",
+              "sourceRevision",
+              "nodeIds",
+              "why"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "build": {
+          "type": "object",
+          "properties": {
+            "buildId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "canvas_graph",
+                "memory_path"
+              ]
+            },
+            "model": {
+              "type": "string"
+            },
+            "promptVersion": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "compiler": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "skill_builder",
+                    "ag_compiler"
+                  ]
+                },
+                "manifestSha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "nullable": true
+                },
+                "runId": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "validationSha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "buildId",
+            "source",
+            "model",
+            "promptVersion"
+          ],
+          "additionalProperties": false
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "goal",
+                      "memory",
+                      "trajectory",
+                      "image",
+                      "evaluation",
+                      "human_decision"
+                    ]
+                  },
+                  "graphId": {
+                    "type": "string"
+                  },
+                  "nodeId": {
+                    "type": "string"
+                  },
+                  "sourceRevision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "contentSha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$",
+                    "nullable": true
+                  },
+                  "canvasId": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "nullable": true
+                  },
+                  "memoryId": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                },
+                "required": [
+                  "key",
+                  "kind",
+                  "graphId",
+                  "nodeId",
+                  "sourceRevision"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "behavior_event"
+                    ]
+                  },
+                  "eventSource": {
+                    "type": "string"
+                  },
+                  "eventRowId": {
+                    "type": "string"
+                  },
+                  "canvasId": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "key",
+                  "kind",
+                  "eventSource",
+                  "eventRowId",
+                  "canvasId"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "maxItems": 32
+        },
+        "repair": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "stopConditions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8
+            }
+          },
+          "required": [
+            "stopConditions"
+          ],
+          "additionalProperties": false
+        },
+        "derivedFrom": {
+          "type": "object",
+          "properties": {
+            "skillId": {
+              "type": "string",
+              "nullable": true
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1,
+              "nullable": true
+            },
+            "contentSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "nullable": true
+            },
+            "evidenceKeys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "skillId",
+            "revision",
+            "contentSha256",
+            "evidenceKeys"
+          ],
+          "additionalProperties": false
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "workspace",
+            "official"
+          ]
+        },
+        "taskKind": {
+          "type": "string",
+          "enum": [
+            "part_separation",
+            "concept_art",
+            "part_composition",
+            "pipeline"
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "generate",
+            "review",
+            "repair"
+          ]
+        },
+        "workflowRef": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "graphId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nodeId": {
+              "type": "string"
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "contentSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "graphId",
+            "nodeId",
+            "sourceRevision",
+            "contentSha256"
+          ],
+          "additionalProperties": false
+        },
+        "budgetRequirements": {
+          "type": "object",
+          "properties": {
+            "maxOperations": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32
+            },
+            "maxRepairs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "maxOperations",
+            "maxRepairs"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "skillId",
+        "revision",
+        "contentSha256",
+        "purpose",
+        "title",
+        "goal",
+        "applicability",
+        "steps",
+        "evidence",
+        "uncertainties",
+        "derivedFrom"
+      ]
+    },
+    "WorkspaceSkillDetail": {
+      "type": "object",
+      "properties": {
+        "orgId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "skill": {
+          "$ref": "#/components/schemas/WorkspaceSkill"
+        },
+        "canEdit": {
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "automatic",
+            "manual",
+            "off"
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "artist",
+            "project",
+            "organization"
+          ]
+        },
+        "grantRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "authorId": {
+          "type": "string",
+          "nullable": true
+        },
+        "officialSkillId": {
+          "type": "string",
+          "nullable": true
+        },
+        "officialRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": true
+        },
+        "publisher": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "publisherId": {
+              "type": "string"
+            },
+            "releaseId": {
+              "type": "string"
+            },
+            "manifestSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "revoked": {
+              "type": "boolean"
+            },
+            "sourceSnapshot": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "reviewRecord": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "publisherId",
+            "releaseId",
+            "manifestSha256",
+            "revoked",
+            "sourceSnapshot",
+            "reviewRecord"
+          ]
+        },
+        "revisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "content_sha256": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "revision",
+              "content_sha256"
+            ]
+          }
+        }
+      },
+      "required": [
+        "skill",
+        "canEdit",
+        "mode",
+        "scope",
+        "grantRevision",
+        "authorId",
+        "officialSkillId",
+        "officialRevision",
+        "publisher",
+        "revisions"
+      ]
+    },
+    "WorkspaceSkillList": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "skillId": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "grantRevision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "summary": {
+                "type": "string"
+              },
+              "taskKind": {
+                "type": "string",
+                "nullable": true
+              },
+              "phase": {
+                "type": "string",
+                "nullable": true
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "automatic",
+                  "manual",
+                  "off"
+                ]
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "artist",
+                  "project",
+                  "organization"
+                ]
+              },
+              "authorId": {
+                "type": "string",
+                "nullable": true
+              },
+              "origin": {
+                "type": "string",
+                "enum": [
+                  "workspace",
+                  "official"
+                ]
+              },
+              "officialSkillId": {
+                "type": "string",
+                "nullable": true
+              },
+              "officialRevision": {
+                "type": "integer",
+                "minimum": 1,
+                "nullable": true
+              }
+            },
+            "required": [
+              "skillId",
+              "revision",
+              "grantRevision",
+              "summary",
+              "taskKind",
+              "phase",
+              "mode",
+              "scope",
+              "authorId",
+              "origin",
+              "officialSkillId",
+              "officialRevision"
+            ]
+          }
+        },
+        "canEdit": {
+          "type": "boolean"
+        },
+        "nextCursor": {
+          "type": "string",
+          "nullable": true
+        }
+      },
+      "required": [
+        "items",
+        "canEdit",
+        "nextCursor"
+      ]
+    },
+    "WorkspaceSkillUpdate": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expectedGrantRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "goal": {
+          "type": "string",
+          "maxLength": 800
+        },
+        "applicability": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string"
+            },
+            "partKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "requiredTraits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "issueKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "exclusions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "requiredReferenceRoles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "category",
+            "partKinds",
+            "requiredTraits",
+            "issueKinds",
+            "exclusions",
+            "requiredReferenceRoles"
+          ],
+          "additionalProperties": false
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "stepId": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "inputRoles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dependsOn": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "instruction": {
+                "type": "string",
+                "maxLength": 1200
+              },
+              "preserve": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "observation",
+                  "generalization",
+                  "proposed_check"
+                ],
+                "nullable": true
+              },
+              "supports": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              },
+              "counterexamples": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              }
+            },
+            "required": [
+              "stepId",
+              "operation",
+              "inputRoles",
+              "dependsOn",
+              "instruction",
+              "preserve",
+              "checks"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "restoreRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "confirmedContentSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "expectedRevision",
+        "expectedGrantRevision",
+        "title",
+        "goal",
+        "applicability",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillOfficialInstall": {
+      "type": "object",
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": true
+        },
+        "expectedGrantRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": true
+        },
+        "confirmedContentSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "revision",
+        "expectedRevision",
+        "expectedGrantRevision",
+        "confirmedContentSha256"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillOfficialCustomizationPrepare": {
+      "type": "object",
+      "properties": {
+        "targetSkillId": {
+          "type": "string",
+          "pattern": "^workspace-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "description": "One new workspace identity; never reuse the official source ID."
+        },
+        "expectedSourceRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expectedSourceGrantRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "goal": {
+          "type": "string",
+          "maxLength": 800
+        },
+        "applicability": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string"
+            },
+            "partKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "requiredTraits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "issueKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "exclusions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "requiredReferenceRoles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "category",
+            "partKinds",
+            "requiredTraits",
+            "issueKinds",
+            "exclusions",
+            "requiredReferenceRoles"
+          ],
+          "additionalProperties": false
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "properties": {
+              "stepId": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "inputRoles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dependsOn": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "instruction": {
+                "type": "string",
+                "maxLength": 1200
+              },
+              "preserve": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "observation",
+                  "generalization",
+                  "proposed_check"
+                ],
+                "nullable": true
+              },
+              "supports": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              },
+              "counterexamples": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 16
+              }
+            },
+            "required": [
+              "stepId",
+              "operation",
+              "inputRoles",
+              "dependsOn",
+              "instruction",
+              "preserve",
+              "checks"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "targetSkillId",
+        "expectedSourceRevision",
+        "expectedSourceGrantRevision",
+        "title",
+        "goal",
+        "applicability",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillOfficialCustomize": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "$ref": "#/components/schemas/WorkspaceSkill"
+        },
+        "expectedSourceRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expectedSourceGrantRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "confirmedContentSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "body",
+        "expectedSourceRevision",
+        "expectedSourceGrantRevision",
+        "confirmedContentSha256"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillPipelineCreate": {
+      "type": "object",
+      "properties": {
+        "skillId": {
+          "type": "string",
+          "description": "Optional for a new pipeline (pass one to make retries safe); required with expectedRevision to write the next revision."
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": true,
+          "description": "Null for a new pipeline; otherwise the current revision being replaced."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "goal": {
+          "type": "string",
+          "maxLength": 800
+        },
+        "applicability": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string"
+            },
+            "partKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "requiredTraits": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "issueKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "exclusions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "requiredReferenceRoles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "category",
+            "partKinds",
+            "requiredTraits",
+            "issueKinds",
+            "exclusions",
+            "requiredReferenceRoles"
+          ],
+          "additionalProperties": false
+        },
+        "instructions": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "How an agent runs the whole pipeline: order, gates, routing, budgets and stop conditions."
+        },
+        "budgetRequirements": {
+          "type": "object",
+          "properties": {
+            "maxOperations": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 32
+            },
+            "maxRepairs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "maxOperations",
+            "maxRepairs"
+          ],
+          "additionalProperties": false
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 24,
+          "items": {
+            "type": "object",
+            "properties": {
+              "stepId": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "inputRoles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dependsOn": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "instruction": {
+                "type": "string",
+                "maxLength": 1200
+              },
+              "preserve": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "documents": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "description": "v6: paths of the skill documents this step relies on."
+              },
+              "run": {
+                "type": "object",
+                "properties": {
+                  "executor": {
+                    "type": "string",
+                    "enum": [
+                      "llm",
+                      "vlm",
+                      "image_model",
+                      "mesh_model",
+                      "blender",
+                      "code",
+                      "human"
+                    ]
+                  },
+                  "operation": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 160
+                  },
+                  "model": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "executor",
+                  "operation",
+                  "model"
+                ],
+                "additionalProperties": false
+              },
+              "gate": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "vlm",
+                      "human",
+                      "schema",
+                      "geometry",
+                      "job_status",
+                      "none"
+                    ]
+                  },
+                  "model": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 128
+                  },
+                  "escalateTo": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "kind",
+                  "model",
+                  "escalateTo"
+                ],
+                "additionalProperties": false
+              },
+              "onFail": {
+                "type": "array",
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "when": {
+                      "type": "string",
+                      "enum": [
+                        "image",
+                        "mesh",
+                        "interface",
+                        "transform",
+                        "unknown",
+                        "any"
+                      ]
+                    },
+                    "goTo": {
+                      "type": "string"
+                    },
+                    "maxAttempts": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 3
+                    }
+                  },
+                  "required": [
+                    "when",
+                    "goTo",
+                    "maxAttempts"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "stepId",
+              "operation",
+              "inputRoles",
+              "dependsOn",
+              "instruction",
+              "preserve",
+              "checks",
+              "run",
+              "gate",
+              "onFail"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16
+        },
+        "documents": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Relative path inside the skill, e.g. references/planning.md."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "instructions",
+                  "reference",
+                  "template",
+                  "script",
+                  "config"
+                ]
+              },
+              "mediaType": {
+                "type": "string",
+                "enum": [
+                  "text/markdown",
+                  "application/json",
+                  "text/x-python",
+                  "text/yaml",
+                  "text/plain"
+                ]
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40000
+              },
+              "reviewBeforeRun": {
+                "type": "boolean",
+                "description": "Must be true for a script: show it to the user and get approval before running it."
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "mediaType",
+              "content",
+              "reviewBeforeRun"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Files the pipeline carries (reference docs, JSON templates, helper scripts, agent config), stored byte for byte. At most 40000 characters each and 250000 in total. Defaults to none."
+        }
+      },
+      "required": [
+        "expectedRevision",
+        "title",
+        "goal",
+        "applicability",
+        "instructions",
+        "budgetRequirements",
+        "steps",
+        "uncertainties"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillOfficialCatalog": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "skill": {
+                "$ref": "#/components/schemas/WorkspaceSkill"
+              },
+              "publisherId": {
+                "type": "string"
+              },
+              "releaseId": {
+                "type": "string"
+              },
+              "manifestSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "sourceSnapshot": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "reviewRecord": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "installedRevision": {
+                "type": "integer",
+                "minimum": 1,
+                "nullable": true
+              },
+              "grantRevision": {
+                "type": "integer",
+                "minimum": 1,
+                "nullable": true
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "automatic",
+                  "manual",
+                  "off"
+                ],
+                "nullable": true
+              },
+              "updateAvailable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "skill",
+              "publisherId",
+              "releaseId",
+              "manifestSha256",
+              "sourceSnapshot",
+              "reviewRecord",
+              "installedRevision",
+              "grantRevision",
+              "mode",
+              "updateAvailable"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "canEdit": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "items",
+        "canEdit"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillControls": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expectedGrantRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "automatic",
+            "manual",
+            "off"
+          ]
+        },
+        "share": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "expectedRevision",
+        "expectedGrantRevision",
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillLearn": {
+      "type": "object",
+      "properties": {
+        "graphId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "properties": {
+              "graphId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "artifactId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "contentSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "sourceRevision": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "graphId",
+              "artifactId",
+              "contentSha256",
+              "sourceRevision"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "generation",
+            "correction"
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "generate",
+            "review",
+            "repair"
+          ]
+        },
+        "autoRevision": {
+          "type": "boolean",
+          "default": false
+        },
+        "parentSkillId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "graphId",
+        "evidenceRefs",
+        "purpose",
+        "phase"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillLearnStarted": {
+      "type": "object",
+      "properties": {
+        "graphId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rootArtifactId": {
+          "type": "string"
+        },
+        "skillId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "graphId",
+        "rootArtifactId",
+        "skillId"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillLearningStatus": {
+      "type": "object",
+      "properties": {
+        "graphId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rootArtifactId": {
+          "type": "string"
+        },
+        "skillId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "nullable": true
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "publication": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "skillId": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "contentSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "skillId",
+            "revision",
+            "contentSha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "graphId",
+        "rootArtifactId",
+        "skillId",
+        "status",
+        "reason",
+        "retryable",
+        "publication"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillReplayContext": {
+      "type": "object",
+      "properties": {
+        "canvasId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "cli",
+            "mcp",
+            "api"
+          ]
+        },
+        "agent": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "canvasId",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillReplayRequest": {
+      "type": "object",
+      "properties": {
+        "skillId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "brief": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64000
+        },
+        "sourceImageAssetId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "referenceImageAssetId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "clientOperationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "replayContext": {
+          "$ref": "#/components/schemas/WorkspaceSkillReplayContext"
+        }
+      },
+      "required": [
+        "skillId",
+        "expectedRevision",
+        "brief",
+        "sourceImageAssetId",
+        "clientOperationId",
+        "replayContext"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillReplayPlan": {
+      "type": "object",
+      "properties": {
+        "replayId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "skill": {
+          "type": "object",
+          "properties": {
+            "skillId": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "contentSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "catalogRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grantRevision": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "skillId",
+            "revision",
+            "contentSha256",
+            "catalogRevision",
+            "grantRevision"
+          ],
+          "additionalProperties": false
+        },
+        "workflowRef": {
+          "type": "object",
+          "properties": {
+            "graphId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nodeId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "contentSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "graphId",
+            "nodeId",
+            "sourceRevision",
+            "contentSha256"
+          ],
+          "additionalProperties": false
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "run",
+                  "refused"
+                ]
+              },
+              "title": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string",
+                "enum": [
+                  "image.generate"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "title"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "quote": {
+          "type": "object",
+          "properties": {
+            "modelId": {
+              "type": "string"
+            },
+            "consumePlanName": {
+              "type": "string"
+            },
+            "credits": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "modelId",
+            "consumePlanName",
+            "credits"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "replayId",
+        "skill",
+        "workflowRef",
+        "steps",
+        "quote"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillReplayStarted": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued"
+          ]
+        },
+        "plan": {
+          "$ref": "#/components/schemas/WorkspaceSkillReplayPlan"
+        }
+      },
+      "required": [
+        "runId",
+        "status",
+        "plan"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillProposalPrepare": {
+      "type": "object",
+      "properties": {
+        "graphId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "artifactId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "projectId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "taskKind": {
+          "type": "string",
+          "enum": [
+            "concept_art",
+            "part_separation"
+          ]
+        }
+      },
+      "required": [
+        "graphId",
+        "artifactId"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillProposalPrepareResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "task_choice_required",
+                "execution_unverified"
+              ]
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "prepared"
+              ]
+            },
+            "proposalId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "state": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "proposalId",
+            "state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "waiting_for_archive"
+              ]
+            },
+            "source": {
+              "type": "object",
+              "properties": {
+                "graphId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "artifactId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "projectId": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "taskKind": {
+                  "type": "string",
+                  "enum": [
+                    "concept_art",
+                    "part_separation"
+                  ]
+                }
+              },
+              "required": [
+                "graphId",
+                "artifactId",
+                "projectId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "status",
+            "source"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "WorkspaceSkillProposalAccept": {
+      "type": "object",
+      "properties": {
+        "expectedVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "draftSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "graphId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "artifactId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "contentSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "graphId",
+            "artifactId",
+            "contentSha256",
+            "sourceRevision"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "expectedVersion",
+        "draftSha256",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "WorkspaceSkillProposalPatch": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "snooze",
+                "dismiss",
+                "reopen",
+                "retry"
+              ]
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "action",
+            "expectedVersion"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "revise"
+              ]
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectedDraftSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "method": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "goal": {
+                  "type": "string",
+                  "maxLength": 800
+                },
+                "applicability": {
+                  "type": "object",
+                  "properties": {
+                    "category": {
+                      "type": "string"
+                    },
+                    "partKinds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "requiredTraits": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "issueKinds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "exclusions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "category",
+                    "partKinds",
+                    "requiredTraits",
+                    "issueKinds",
+                    "exclusions"
+                  ],
+                  "additionalProperties": false
+                },
+                "steps": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "stepId": {
+                        "type": "string"
+                      },
+                      "instruction": {
+                        "type": "string"
+                      },
+                      "preserve": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "checks": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "stepId",
+                      "instruction",
+                      "preserve",
+                      "checks"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "title",
+                "goal",
+                "applicability",
+                "steps"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "action",
+            "expectedVersion",
+            "expectedDraftSha256",
+            "method"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "WorkspaceSkillPublication": {
+      "type": "object",
+      "properties": {
+        "skillId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contentSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "graphId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "artifactId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "skillId",
+        "revision",
+        "contentSha256",
+        "graphId",
+        "artifactId"
+      ]
+    },
+    "WorkspaceSkillProposal": {
+      "type": "object",
+      "properties": {
+        "proposalId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "authorId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "snoozedUntil": {
+          "type": "string",
+          "nullable": true
+        },
+        "confirmationTarget": {
+          "$ref": "#/components/schemas/WorkspaceSkillEvidenceRef",
+          "nullable": true
+        },
+        "canAccept": {
+          "type": "boolean"
+        },
+        "eligibility": {
+          "type": "string",
+          "nullable": true
+        },
+        "draft": {
+          "type": "object",
+          "nullable": true,
+          "additionalProperties": true
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "publication": {
+          "type": "object",
+          "nullable": true,
+          "additionalProperties": true
+        },
+        "error": {
+          "type": "string",
+          "nullable": true
+        }
+      },
+      "required": [
+        "proposalId",
+        "state",
+        "version",
+        "authorId",
+        "snoozedUntil",
+        "confirmationTarget",
+        "canAccept",
+        "eligibility",
+        "draft",
+        "results",
+        "publication",
+        "error"
+      ]
+    }
+  }
+}

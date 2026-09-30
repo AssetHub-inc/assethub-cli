@@ -41,11 +41,10 @@ it.each([
   const canvas = {id: 42, name: 'Native Composer', ownerId: 'org-a', url: 'https://api.test/workflow/42'}
   const posted: Record<string, unknown>[] = []
   const paths: string[] = []
-  const agentRuntime = {provider: previousOperation === 'mesh.refine' ? 'agents-api' : 'openrouter', model: 'saved/model-selection'}
-  const frozen = {agentRuntime, parts: [{assetId: 'mesh_old'}], fullBodyImageAssetId: 'saved-reference', agentVersion: 'part_composer_v4_turntable', mode: previousOperation === 'mesh.refine' ? 'codex' : 'quick',
+  const frozen = {parts: [{assetId: 'mesh_old'}], fullBodyImageAssetId: 'saved-reference', agentVersion: 'part_composer_v4_turntable', mode: previousOperation === 'mesh.refine' ? 'codex' : 'quick',
     transforms: {mesh_old: originalTransform}, nativeRunMode: 'quick-agent', nativeNodeId: 'shape:composer', nativeScene: {internal: true}, nativeNodeInputFingerprint: 'private-fingerprint', operationKey: 'old-command',
-    ...(previousOperation === 'mesh.refine' ? {assemblyPolicy: 'body_first_v1', effort: 'light', dressingGeneration: {maxCredits: 25, sourceImageAssetIds: {mesh_latest: 'owned-source'}}, geometryBackend: 'blender', referenceMode: 'all_angles', geometrySources: {mesh_old: 'oldest'}, background: {nodeShapeId: 'shape:composer', notifyByEmail: false}} : {}),
-    quickRunId: 'run_old', quickScene: {internal: true}, referenceTransform: originalTransform,
+    ...(previousOperation === 'mesh.refine' ? {geometryBackend: 'blender', assemblyPolicy: 'body_first_v1', effort: 'light', dressingGeneration: {maxCredits: 80, sourceImageAssetIds: {mesh_old: 'image_source'}}, skillSelection: {mode: 'manual', skillIds: ['assethub-mesh-part-assembly']}, workspaceSkillRun: {receiptId: 'old-server-receipt'}, referenceMode: 'all_angles', geometrySources: {mesh_old: 'oldest'}, background: {nodeShapeId: 'shape:composer', notifyByEmail: false}} : {}),
+    quickRunId: 'run_old', quickScene: {internal: true}, referenceTransform: originalTransform, agentRuntime: {provider: 'agents-api', model: 'gpt-5.6-terra'},
   }
   const previous = {schemaVersion: 'assethub.execution.v1', runId: 'native-run', operation: previousOperation, status: 'needs_review', canvas,
     requestedInput: {executionContext: {canvasId: 42, canvasNode: {nodeId: 'shape:composer'}}}, input: {parts: [{assetId: 'stale-mesh'}]}, resolvedInput: frozen,
@@ -89,12 +88,14 @@ it.each([
   }
   expect(result.code, JSON.stringify(result.json)).toBe(0)
   expect(posted).toHaveLength(1)
-  expect(posted[0]).toMatchObject({agentRuntime, parts: [{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}], fullBodyImageAssetId: 'saved-reference', transforms: {mesh_latest: override ? originalTransform : transform}, executionContext: {canvasId: 42, parentRunId: 'native-run'}})
-  for (const key of ['nativeRunMode', 'nativeNodeId', 'nativeScene', 'nativeNodeInputFingerprint', 'operationKey', 'quickRunId', 'quickScene']) expect(posted[0]).not.toHaveProperty(key)
+  expect(posted[0]).toMatchObject({agentRuntime: frozen.agentRuntime, parts: [{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}], fullBodyImageAssetId: 'saved-reference', transforms: {mesh_latest: override ? originalTransform : transform}, executionContext: {canvasId: 42, parentRunId: 'native-run'}})
+  for (const key of ['nativeRunMode', 'nativeNodeId', 'nativeScene', 'nativeNodeInputFingerprint', 'operationKey', 'quickRunId', 'quickScene', 'workspaceSkillRun']) expect(posted[0]).not.toHaveProperty(key)
   if (command === 'run') {
     expect(posted[0]!.parts).toEqual([{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}])
     expect(posted[0]).not.toHaveProperty('referenceTransform')
   } else expect(posted[0]).toMatchObject({referenceTransform: transform, mode: previousOperation === 'mesh.refine' ? 'codex' : 'standard', parts: [{volumeCentroid: [1, 2, 3]}]})
-  if (command === 'refine' && previousOperation === 'mesh.refine') expect(posted[0]).toMatchObject({assemblyPolicy: frozen.assemblyPolicy, effort: effortOverride ?? 'light', dressingGeneration: frozen.dressingGeneration, geometryBackend: 'blender', referenceMode: 'all_angles', geometrySources: previous.refinement.geometrySources, referenceViews: previous.refinement.referenceViews, background: frozen.background})
+  if (command === 'refine' && previousOperation === 'mesh.refine') expect(posted[0]).toMatchObject({geometryBackend: 'blender', skillSelection: frozen.skillSelection, referenceMode: 'all_angles', geometrySources: previous.refinement.geometrySources, referenceViews: previous.refinement.referenceViews, background: frozen.background})
+  if (command === 'refine' && previousOperation === 'mesh.refine') expect(posted[0]).toMatchObject({assemblyPolicy: 'body_first_v1', dressingGeneration: {maxCredits: 80, sourceImageAssetIds: {mesh_latest: 'image_source'}}})
+  if (command === 'refine' && previousOperation === 'mesh.refine' && !modeOverride) expect(posted[0]).toMatchObject({effort: effortOverride ?? 'light'})
   expect(paths.some(path => /upload|assets|\/image/.test(path))).toBe(false)
 })

@@ -1,9 +1,26 @@
+import {readApiBinaryArtifact} from './operations.js'
+export {
+  childOperationId,
+  planProductionNodeMeshes,
+} from './nativeCanvasNodes.js'
+export {
+  dispatchProductionBatch,
+  expandProductionBatch,
+  MAX_PRODUCTION_BATCH_ATTEMPTS,
+  MAX_PRODUCTION_BATCH_ITEMS,
+  productionBatchOperationId,
+  type ProductionBatchDeferReason,
+  type ProductionBatchEntry,
+  type ProductionBatchOutcome,
+} from './productionBatch.js'
 export {
   buildApiCatalog,
   describeApiOperation,
   buildApiRequest,
   discoverApiOperations,
   callApiOperation,
+  readApiBinaryArtifact,
+  isBinaryApiOperation,
   parseApiImageOperationResult,
   searchApiOperations,
 } from './operations.js'
@@ -17,15 +34,54 @@ export type {
   ApiOperationDiscovery,
   ParsedApiImageOperationResult,
 } from './operations.js'
+/*
+Intervention types are re-exported from a generated module, never declared here.
+`src/generated/intervention.ts` is emitted from the same zod schema the v2 route
+validates against (`@assethub/production-contracts`), so the published client
+cannot advertise an op the server rejects. Adding a hand-written variant of one
+of these types to this file defeats the gate — extend the contract instead.
+*/
+export {INTERVENTION_OPS} from './generated/intervention.js'
+// A value, not a type: callers poll against it.
+export {
+  TERMINAL_WORKSPACE_SKILL_BUILD_STATUSES,
+  WORKSPACE_SKILL_ENHANCE_SECTIONS,
+} from './workspaceSkills.js'
+export {createWorkspaceClient, WorkspaceClientError} from './workspaces.js'
+import type {WorkspaceSkillReview} from './workspaceSkills.js'
 export type {
+  WorkspaceSkillAdmissionDecision,
+  SkillMemoryLinks,
+  SkillMemoryNode,
+  SkillMemoryRef,
+  SkillMemoryReference,
+  SkillMemoryReferenceNode,
+  SkillMemoryRefStatus,
+  SkillMemoryResolution,
+  SkillMemoryTrajectory,
+  SkillMemoryWorkflowRef,
   WorkspaceSkill,
   WorkspaceSkillApplicability,
+  WorkspaceSkillReview,
   WorkspaceSkillControls,
   WorkspaceSkillDetail,
   WorkspaceSkillEvidence,
   WorkspaceSkillEvidenceRef,
   WorkspaceSkillImageEvidence,
   WorkspaceSkillPublisherPolicyEvidence,
+  MemoryMatchInput,
+  MemoryMatchResult,
+  WorkspaceSkillBuild,
+  WorkspaceSkillEnhanceResult,
+  WorkspaceSkillEnhanceSection,
+  WorkspaceSkillBuildAcceptInput,
+  WorkspaceSkillBuildInput,
+  WorkspaceSkillBuildProvenance,
+  WorkspaceSkillBuildSource,
+  WorkspaceSkillBuildStatus,
+  WorkspaceSkillAcceptanceCriterion,
+  WorkspaceSkillFailureMode,
+  WorkspaceSkillReference,
   WorkspaceSkillLearnInput,
   WorkspaceSkillLearnResult,
   WorkspaceSkillListResult,
@@ -40,29 +96,16 @@ export type {
   WorkspaceSkillStep,
   WorkspaceSkillSummary,
   WorkspaceSkillUpdate,
+  WorkspaceSkillDraftValidateInput,
+  WorkspaceSkillDraftValidateResult,
+  WorkspaceSkillDraftSchema,
+  WorkspaceSkillBuildDryRunResult,
+  OfficialWorkspaceSkillCustomize,
+  OfficialWorkspaceSkillCustomizationPrepare,
+  OfficialWorkspaceSkillInstall,
+  OfficialWorkspaceSkillList,
+  OfficialWorkspaceSkillSummary,
 } from './workspaceSkills.js'
-import type {
-  WorkspaceSkillControls,
-  WorkspaceSkillDetail,
-  WorkspaceSkillLearnInput,
-  WorkspaceSkillLearnResult,
-  WorkspaceSkillListResult,
-  WorkspaceSkillProposalAcceptInput,
-  WorkspaceSkillPublication,
-  WorkspaceSkillProposalPrepareInput,
-  WorkspaceSkillProposalPrepareResult,
-  WorkspaceSkillProposalSummary,
-  WorkspaceSkillUpdate,
-} from './workspaceSkills.js'
-/*
-Intervention types are re-exported from a generated module, never declared here.
-`src/generated/intervention.ts` is emitted from the same zod schema the v2 route
-validates against (`@assethub/production-contracts`), so the published client
-cannot advertise an op the server rejects. Adding a hand-written variant of one
-of these types to this file defeats the gate — extend the contract instead.
-*/
-export {INTERVENTION_OPS} from './generated/intervention.js'
-export {createWorkspaceClient, WorkspaceClientError} from './workspaces.js'
 export type {
   Workspace,
   WorkspaceMember,
@@ -119,6 +162,48 @@ import type {
   MeshListOptions,
   MeshListResult,
 } from './historical.js'
+import type {
+  CanvasGraphIds,
+  GraphSnapshotOptions,
+  MemorizedGraphNode,
+  MemorizedGraphNodeImage,
+  MemorizedGraphSnapshot,
+} from './graphReads.js'
+import type {
+  OfficialWorkspaceSkillCustomize,
+  OfficialWorkspaceSkillCustomizationPrepare,
+  OfficialWorkspaceSkillInstall,
+  OfficialWorkspaceSkillList,
+  SkillMemoryLinks,
+  WorkspaceSkillControls,
+  WorkspaceSkillDetail,
+  MemoryMatchInput,
+  MemoryMatchResult,
+  WorkspaceSkillBuild,
+  WorkspaceSkillEnhanceResult,
+  WorkspaceSkillEnhanceSection,
+  WorkspaceSkillBuildAcceptInput,
+  WorkspaceSkillBuildInput,
+  WorkspaceSkillBuildProvenance,
+  WorkspaceSkillBuildSource,
+  WorkspaceSkillBuildStatus,
+  WorkspaceSkillAcceptanceCriterion,
+  WorkspaceSkillFailureMode,
+  WorkspaceSkillReference,
+  WorkspaceSkillLearnInput,
+  WorkspaceSkillLearnResult,
+  WorkspaceSkillListResult,
+  WorkspaceSkillProposalAcceptInput,
+  WorkspaceSkillPublication,
+  WorkspaceSkillProposalPrepareInput,
+  WorkspaceSkillProposalPrepareResult,
+  WorkspaceSkillProposalSummary,
+  WorkspaceSkillUpdate,
+  WorkspaceSkillDraftValidateInput,
+  WorkspaceSkillDraftValidateResult,
+  WorkspaceSkillDraftSchema,
+  WorkspaceSkillBuildDryRunResult,
+} from './workspaceSkills.js'
 export type {
   GraphListResult,
   GraphSummary,
@@ -132,9 +217,24 @@ export type {
   MeshListResult,
 } from './historical.js'
 export type {
+  CanvasGraphIds,
+  GraphSnapshotOptions,
+  MemorizedGraphEdgeRef,
+  MemorizedGraphNode,
+  MemorizedGraphNodeImage,
+  MemorizedGraphNodeSummary,
+  MemorizedGraphSnapshot,
+} from './graphReads.js'
+export {
+  MAX_GRAPH_IMAGE_HTTP_RESPONSE_BYTES,
+  MEMORIZED_GRAPH_ID_MAX_LENGTH,
+  MEMORIZED_GRAPH_NODE_ID_MAX_LENGTH,
+} from './graphReads.js'
+export type {
   ApiCapabilities,
   Canvas,
   CanvasExecution,
+  CharacterAssemblyProgress,
   CanvasGraph,
   CanvasGraphOptions,
   CanvasNode,
@@ -640,6 +740,7 @@ export type QueuedPartsSeparationResult = {
 }
 
 export type QueuedImageResult = {
+  workspaceSkillAdmission?: import('./workspaceSkills.js').WorkspaceSkillAdmissionDecision
   execution?: CanvasExecution
   jobId: string
   imageGenId: string
@@ -666,6 +767,11 @@ export type VisionRequest = LanguageRequest & {
 export type LanguageResult = {texts: string[]; jobId?: string}
 
 export type ImageGenerationRequest = {
+  partSkillEdit?: {
+    operationId: string
+    attempt?: number
+    skills: {skillId: string; revision: number}[]
+  }
   projectContext?: {canvasId: number; version: number; sourceKeys?: string[]}
   moodboardRevisionId?: string
   executionContext?: ExecutionContext
@@ -978,6 +1084,11 @@ export type ProductionWorkspaceSkillSelection = {
 
 export type ProductionAnalyzeRequest = RequireAtLeastOne<
   {
+    meshGeneration?: {
+      modelId: string
+      faceLimit?: number
+      params?: Record<string, boolean | number | string>
+    }
     imageUrl?: string
     imageBlobLocation?: BlobLocation
     imageAssetId?: string
@@ -985,7 +1096,15 @@ export type ProductionAnalyzeRequest = RequireAtLeastOne<
     executionContext?: ExecutionContext
     agentVersion: string
     name?: string
+    baseBodyAssetId?: string
+    pipelineDepth?: 'parts' | 'mesh' | 'composition'
+    assemblyPolicy?: 'concept-to-character-v1'
     skillSelection?: ProductionWorkspaceSkillSelection
+    skillPlannerModel?:
+      | 'openai/gpt-5.6-sol'
+      | 'openai/gpt-5.6-luna'
+      | 'anthropic/claude-opus-5.5'
+    autoRepair?: boolean
     projectContext?: {canvasId: number; version: number}
   },
   'imageUrl' | 'imageBlobLocation' | 'imageAssetId' | 'uploadId'
@@ -1096,9 +1215,13 @@ export type ProductionRunResult = {
 }
 
 export type MeshComposeRequest = {
+  skillSelection?: ProductionWorkspaceSkillSelection
+  baseBodyAssetId?: string
   agentRuntime?: ComposerAgentRuntime
   agentVersion?: string
   mode?: 'quick' | 'quality'
+  /** Completed ML Quick layout run to refine with V4, preserving its placement. */
+  quickRunId?: string
   /** Every part: position xyz, quaternion xyzw, scale xyz. */
   transforms?: Record<string, number[]>
   targetCharacterHeightM?: number
@@ -1143,9 +1266,17 @@ export type MeshRefinementModeInfo = {
   maxRounds: number
   budgetMs: number
 }
+export type ComposerAgentRuntime = {
+  provider: 'openrouter' | 'agents-api' | 'responses-api'
+  model: string
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+}
 export type MeshRefinementCapabilities = {
   bodyFirst?: boolean
+  bodyFirstOnly?: boolean
   bodyFirstMaxRounds?: number
+  bodyFirstDefaultRounds?: number
+  bodyFirstBudgetMs?: number
   allAngles?: boolean
   background?: boolean
   agentModels?: {
@@ -1153,12 +1284,8 @@ export type MeshRefinementCapabilities = {
     label: string
     provider: 'openrouter' | 'agents-api' | 'responses-api'
   }[]
-  defaultMode: 'standard'
+  defaultMode: 'standard' | 'codex'
   modes: MeshRefinementModeInfo[]
-}
-export type ComposerAgentRuntime = {
-  provider: 'openrouter' | 'agents-api' | 'responses-api'
-  model: string
 }
 export type ComposerRefineCalibration = {
   referenceAssetId: string
@@ -1185,14 +1312,20 @@ export type ComposerReferenceViews = {
 }
 export type MeshRefineRequest = {
   effort?: 'light' | 'standard' | 'thorough'
+  /** Skill assembly (V5.1): the bundled Character Assembly skill; codex mode only. */
+  skillAssembly?: 'assemble-character'
+  skillAssemblyReasoning?: 'low' | 'medium' | 'high'
   assemblyPolicy?: 'body_first_v1'
+  initialPlacementOnly?: boolean
   dressingGeneration?: {maxCredits: number; sourceImageAssetIds: Record<string, string>}
+  skillSelection?: ProductionWorkspaceSkillSelection
   geometryBackend?: 'blender'
   referenceMode?: 'front' | 'all_angles'
   calibration?: ComposerRefineCalibration
   referenceViews?: ComposerReferenceViews
   geometrySources?: Record<string, string>
   reviewContext?: {
+    frozenAssemblyPlan?: {artifactId: string; planHash: string; content: string}
     issues: string[]
     parts: {assetId: string; sourceAssetId?: string; issues: string[]}[]
   }
@@ -1317,6 +1450,11 @@ export type ProductionAgent = {
   supportedOnClassicEndpoint: boolean
   supportedOnAutomation: boolean
   supportedOnGraphEndpoint?: boolean
+  /** Conditional policy access does not grant unrestricted graph execution. */
+  supportedAssemblyPolicies?: NonNullable<
+    ProductionAnalyzeRequest['assemblyPolicy']
+  >[]
+  requiredAssemblyPipelineDepth?: 'composition'
   graphEndpoint?: string
   requiresAnalysis?: boolean
 }
@@ -1549,6 +1687,12 @@ export type ProductionStatusResult = {
     updatedAt?: string
   }>
   summary?: ProductionStatusSummary
+  result?: {
+    kind: 'composed' | 'parts'
+    assetId: string
+    url: string | null
+    expiresAt: string
+  } | null
 }
 
 /**
@@ -1570,6 +1714,20 @@ export type InterventionLogEntry = {
   createdAt: string
   /** Absent when `{op, ...payload}` satisfies the intervention contract. */
   contractError?: string
+}
+
+/** A graph production picked back up after a fix (POST /v2/production/{id}/resume). */
+export type ProductionResumeResult = {
+  orderId: string
+  graphId: string
+  /** How many times the production has been resumed, this one included. */
+  resumeCount: number
+  /** The research family's stop round: bumped when the run had stopped. */
+  epoch: number
+  /** Steps that had broken and were queued again. */
+  resetRuns: number
+  /** A retried request whose resume had already landed: nothing new was done. */
+  alreadyResumed: boolean
 }
 
 export type InterventionAppendResult = {
@@ -1608,6 +1766,8 @@ export class AssetHubApiError extends Error {
    * `PART_IMAGE_REQUIRED` or `{assetId, actualType, expectedType}` on
    * `ASSET_WRONG_MEDIA_TYPE`. Undefined when the server sent none. */
   readonly details?: Record<string, unknown>
+  /** The server replayed a response it stored for this Idempotency-Key. */
+  readonly replayed: boolean
 
   constructor({
     status,
@@ -1615,12 +1775,14 @@ export class AssetHubApiError extends Error {
     message,
     payload,
     requestId,
+    replayed = false,
   }: {
     status: number
     code: string
     message: string
     payload: unknown
     requestId?: string
+    replayed?: boolean
   }) {
     super(message)
     this.name = 'AssetHubApiError'
@@ -1629,6 +1791,7 @@ export class AssetHubApiError extends Error {
     this.payload = payload
     this.requestId = requestId
     this.details = (payload as ApiErrorPayload | null)?.error?.details
+    this.replayed = replayed
     const runId = this.details?.runId
     this.runId = typeof runId === 'string' ? runId : undefined
   }
@@ -1671,6 +1834,22 @@ const withQuery = (
   return query === '' ? path : `${path}?${query}`
 }
 
+const RATE_LIMIT_RETRIES = 5
+const RATE_LIMIT_MAX_WAIT_MS = 60_000
+
+/** Wait for a 429: the server's Retry-After (seconds), else 2^attempt s, capped. */
+export const rateLimitDelayMs = (
+  retryAfter: string | null,
+  attempt: number,
+): number => {
+  const seconds = retryAfter?.trim() ? Number(retryAfter) : Number.NaN
+  const ms =
+    Number.isFinite(seconds) && seconds >= 0
+      ? seconds * 1000
+      : 2 ** attempt * 1000
+  return Math.min(ms + 250, RATE_LIMIT_MAX_WAIT_MS)
+}
+
 const sleep = async (ms: number): Promise<void> => {
   await new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -1678,13 +1857,6 @@ const sleep = async (ms: number): Promise<void> => {
 const isFormDataBody = (body: unknown): body is FormData =>
   typeof FormData !== 'undefined' && body instanceof FormData
 
-/**
- * A 429 response never reaches the idempotency store on the server (the rate
- * limiter runs ahead of it), so replaying the same request with the same
- * Idempotency-Key/body cannot create a duplicate run. Bounded so a
- * persistently rate-limited caller still fails instead of hanging.
- */
-const RATE_LIMIT_MAX_ATTEMPTS = 5
 const RATE_LIMIT_MIN_DELAY_MS = 250
 const RATE_LIMIT_MAX_DELAY_MS = 30_000
 
@@ -1702,13 +1874,21 @@ const parseRetryAfterMessage = (message: string): number | undefined => {
   return match ? Number(match[1]) * 1000 : undefined
 }
 
-const rateLimitDelayMs = (response: Response, message: string): number => {
+/**
+ * The server's Retry-After, else its "Try again in N seconds" wording, else
+ * 2^attempt s; plus up to 250 ms of jitter so parallel callers spread out.
+ */
+const retryDelayMs = (
+  response: Response,
+  message: string,
+  attempt: number,
+): number => {
   const header = response.headers.get('Retry-After')
   const requested =
     (header == null ? undefined : parseRetryAfterHeader(header)) ??
     parseRetryAfterMessage(message) ??
-    RATE_LIMIT_MIN_DELAY_MS
-  const jitter = Math.random() * Math.min(1_000, Math.max(100, requested * 0.25))
+    2 ** attempt * 1000
+  const jitter = Math.random() * RATE_LIMIT_MIN_DELAY_MS
   return Math.min(
     RATE_LIMIT_MAX_DELAY_MS,
     Math.max(RATE_LIMIT_MIN_DELAY_MS, requested + jitter),
@@ -1822,8 +2002,15 @@ export class AssetHubClient {
     version: AssetHubApiVersion,
     path: string,
     init: RequestInit = {},
+    responseFormat: 'json' | 'binary' | 'binary-metadata' = 'json',
   ): Promise<ApiSuccess<T>> {
-    return this.requestJson(version, path, init) as Promise<ApiSuccess<T>>
+    return this.requestJson(
+      version,
+      path,
+      init,
+      false,
+      responseFormat,
+    ) as Promise<ApiSuccess<T>>
   }
 
   async getOpenApiSpec(
@@ -1843,65 +2030,88 @@ export class AssetHubClient {
     path: string,
     init: RequestInit,
     rawDocument = false,
+    responseFormat: 'json' | 'binary' | 'binary-metadata' = 'json',
   ): Promise<unknown> {
     const body = init.body
-    const url = `${this.baseUrl}/api/${version}${normalizePath(path)}`
-    const headers = {
-      Authorization: `Bearer ${this.apiKey}`,
-      ...(this.workspaceId ? {'X-AssetHub-Workspace': this.workspaceId} : {}),
-      ...(isFormDataBody(body) ? {} : {'Content-Type': 'application/json'}),
-      ...(init.headers ?? {}),
-    }
-
-    for (let attempt = 0; ; attempt++) {
-      const response = await this.fetchImpl(url, {...init, headers})
-
-      if (
-        !rawDocument &&
-        response.ok &&
-        response.headers
-          .get('content-type')
-          ?.split(';')[0]
-          .trim()
-          .toLowerCase() === 'application/x-ndjson'
+    const send = () =>
+      this.fetchImpl(`${this.baseUrl}/api/${version}${normalizePath(path)}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          ...(this.workspaceId
+            ? {'X-AssetHub-Workspace': this.workspaceId}
+            : {}),
+          ...(isFormDataBody(body) ? {} : {'Content-Type': 'application/json'}),
+          ...(init.headers ?? {}),
+        },
+      })
+    let response = await send()
+    // Wait out a rate limit instead of failing. The rate limiter answers
+    // before any handler or the idempotency store runs, so the same request
+    // (headers, body, any Idempotency-Key) is replayed unchanged: nothing was
+    // queued or charged yet. An agent-run plan limit is also a 429, but waiting
+    // cannot lift it, so it goes straight back to the caller.
+    for (
+      let attempt = 1;
+      response.status === 429 && attempt <= RATE_LIMIT_RETRIES;
+      attempt++
+    ) {
+      const limited = (await response
+        .clone()
+        .json()
+        .catch(() => ({}))) as ApiErrorPayload
+      if (limited.error?.code === 'AGENT_OWNER_LIMIT_EXCEEDED') break
+      await this.sleepImpl(
+        retryDelayMs(response, limited.error?.message ?? '', attempt),
       )
-        return readWorkflowStream(response)
-
-      const payload = (await response.json().catch(() => ({}))) as
-        | ApiSuccess<unknown>
-        | ApiErrorPayload
-
-      if (
-        !response.ok ||
-        (!rawDocument && payload.success !== true) ||
-        payload.success === false
-      ) {
-        const errorPayload = payload as ApiErrorPayload
-        const code = errorPayload.error?.code ?? 'UNKNOWN_ERROR'
-        const message =
-          errorPayload.error?.message ??
-          `AssetHub API request failed with status ${response.status}`
-        // Same request (headers, body, Idempotency-Key) is replayed unchanged;
-        // the rate limiter rejects before any handler runs, so nothing was
-        // queued or charged yet, and repeating is always safe.
-        if (response.status === 429 && attempt < RATE_LIMIT_MAX_ATTEMPTS - 1) {
-          await this.sleepImpl(rateLimitDelayMs(response, message))
-          continue
-        }
-        throw new AssetHubApiError({
-          status: response.status,
-          code,
-          message,
-          payload,
-          requestId:
-            errorPayload.error?.requestId ??
-            response.headers.get('X-Request-ID') ??
-            undefined,
-        })
-      }
-
-      return payload
+      response = await send()
     }
+
+    if (response.ok && responseFormat !== 'json')
+      return readApiBinaryArtifact(
+        response,
+        responseFormat === 'binary-metadata' ? 'metadata' : 'base64',
+      )
+
+    if (
+      !rawDocument &&
+      response.ok &&
+      response.headers
+        .get('content-type')
+        ?.split(';')[0]
+        .trim()
+        .toLowerCase() === 'application/x-ndjson'
+    )
+      return readWorkflowStream(response)
+
+    const payload = (await response.json().catch(() => ({}))) as
+      | ApiSuccess<unknown>
+      | ApiErrorPayload
+
+    if (
+      !response.ok ||
+      (!rawDocument && payload.success !== true) ||
+      payload.success === false
+    ) {
+      const errorPayload = payload as ApiErrorPayload
+      const code = errorPayload.error?.code ?? 'UNKNOWN_ERROR'
+      const message =
+        errorPayload.error?.message ??
+        `AssetHub API request failed with status ${response.status}`
+      throw new AssetHubApiError({
+        status: response.status,
+        code,
+        message,
+        payload,
+        requestId:
+          errorPayload.error?.requestId ??
+          response.headers.get('X-Request-ID') ??
+          undefined,
+        replayed: response.headers.get('Idempotency-Replayed') === 'true',
+      })
+    }
+
+    return payload
   }
 
   readonly v1 = {
@@ -2156,6 +2366,53 @@ export class AssetHubClient {
         })
       ).data,
 
+    getWorkspaceSkillReview: async (
+      outputAssetId: string,
+      canvasId: number,
+    ): Promise<WorkspaceSkillReview> =>
+      (
+        await this.request<WorkspaceSkillReview>(
+          'v2',
+          withQuery(
+            `/workspace-skills/reviews/${encodeURIComponent(outputAssetId)}`,
+            {canvasId},
+          ),
+          {method: 'GET'},
+        )
+      ).data,
+    resumeWorkspaceSkillReview: async (
+      outputAssetId: string,
+      canvasId: number,
+      options: {idempotencyKey: string},
+    ): Promise<WorkspaceSkillReview> =>
+      (
+        await this.request<WorkspaceSkillReview>(
+          'v2',
+          `/workspace-skills/reviews/${encodeURIComponent(outputAssetId)}`,
+          {
+            method: 'POST',
+            headers: {'Idempotency-Key': options.idempotencyKey},
+            body: JSON.stringify({canvasId}),
+          },
+        )
+      ).data,
+    cancelWorkspaceSkillReview: async (
+      outputAssetId: string,
+      canvasId: number,
+      options: {idempotencyKey: string},
+    ): Promise<WorkspaceSkillReview> =>
+      (
+        await this.request<WorkspaceSkillReview>(
+          'v2',
+          `/workspace-skills/reviews/${encodeURIComponent(outputAssetId)}/cancel`,
+          {
+            method: 'POST',
+            headers: {'Idempotency-Key': options.idempotencyKey},
+            body: JSON.stringify({canvasId}),
+          },
+        )
+      ).data,
+
     listWorkspaceSkills: async (
       options: {cursor?: string} = {},
     ): Promise<WorkspaceSkillListResult> =>
@@ -2177,6 +2434,27 @@ export class AssetHubClient {
           withQuery(`/workspace-skills/${encodeURIComponent(skillId)}`, {
             revision: options.revision,
           }),
+          {method: 'GET'},
+        )
+      ).data,
+
+    /**
+     * Resolve the memories a Skill was learned from. `getWorkspaceSkill`
+     * returns `workflowRef` and `evidence[]` as bare ids; this returns what
+     * each one points at today, plus a `memoryId` that `startMemoryReplay`
+     * accepts. Read-only — no credits, no writes.
+     */
+    getSkillMemoryLinks: async (
+      skillId: string,
+      options: {revision?: number} = {},
+    ): Promise<SkillMemoryLinks> =>
+      (
+        await this.request<SkillMemoryLinks>(
+          'v2',
+          withQuery(
+            `/workspace-skills/${encodeURIComponent(skillId)}/memory`,
+            {revision: options.revision},
+          ),
           {method: 'GET'},
         )
       ).data,
@@ -2221,6 +2499,121 @@ export class AssetHubClient {
         )
       ).data,
 
+    matchMemory: async (body: MemoryMatchInput): Promise<MemoryMatchResult> =>
+      (
+        await this.request<MemoryMatchResult>('v2', '/memory/match', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
+      ).data,
+
+    startWorkspaceSkillBuild: async (
+      body: WorkspaceSkillBuildInput,
+      options: {idempotencyKey: string},
+    ): Promise<WorkspaceSkillBuild> =>
+      (
+        await this.request<WorkspaceSkillBuild>(
+          'v2',
+          '/workspace-skills/builds',
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+            ...idempotencyRequestInit(options),
+          },
+        )
+      ).data,
+
+    getWorkspaceSkillBuild: async (
+      buildId: string,
+    ): Promise<WorkspaceSkillBuild> =>
+      (
+        await this.request<WorkspaceSkillBuild>(
+          'v2',
+          `/workspace-skills/builds/${encodeURIComponent(buildId)}`,
+          {method: 'GET'},
+        )
+      ).data,
+
+    acceptWorkspaceSkillBuild: async (
+      buildId: string,
+      body: WorkspaceSkillBuildAcceptInput,
+      options: {idempotencyKey: string},
+    ): Promise<{skillId: string; revision: number}> =>
+      (
+        await this.request<{skillId: string; revision: number}>(
+          'v2',
+          `/workspace-skills/builds/${encodeURIComponent(buildId)}/accept`,
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+            ...idempotencyRequestInit(options),
+          },
+        )
+      ).data,
+
+    enhanceWorkspaceSkillBuildSection: async (
+      buildId: string,
+      // `current` is required by the server; it is optional in the TYPE only
+      // because an `unknown` field cannot be spelled as required in a way every
+      // caller's inference agrees on. Omitting it is a 400.
+      body: {
+        section: WorkspaceSkillEnhanceSection
+        current?: unknown
+        note?: string
+      },
+    ): Promise<WorkspaceSkillEnhanceResult> =>
+      (
+        await this.request<WorkspaceSkillEnhanceResult>(
+          'v2',
+          `/workspace-skills/builds/${encodeURIComponent(buildId)}/enhance`,
+          {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    discardWorkspaceSkillBuild: async (
+      buildId: string,
+    ): Promise<{status: 'discarded'}> =>
+      (
+        await this.request<{status: 'discarded'}>(
+          'v2',
+          `/workspace-skills/builds/${encodeURIComponent(buildId)}/discard`,
+          {method: 'POST'},
+        )
+      ).data,
+
+    // FREE pre-flight checks: none of the three below reserve credits,
+    // insert a build row, or dispatch anything.
+    validateWorkspaceSkillDraft: async (
+      body: WorkspaceSkillDraftValidateInput,
+    ): Promise<WorkspaceSkillDraftValidateResult> =>
+      (
+        await this.request<WorkspaceSkillDraftValidateResult>(
+          'v2',
+          '/workspace-skills/drafts/validate',
+          {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    getWorkspaceSkillDraftSchema: async (): Promise<WorkspaceSkillDraftSchema> =>
+      (
+        await this.request<WorkspaceSkillDraftSchema>(
+          'v2',
+          '/workspace-skills/drafts/schema',
+          {method: 'GET'},
+        )
+      ).data,
+
+    dryRunWorkspaceSkillBuild: async (
+      body: WorkspaceSkillBuildInput,
+    ): Promise<WorkspaceSkillBuildDryRunResult> =>
+      (
+        await this.request<WorkspaceSkillBuildDryRunResult>(
+          'v2',
+          '/workspace-skills/builds/dry-run',
+          {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
     prepareWorkspaceSkillProposal: async (
       body: WorkspaceSkillProposalPrepareInput,
     ): Promise<WorkspaceSkillProposalPrepareResult> =>
@@ -2251,6 +2644,51 @@ export class AssetHubClient {
         await this.request<WorkspaceSkillPublication>(
           'v2',
           `/workspace-skills/proposals/${encodeURIComponent(proposalId)}/accept`,
+          {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    listOfficialWorkspaceSkills: async (): Promise<OfficialWorkspaceSkillList> =>
+      (
+        await this.request<OfficialWorkspaceSkillList>(
+          'v2',
+          '/workspace-skills/official',
+          {method: 'GET'},
+        )
+      ).data,
+
+    installOfficialWorkspaceSkill: async (
+      skillId: string,
+      body: OfficialWorkspaceSkillInstall,
+    ): Promise<WorkspaceSkillDetail> =>
+      (
+        await this.request<WorkspaceSkillDetail>(
+          'v2',
+          `/workspace-skills/official/${encodeURIComponent(skillId)}/install`,
+          {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    customizeOfficialWorkspaceSkill: async (
+      skillId: string,
+      body: OfficialWorkspaceSkillCustomize,
+    ): Promise<WorkspaceSkillDetail> =>
+      (
+        await this.request<WorkspaceSkillDetail>(
+          'v2',
+          `/workspace-skills/official/${encodeURIComponent(skillId)}/customize`,
+          {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    prepareOfficialWorkspaceSkillCustomization: async (
+      skillId: string,
+      body: OfficialWorkspaceSkillCustomizationPrepare,
+    ): Promise<OfficialWorkspaceSkillCustomize> =>
+      (
+        await this.request<OfficialWorkspaceSkillCustomize>(
+          'v2',
+          `/workspace-skills/official/${encodeURIComponent(skillId)}/customize/prepare`,
           {method: 'POST', body: JSON.stringify(body)},
         )
       ).data,
@@ -2376,9 +2814,7 @@ export class AssetHubClient {
         )
       ).data,
 
-    listGraphs: async (
-      options: PageOptions = {},
-    ): Promise<GraphListResult> =>
+    listGraphs: async (options: PageOptions = {}): Promise<GraphListResult> =>
       (
         await this.request<GraphListResult>(
           'v2',
@@ -2516,6 +2952,55 @@ export class AssetHubClient {
           withQuery(`/canvases/${encodeURIComponent(canvasId)}/graph`, {
             ...options,
           }),
+          {method: 'GET'},
+        )
+      ).data,
+
+    // Memorized-graph reads: the same store the Skill Builder agent's own
+    // tools read, distinct from getGraph (the authority/generated store).
+    getGraphSnapshot: async (
+      graphId: string,
+      options: GraphSnapshotOptions = {},
+    ): Promise<MemorizedGraphSnapshot> =>
+      (
+        await this.request<MemorizedGraphSnapshot>(
+          'v2',
+          withQuery(`/graphs/${encodeURIComponent(graphId)}/snapshot`, {
+            ...options,
+          }),
+          {method: 'GET'},
+        )
+      ).data,
+
+    getGraphNode: async (
+      graphId: string,
+      nodeId: string,
+    ): Promise<MemorizedGraphNode> =>
+      (
+        await this.request<MemorizedGraphNode>(
+          'v2',
+          `/graphs/${encodeURIComponent(graphId)}/nodes/${encodeURIComponent(nodeId)}`,
+          {method: 'GET'},
+        )
+      ).data,
+
+    getGraphNodeImage: async (
+      graphId: string,
+      nodeId: string,
+    ): Promise<MemorizedGraphNodeImage> =>
+      (
+        await this.request<MemorizedGraphNodeImage>(
+          'v2',
+          `/graphs/${encodeURIComponent(graphId)}/nodes/${encodeURIComponent(nodeId)}/image`,
+          {method: 'GET'},
+        )
+      ).data,
+
+    getCanvasGraphIds: async (canvasId: number): Promise<CanvasGraphIds> =>
+      (
+        await this.request<CanvasGraphIds>(
+          'v2',
+          `/canvases/${encodeURIComponent(canvasId)}/graph-id`,
           {method: 'GET'},
         )
       ).data,
@@ -3248,6 +3733,23 @@ export class AssetHubClient {
               ? {}
               : {headers: {'Idempotency-Key': options.idempotencyKey}}),
           },
+        )
+      ).data,
+
+    /**
+     * Resumes a stopped or stalled graph production once the fix for what
+     * stopped it is live (internal only). Pass the `resumeCount` you last saw
+     * as `expectedResumeCount` to make a retry safe.
+     */
+    resumeProduction: async (
+      orderId: string,
+      options: {expectedResumeCount?: number} = {},
+    ): Promise<ProductionResumeResult> =>
+      (
+        await this.request<ProductionResumeResult>(
+          'v2',
+          `/production/${encodeURIComponent(orderId)}/resume`,
+          {method: 'POST', body: JSON.stringify(options)},
         )
       ).data,
 
