@@ -31,49 +31,6 @@ print the `export ASSETHUB_API_KEY=...` line, and export it in the shell that
 starts Claude Code or Codex. The key is redacted
 (`ah_…last4`) everywhere else.
 
-### Session saving (opt-in)
-
-Setup does not record sessions unless you agree. Pass `--save-sessions`, answer
-yes when an interactive setup asks (the default is no), or run
-`assethub hooks install --client claude`. Non-interactive runs and `--yes`
-never turn it on. Once enabled:
-
-- The hooks run `assethub`, so this part (unlike MCP) needs the CLI on `PATH`.
-- `SessionStart`, `Stop` and `PreCompact` hooks (run in the background) and a
-  `SessionEnd` hook are added to `~/.claude/settings.json`, so **every Claude
-  Code session on the machine, in any project**, is saved to
-  `~/.assethub/sessions/` (folders `0700`, files `0600`). `Stop` and `PreCompact`
-  only note that the session moved on; the transcript is copied once, when the
-  session ends. The copy keeps only the conversation: your prompts, the agent's
-  replies, its tool calls and their results, and compaction summaries. Claude
-  Code's skill and tool listings, system prompt, hook context, environment,
-  signed-in email, working directory, token usage and thinking are dropped.
-  Recognised secrets in what remains are masked (API keys, JWTs, Stripe, Slack,
-  Google and Supabase keys, URL passwords, private keys,
-  `*_KEY=`/`*TOKEN=`/`*PASSWORD=` values). Masking is best effort.
-- At session end a detached `assethub hooks upload --session <dir> --auto --sweep 3`
-  uploads the session to your AssetHub coding-agent sessions
-  (`/api/v2/coding-agent-sessions`): the masked transcript in chunks of up to
-  3 MiB (a grown session re-sends only its last chunk), plus an index of your
-  prompts, the agent's replies and its tool calls, and images from the project.
-  A session is linked to the canvas named in `.assethub/canvas` (or
-  `ASSETHUB_CANVAS`) and only you can read it; it is not a Production Control
-  run. Uploading is internal-only for now: other keys get a 404 and the session
-  stays local.
-- Failed uploads are retried in the background, at most 3 sessions at a time,
-  when a later session ends or starts (`assethub hooks upload --pending --limit 3`).
-  After an ordinary failure the next automatic try waits 1h, 2h, 4h … up to a
-  day; after a 404 it waits a day. `--force` retries now. A session that never
-  reached `SessionEnd` (a crash or a closed terminal) is picked up by the next
-  `SessionStart` once it has been quiet for 2 hours.
-- An upload that fails for size or time is compacted: the index keeps fewer,
-  shorter messages at each level, and images stay local from level 2. The
-  transcript chunks are always sent.
-- Saved copies older than 30 days are deleted
-  (`ASSETHUB_SESSION_RETENTION_DAYS=<n>`, or `off` to keep them).
-- Opt a project out with `.assethub/no-session-save`, or set
-  `ASSETHUB_SESSION_SAVE=off` / `ASSETHUB_SESSION_UPLOAD=off`. Remove the hooks
-  with `assethub hooks uninstall --client claude`.
 ## API discovery and Workspace Skills
 
 Use `api search [query]` to discover the authenticated server catalog and

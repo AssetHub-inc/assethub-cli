@@ -5,7 +5,7 @@ import {installHooks, SESSION_SAVE_DISCLOSURE, uninstallHooks} from './install.j
 import {listSessionDirs, readMeta} from './paths.js'
 import {saveSession} from './save.js'
 import type {HookClient} from './types.js'
-import {uploadPending, uploadSession, type UploadOptions} from './upload.js'
+import {canUploadSessions, resolveUploadAuth, uploadPending, uploadSession, type UploadOptions} from './upload.js'
 
 export type HooksCommandDeps = {
   home?: string
@@ -92,6 +92,15 @@ export const runHooksCommand = async (
           return 2
         }
         if (sub === 'install') {
+          // Only accounts that may upload sessions (internal for now) can turn
+          // session saving on; for anyone else the hooks would only pile up.
+          if (client === 'claude') {
+            const auth = await resolveUploadAuth(uploadOptions)
+            if (!auth || !(await canUploadSessions(auth, deps.fetchImpl))) {
+              write('Session saving is not available for this account.\n')
+              return 1
+            }
+          }
           const result = await installHooks({
             client: client as HookClient,
             home: deps.home,

@@ -51,6 +51,7 @@ const makeDeps = (over: Partial<SetupDeps> = {}) => {
     pickWorkspace: async items => items[1].id,
     confirm: async () => true,
     confirmOptIn: async () => false,
+    canSaveSessions: async () => true,
     diagnose: async () => ({ok: true, checks: [{name: 'api', status: 'pass'}, {name: 'mcp', status: 'pass'}]}),
     findBinary: async () => '/bin/claude',
     run: async (file, args) => {
@@ -616,7 +617,10 @@ describe('assethub setup (spawned CLI)', () => {
       const report = JSON.parse(first.stdout)
       expect(report.ok).toBe(true)
       expect(report.workspaceId).toBe('ws-e2e')
-      expect(report.steps.map((s: {name: string}) => s.name)).toEqual(['login', 'workspace', 'claude-mcp', 'codex-mcp', 'app-env', 'hook', 'doctor'])
+      // The fake server does not grant session uploads, like a non-internal account: no session step at all.
+      expect(report.steps.map((s: {name: string}) => s.name)).toEqual(['login', 'workspace', 'claude-mcp', 'codex-mcp', 'app-env', 'doctor'])
+      expect(first.stdout + first.stderr).not.toMatch(/session/i)
+      expect(requests).toContain('POST /api/v2/coding-agent-sessions/graphs')
       const argv = (await readFile(argvLog, 'utf8')).trim().split('\n')
       expect(argv).toHaveLength(1)
       expect(argv[0]).toBe(
@@ -624,7 +628,7 @@ describe('assethub setup (spawned CLI)', () => {
       )
       expect(argv.join('\n')).not.toContain('fake-e2e-key-cccc')
       // Non-interactive and no --save-sessions: nothing records sessions.
-      expect(report.steps.find((s: {name: string}) => s.name === 'hook').status).toBe('skip')
+      expect(report.steps.find((s: {name: string}) => s.name === 'hook')).toBeUndefined()
       await expect(readFile(join(dir, '.claude', 'settings.json'), 'utf8')).rejects.toThrow()
 
       const codex = await readFile(join(codexHome, 'config.toml'), 'utf8')
@@ -683,3 +687,33 @@ describe('setup review fixes', () => {
     }
   })
 })
+
+describe('session saving is offered only to accounts that may upload sessions', () => {
+  it('asks nothing and adds no step for an account without access', async () => {
+    const confirmOptIn = vi.fn(async () => true)
+    const installHooks = vi.fn(async () => ({installed: true, detail: 'installed'}))
+    const {deps, logs} = makeDeps({interactive: true, confirmOptIn, installHooks, canSaveSessions: async () => false})
+    const result = await runSetup(options({yes: false, saveSessions: false}), deps)
+    expect(result.steps.map(s => s.name)).not.toContain('hook')
+    expect(confirmOptIn).not.toHaveBeenCalled()
+    expect(installHooks).not.toHaveBeenCalled()
+    expect(JSON.stringify(result) + logs.join('\n')).not.toMatch(/session/i)
+  })
+
+  it('answers an explicit --save-sessions without installing anything', async () => {
+    const installHooks = vi.fn(async () => ({installed: true, detail: 'installed'}))
+    const {deps} = makeDeps({installHooks, canSaveSessions: async () => false})
+    const result = await runSetup(options({saveSessions: true}), deps)
+    expect(result.steps.find(s => s.name === 'hook')).toEqual({name: 'hook', status: 'skip', detail: 'session saving is not available for this account'})
+    expect(installHooks).not.toHaveBeenCalled()
+  })
+
+  it('still offers it to an account with access', async () => {
+    const installHooks = vi.fn(async () => ({installed: true, detail: 'installed'}))
+    const {deps} = makeDeps({installHooks, canSaveSessions: async () => true})
+    const result = await runSetup(options({saveSessions: true}), deps)
+    expect(result.steps.find(s => s.name === 'hook')).toMatchObject({status: 'ok'})
+    expect(installHooks).toHaveBeenCalled()
+  })
+})
+

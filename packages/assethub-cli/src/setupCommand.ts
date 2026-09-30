@@ -67,6 +67,8 @@ export type SetupDeps = {
   confirm: (question: string) => Promise<boolean>
   /** Opt-in question that defaults to no. */
   confirmOptIn: (question: string) => Promise<boolean>
+  /** Whether this login may save and upload coding-agent sessions (internal accounts for now). */
+  canSaveSessions: (auth: SetupAuth) => Promise<boolean>
   diagnose: () => Promise<DoctorReport>
   findBinary: (name: string) => Promise<string | undefined>
   run: (file: string, args: string[]) => Promise<{code: number; output: string}>
@@ -366,8 +368,13 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   const appEnv = await ensureAppEnv(options, deps, key)
   steps.push(appEnv)
 
-  // 6. Session saving: recording every Claude Code session is opt-in.
-  if (options.noHook) {
+  // 6. Session saving: opt-in, and offered only to accounts that may upload
+  // sessions (internal for now). Anyone else gets no question and no step.
+  const sessionsAvailable = auth != null && (await deps.canSaveSessions(auth))
+  if (!sessionsAvailable) {
+    if (options.saveSessions)
+      steps.push({name: 'hook', status: 'skip', detail: 'session saving is not available for this account'})
+  } else if (options.noHook) {
     steps.push({name: 'hook', status: 'skip', detail: 'skipped (--no-hook)'})
   } else if (!wantClaude) {
     steps.push({name: 'hook', status: 'skip', detail: 'Codex session saving is not supported yet'})

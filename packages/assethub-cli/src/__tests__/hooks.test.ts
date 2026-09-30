@@ -830,8 +830,22 @@ describe('runHooksCommand', () => {
     expect(JSON.parse(await readFile(join(older, 'meta.json'), 'utf8')).status).toBe('uploaded')
   })
 
+  const probeServer = (status: number) =>
+    fakeServer(call => new Response(JSON.stringify({success: false, error: {code: 'X', message: 'x'}}), {status, headers: {'content-type': 'application/json'}}))
+  const withKey = {ASSETHUB_API_KEY: 'test-env-key-not-secret', ASSETHUB_API_BASE_URL: 'https://x.test'}
+
+  it('refuses to install for an account that may not upload sessions, and changes nothing', async () => {
+    const {fetchImpl, calls} = probeServer(404)
+    const result = await run(['install', '--client', 'claude'], {env: withKey, fetchImpl})
+    expect(result.code).toBe(1)
+    expect(result.out).toBe('Session saving is not available for this account.\n')
+    expect(calls.map(c => `${c.method} ${c.url}`)).toEqual(['POST https://x.test/api/v2/coding-agent-sessions/graphs'])
+    await expect(stat(join(home, '.claude', 'settings.json'))).rejects.toThrow()
+    expect((await run(['install', '--client', 'claude'])).code).toBe(1)
+  })
+
   it('installs and uninstalls', async () => {
-    const installed = await run(['install', '--client', 'claude'])
+    const installed = await run(['install', '--client', 'claude'], {env: withKey, fetchImpl: probeServer(400).fetchImpl})
     expect(installed.code).toBe(0)
     expect(installed.out).toContain(SESSION_SAVE_DISCLOSURE)
     expect((await run(['install', '--client', 'codex'])).out).toContain('Codex')

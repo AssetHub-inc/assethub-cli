@@ -102,6 +102,33 @@ const isSizeOrTimeFailure = (error: unknown): boolean => {
 }
 
 /**
+ * Whether this login may upload coding-agent sessions (internal accounts for
+ * now). The register route answers 404 to anyone it does not let in before it
+ * reads the body; for everyone else this empty body fails validation, so
+ * nothing is written. Any other answer, or no answer, counts as "no".
+ */
+export const canUploadSessions = async (
+  auth: UploadAuth,
+  fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
+): Promise<boolean> => {
+  try {
+    const response = await fetchImpl(controlRunUploadUrls(auth.baseUrl, CODING_AGENT_SESSION_API_PREFIX).graphs, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${auth.apiKey}`,
+        'content-type': 'application/json',
+        ...(auth.workspaceId ? {'x-assethub-workspace': auth.workspaceId} : {}),
+      },
+      body: '{}',
+      signal: AbortSignal.timeout(10_000),
+    })
+    return response.status === 400 || response.status === 422
+  } catch {
+    return false
+  }
+}
+
+/**
  * One upload per session at a time: the SessionEnd upload and a background
  * retry would otherwise rebuild the same graph folder under each other.
  */

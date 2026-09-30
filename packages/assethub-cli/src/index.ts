@@ -26,7 +26,7 @@ import {
 } from './setupCommand.js'
 import {launchAgentProgram, loadKeyIntoLaunchd} from './appEnv.js'
 import {defaultInstallHooks, type InstallHooks} from './setupHooksBridge.js'
-import {installHooks as installSessionHooks, runHooksCommand} from './hooks/index.js'
+import {canUploadSessions, installHooks as installSessionHooks, runHooksCommand} from './hooks/index.js'
 import {createNodeUpdateDeps, runUpdate} from './update.js'
 import {ingestProjectSources} from './projectSources.js'
 import {downloadCanvas} from './canvasDownload.js'
@@ -410,12 +410,8 @@ CLI and MCP are available to all AssetHub users. Workspace permissions and featu
 
 Usage:
   assethub --version
-  assethub setup [--client claude|codex|both] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--save-sessions] [--no-hook] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
+  assethub setup [--client claude|codex|both] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
   assethub env load [--profile <name>]
-  assethub hooks install|uninstall --client claude|codex
-  assethub hooks save [--transcript <path> --session-id <id>]
-  assethub hooks upload [--session <dir> [--auto] [--sweep <n>] | --pending [--force] [--limit <n>]]
-  assethub hooks list|status [--json]
   assethub update [--check] [--dry-run] [--yes]
   assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
   assethub init [--agent claude-code|codex|cursor...] [--project] [--dry-run] [--base-url <url>] [--workspace <id>] [--profile <name>]
@@ -2637,6 +2633,7 @@ export const commandSetup = async (
       pickWorkspace: pickFromList,
       confirm: confirmYes,
       confirmOptIn: confirmNo,
+      canSaveSessions: auth => canUploadSessions(auth),
       diagnose: () =>
         diagnose({
           resolveAuth: () => resolveAuth(base),
