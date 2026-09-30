@@ -378,11 +378,18 @@ assembly was made. Follow a run started without `--wait` with
 While a V4 run works, `--wait`, `runs watch` and `runs get` show where it is.
 The receipt's `progress` field has the phase, a one-line summary, each part's
 state and the Blender assembly rounds, in the words of the canvas Part Composer
-card. `--wait` and `runs watch` print a stderr line only when it changes:
+card. `--wait` and `runs watch` print a stderr line, with the local time, only
+when the run really moves on (a new step, another mesh ready, a part kept with
+an issue, the end); part states that come and go do not print:
 
 ```text
-[run] 557d2a58-… running · Step 3 of 4 · Making the parts · 3 of 9 meshes ready · 4 redoing, 2 checking
+19:52  run 557d2a58  3/4 Making the parts · 3 of 9 meshes ready
+19:58  run 557d2a58  ⚠ kept with an issue: Cropped top · open hem at the lower chest
+20:05  run 557d2a58  ✗ FAILED · at 3/4 Making the parts · Blender assembly failed
 ```
+
+`production batch --wait` prints the same lines per image, named by letter and
+file name, and a status table every 5 minutes; see `docs/guides/production-batch.md`.
 
 ```sh
 assethub runs watch <run-id> --timeout-ms 7200000 --download --out-dir ./character

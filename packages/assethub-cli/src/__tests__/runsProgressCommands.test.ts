@@ -176,10 +176,13 @@ test('runs watch prints the V4 summary only when it changes, then the receipt wi
     '1',
   ])
 
-  expect(result.stderr.trim().split('\n')).toEqual([
-    '[run] run-1 running · Step 3 of 4 · Making the parts · 1 of 2 meshes ready · 1 meshing',
-    '[run] run-1 running · Step 3 of 4 · Making the parts · 2 of 2 meshes ready',
-    '[run] run-1 completed · Step 3 of 4 · Making the parts · 2 of 2 meshes ready',
+  // Each line starts with the local time; part states (meshing) do not print.
+  expect(
+    result.stderr.trim().split('\n').map(line => line.replace(/^\d\d:\d\d {2}/, '')),
+  ).toEqual([
+    'run run-1  3/4 Making the parts · 1 of 2 meshes ready',
+    'run run-1  3/4 Making the parts · 2 of 2 meshes ready',
+    'run run-1  ✓ done · 3/4 Making the parts · 2 of 2 meshes ready',
   ])
   expect(JSON.parse(result.stdout).execution).toMatchObject({
     status: 'completed',
@@ -245,7 +248,7 @@ test('production resume takes a run ID and --wait follows the resumed run', asyn
 
   expect(resumes).toEqual(['order-1'])
   expect(result.stderr).toContain(
-    '[run] run-1 running · Step 4 of 4 · Assembling in Blender · round 1: building and checking…',
+    'run run-1  4/4 Assembling in Blender · round 1: building and checking…',
   )
   expect(JSON.parse(result.stdout)).toMatchObject({
     resume: {orderId: 'order-1', resumeCount: 1},

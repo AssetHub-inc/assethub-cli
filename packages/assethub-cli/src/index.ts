@@ -38,6 +38,7 @@ import {
 } from './nodeMeshBatch.js'
 import {writeCanvasComparison} from './canvasComparison.js'
 import {
+  productionBatchImageName,
   productionBatchLabels,
   readProductionBatch,
   runProductionBatch,
@@ -109,7 +110,7 @@ import {
   resumeRecorded,
   waitForExecution,
 } from './execution.js'
-import {runProgressLine} from './runProgress.js'
+import {batchReporter, runReporter} from './progressReport.js'
 
 import {buildRunUploadPlan, formatBytes} from './runsUpload/buildRunUpload.js'
 import {readGraphFolder} from './runsUpload/graphFolder.js'
@@ -2730,21 +2731,8 @@ const defaultWaitMs = (flags: Flags): number => {
 const watchOptions = (flags: Flags) => ({
   intervalMs: parsePositiveIntegerFlag(flags, 'interval-ms', 5000),
   timeoutMs: parsePositiveIntegerFlag(flags, 'timeout-ms', defaultWaitMs(flags)),
-  onProgress: progressPrinter(
-    run =>
-      `[run] ${run.runId} ${run.status}${run.progress ? ` · ${runProgressLine(run)}` : ''}`,
-  ),
+  onProgress: runReporter({write: text => stderr.write(text)}),
 })
-/** Prints a run's line only when it changed since the last poll. */
-const progressPrinter = (line: (run: CanvasExecution) => string) => {
-  let last = ''
-  return (run: CanvasExecution) => {
-    const next = line(run)
-    if (next === last) return
-    last = next
-    stderr.write(`${next}\n`)
-  }
-}
 const readJsonArgument = async (
   value: string,
   flag: string,
@@ -4820,15 +4808,30 @@ const commandProductionBatch = async (ctx: CommandContext) => {
     'production.analyze',
     saved?.canvasId ?? requestedCanvasId,
   )
-  stderr.write(
-    `[batch] ${operationId} · ${entries.length} run(s) on canvas ${session.canvas.id}. Rerun with --operation-id ${operationId} to resume.\n`,
-  )
   const wait = hasFlag(ctx.flags, 'wait')
   const concurrency = parsePositiveIntegerFlag(ctx.flags, 'concurrency', 2)
-  const printItem = (item: ProductionBatchItemResult) =>
-    stderr.write(
-      `[batch] ${item.key} ${item.label} ${item.status}${item.runId ? ` ${item.runId}` : ''}${item.execution?.progress ? ` · ${runProgressLine(item.execution)}` : ''}${item.message ? ` · ${item.message}` : ''}\n`,
-    )
+  const report = batchReporter({
+    write: text => stderr.write(text),
+    operationId,
+    agent:
+      partExtractorOptions.find(option => option.apiValue === options.agentVersion)
+        ?.publicName ?? String(options.agentVersion),
+    canvasId: session.canvas.id,
+    ...(wait ? {concurrency} : {}),
+    images: entries.map(entry => ({
+      key: entry.key,
+      imageIndex: entry.index,
+      repeat: entry.repeat,
+      name: productionBatchImageName(sources[entry.index]!),
+    })),
+  })
+  report.header()
+  const printItem = (item: ProductionBatchItemResult) => report.item(item)
+  // A status table every 5 minutes while waiting; runs take about an hour.
+  const tableTimer = wait
+    ? setInterval(() => report.table('still running'), 5 * 60_000)
+    : undefined
+  tableTimer?.unref()
   const result = await runProductionBatch(session, {
     operationId,
     request: {sources, repeat, options, agent, parentRunId},
@@ -4869,7 +4872,9 @@ const commandProductionBatch = async (ctx: CommandContext) => {
         }
       : {}),
   })
+  clearInterval(tableTimer)
   if (!wait) result.items.forEach(printItem)
+  report.table(!wait ? 'started' : result.timedOut ? 'stopped waiting' : 'done')
 
   const downloads = []
   if (hasFlag(ctx.flags, 'download')) {

@@ -98,6 +98,14 @@ export const productionBatchLabels = (
     .map(safeLabel)
 }
 
+/** The image as the user named it, for progress lines: `image (28).png`. */
+export const productionBatchImageName = ({flag, value}: ProductionBatchSource): string =>
+  flag === 'file'
+    ? basename(value)
+    : flag === 'source-url'
+      ? basename(new URL(value).pathname) || value
+      : value
+
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const statePath = (stateDir: string, operationId: string) => {
