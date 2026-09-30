@@ -349,16 +349,16 @@ Existing parts commands use the same canvas and durable operation storage:
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V1.5 --wait
 # Select only the parts to execute; --all-ready selects all ready tasks.
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V1.5 --all-ready --wait
-# Internal graph versions run the complete split through one analyze receipt.
+# Graph versions run the complete split through one analyze receipt.
 assethub production agents
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V3.6.1 --all-ready --wait
-# CLI 0.1.20+: existing Internal V3.6.5 and Pluffy models; check server availability first.
+# CLI 0.1.20+: V3.6.5 and Pluffy models; check server availability first.
 assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor V3.6.5 --all-ready --wait
 assethub production analyze --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" --part-extractor pluffy --wait
 assethub production automation --canvas "$CANVAS_ID" --input-json @batch.json --wait
 ```
 
-### V4 Character Assembly: image to assembled 3D character (Internal)
+### V4 Character Assembly: image to assembled 3D character
 
 One command runs the whole pipeline (parts, meshes, Blender assembly and review) and
 saves the assembled character GLB:
@@ -393,7 +393,7 @@ assethub runs get <run-id> --download --out-dir ./character  # save the assemble
 A finished run keeps its `progress`. A failed one also carries
 `error.code: CHARACTER_ASSEMBLY_NOT_ACCEPTED` with the reason it stopped.
 
-Pick a stopped run back up (internal, no new charge) with its run ID; `--wait`
+Pick a stopped run back up (no new charge) with its run ID; `--wait`
 follows the same run until the resumed attempt finishes:
 
 ```sh
@@ -441,12 +441,12 @@ same behaviour from the `production_analyze_batch` tool.
 
 `parts split` keeps separate analysis and selected-part execution phases. Each phase
 has its own saved operation ID, with the execution linked to the analysis run.
-For Internal `V3.6.1` (`V3.6.1 Primary Images First`), `V3.6.3`
+For `V3.6.1` (`V3.6.1 Primary Images First`), `V3.6.3`
 (`V3.6.3 Fast Analysis`, CLI 0.1.16+), `V3.6.4`
 (`V3.6.4 Fast Analysis`, CLI 0.1.17+), `V3.6.5 Primary Images` and
 `Chibi Character (Pluffy) v3.1` (both CLI 0.1.20+), `V3.7 Artist Skills`,
 `V3.7.1 Building Modules` (both CLI 0.1.23+/0.1.24+), `V3.0.9 Garment
-Boundaries`, and `Humanoid Assembly (internal)` (both CLI 0.1.26+), analysis
+Boundaries`, and `Humanoid Assembly` (both CLI 0.1.26+), analysis
 runs the complete Artifact Graph split. `--all-ready` waits for that one receipt and does not start a
 second production execution. Resume an interrupted graph split with
 `runs resume <operation-id>`; `--task-id`, `--mission-id`,
@@ -861,7 +861,7 @@ Image generation uses the `v2` endpoint with mandatory canvas history.
 `--api-version v1` is rejected; run `assethub capabilities` to check availability.
 
 Part extraction uses the same names shown in the AssetHub product: `V1.5`,
-`V2.0 alpha`, `V2.1 alpha`, and the Internal-only aliases `V3.6.1`
+`V2.0 alpha`, `V2.1 alpha`, and the graph aliases `V3.6.1`
 (`V3.6.1 Primary Images First`), `V3.6.3` (`V3.6.3 Fast Analysis`),
 `V3.6.4` (`V3.6.4 Fast Analysis`), `V3.6.5` (`V3.6.5 Primary Images`),
 and `pluffy` (`Chibi Character (Pluffy) v3.1`). CLI 0.1.20 adds the latter two;
@@ -869,9 +869,9 @@ and `pluffy` (`Chibi Character (Pluffy) v3.1`). CLI 0.1.20 adds the latter two;
 `V3.7 Artist Skills` (`v3.7`; also known as `V3.0.7 Artist Skills`) and
 `V3.7.1 Building Modules` (`v3.7.1`; also known as `V3.0.8 Building Modules`)
 support `--skill-mode`. `V3.0.9 Garment Boundaries` (`v3.0.9`) and
-`Humanoid Assembly (internal)` (`humanoid assembly`, `humanoid-assembly`,
-`humanoid_assembly_auto`; CLI 0.1.26+) are additional Internal-only graph
-extractors; use the exact quoted public name or one of its aliases with
+`Humanoid Assembly` (`humanoid-assembly`, `humanoid_assembly_auto`; CLI 0.1.26+)
+are additional graph extractors; which extractors your account can run is
+decided by the server; use the exact quoted public name or one of its aliases with
 `--part-extractor`.
 Run `production agents` to check availability and `supportedOnGraphEndpoint`
 before selecting a graph version. These aliases do not change the V1.5 default

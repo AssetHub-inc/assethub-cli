@@ -10,6 +10,7 @@
 - Add `canvas graph-id`, `graph snapshot|node|image`, `runs get|watch --download`, and `skills memory|validate|schema|build|official`.
 - Uploads send `X-AssetHub-Workspace`, so personal API keys can upload runs.
 - `setup` never overwrites an earlier configuration backup, leaves unrelated MCP servers untouched, and only uses executable files from `PATH`. `update` verifies the upgrade with the same login options it was given. Canvas export downloads only follow redirects that stay on HTTPS and don't lead into a private network.
+- `Humanoid Assembly` is listed under that name; its previous name is still accepted. Part extractor names no longer carry availability labels: the server decides which ones an account can run.
 - Rate-limit handling is unchanged from 0.1.27, except that a plan's active-run limit is returned right away instead of being retried.
 - API client: add graph reads (`getGraphSnapshot`, `getGraphNode`, `getGraphNodeImage`), production batch helpers, skill build, review and official-skill methods, binary artifact reads, `AssetHubApiError.replayed`, and progress fields on executions.
 
