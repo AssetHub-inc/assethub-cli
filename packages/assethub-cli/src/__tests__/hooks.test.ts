@@ -1058,3 +1058,44 @@ describe('transcript trimming', () => {
     expect(await readFile(join(sessionDir, 'transcript.jsonl'), 'utf8')).toBe(codex)
   })
 })
+
+describe('sessions saved before transcript trimming', () => {
+  const legacyTranscript = (): string =>
+    jsonl(
+      {type: 'attachment', attachment: {type: 'session_context', context: {userEmail: 'artist@example.test'}}},
+      {type: 'attachment', attachment: {type: 'prompt_snapshot', systemPrompt: ['You are Claude Code…']}},
+      {type: 'user', uuid: 'u1', cwd: '/Users/artist/secret-project', message: {role: 'user', content: 'make a hero'}},
+      {type: 'assistant', uuid: 'a1', message: {role: 'assistant', content: [{type: 'text', text: 'Done.'}]}},
+    )
+  // What an older CLI left behind: the whole transcript, already uploaded-ready.
+  const legacySession = async (keepLiveTranscript: boolean) => {
+    const live = join(root, 'transcript.jsonl')
+    await writeFile(live, legacyTranscript())
+    const {sessionDir} = await saveSession({stdin: hook(live, 'Stop'), home, now, env: UPLOAD_OFF})
+    await writeFile(join(sessionDir, 'transcript.jsonl'), legacyTranscript())
+    const meta = JSON.parse(await readFile(join(sessionDir, 'meta.json'), 'utf8'))
+    delete meta.transcriptFormat
+    await writeFile(join(sessionDir, 'meta.json'), JSON.stringify({...meta, status: 'pending-upload', dirty: false}))
+    if (!keepLiveTranscript) await rm(live)
+    return sessionDir
+  }
+  const sentBytes = (calls: {method: string; body?: unknown}[]) =>
+    calls.filter(call => call.method === 'PUT').map(call => Buffer.from(call.body as Uint8Array).toString('utf8')).join('\n')
+
+  it.each([
+    ['while Claude Code still has the live transcript', true],
+    ['after Claude Code removed the live transcript', false],
+  ])('trims a pending session saved by an older CLI before uploading it, %s', async (_label, keepLive) => {
+    const sessionDir = await legacySession(keepLive)
+    const {fetchImpl, calls} = fakeServer()
+    expect((await uploadSession(sessionDir, {fetchImpl, auth: {apiKey: 'ah_live_secretsecret', baseUrl: 'https://x.test'}})).ok).toBe(true)
+    const saved = await readFile(join(sessionDir, 'transcript.jsonl'), 'utf8')
+    for (const text of [saved, sentBytes(calls)]) {
+      expect(text).not.toContain('artist@example.test')
+      expect(text).not.toContain('You are Claude Code')
+      expect(text).not.toContain('secret-project')
+    }
+    expect(saved).toContain('make a hero')
+    expect(JSON.parse(await readFile(join(sessionDir, 'meta.json'), 'utf8')).transcriptFormat).toBe('conversation-v1')
+  })
+})

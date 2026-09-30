@@ -16,7 +16,7 @@ import {
   writePrivateFileAtomic,
 } from './paths.js'
 import {redactJsonl} from './redact.js'
-import {trimTranscript} from './trim.js'
+import {TRANSCRIPT_FORMAT, trimTranscript} from './trim.js'
 import {extractImagePaths} from './transcript.js'
 import type {HookInput, SessionImage, SessionMeta} from './types.js'
 import type {UploadOptions} from './upload.js'
@@ -218,31 +218,45 @@ export const materializeSession = async (
   if (!meta) return null
   const source = options.transcriptPath ?? meta.transcriptPath
   const target = join(sessionDir, 'transcript.jsonl')
+  // A copy an older CLI saved holds the whole transcript: it is trimmed once,
+  // even though that makes it shorter.
+  const legacy = meta.transcriptFormat !== TRANSCRIPT_FORMAT
   let raw: string
+  let fromLive = source != null
   try {
     raw = await readFile(source ?? target, 'utf8')
   } catch {
-    // Claude Code already cleaned it up: keep whatever copy we have.
-    return meta
+    // Claude Code already cleaned it up: keep our copy, trimmed if it is old.
+    if (!legacy || source == null) return meta
+    try {
+      raw = await readFile(target, 'utf8')
+    } catch {
+      return meta
+    }
+    fromLive = false
   }
   // Only the conversation is kept, then recognised secrets in it are masked.
-  const redacted = source ? redactJsonl(trimTranscript(raw)) : raw
+  // Our own copy is already masked; trimming it again changes nothing.
+  const redacted = fromLive ? redactJsonl(trimTranscript(raw)) : trimTranscript(raw)
   // Compare the live transcript before masking: masking rules can change
   // between CLI versions, so a newer masked copy may be shorter.
   const sourceBytes = Buffer.byteLength(raw, 'utf8')
-  if (source && meta.sourceBytes != null) {
-    if (sourceBytes < meta.sourceBytes) return meta
-  } else {
-    const savedLength = await stat(target).then(info => info.size, () => -1)
-    if (Buffer.byteLength(redacted, 'utf8') < savedLength) return meta
+  if (!legacy) {
+    if (fromLive && meta.sourceBytes != null) {
+      if (sourceBytes < meta.sourceBytes) return meta
+    } else {
+      const savedLength = await stat(target).then(info => info.size, () => -1)
+      if (Buffer.byteLength(redacted, 'utf8') < savedLength) return meta
+    }
   }
   await writePrivateFileAtomic(target, redacted)
-  const images = await collectImages(sessionDir, raw, meta.cwd)
+  const images = fromLive ? await collectImages(sessionDir, raw, meta.cwd) : undefined
   return updateMeta(sessionDir, meta, latest => ({
     ...latest,
-    images,
+    ...(images ? {images} : {}),
     dirty: false,
-    ...(source ? {sourceBytes} : {}),
+    ...(fromLive ? {sourceBytes} : {}),
+    transcriptFormat: TRANSCRIPT_FORMAT,
   }))
 }
 

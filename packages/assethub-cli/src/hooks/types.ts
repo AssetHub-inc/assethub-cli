@@ -42,6 +42,8 @@ export type SessionMeta = {
   failedAttempts?: number
   /** Size of the live transcript the local copy was made from (before masking). */
   sourceBytes?: number
+  /** `conversation-v1` once the local copy is trimmed; absent for copies an older CLI saved. */
+  transcriptFormat?: string
 }
 
 export type UploadOutcome = {

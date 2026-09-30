@@ -16,6 +16,7 @@ import {MAX_COMPACT_LEVEL, buildSessionGraphFolder, sessionGraphId} from './grap
 import {acquireLock, listSessionDirs, readMeta, resolveHome, updateMeta} from './paths.js'
 import {redactText} from './redact.js'
 import {materializeSession} from './save.js'
+import {TRANSCRIPT_FORMAT} from './trim.js'
 import type {SessionMeta, UploadOutcome} from './types.js'
 
 const DEFAULT_BASE_URL = 'https://app.assethub.io'
@@ -161,7 +162,9 @@ const uploadSessionUnlocked = async (
   }
 
   // Copy and redact now if the live transcript moved on since the last copy.
-  if (meta.dirty) meta = (await materializeSession(sessionDir, {env: options.env})) ?? meta
+  // Also re-copy a session an older CLI saved whole, so it is trimmed before it leaves the machine.
+  if (meta.dirty || meta.transcriptFormat !== TRANSCRIPT_FORMAT)
+    meta = (await materializeSession(sessionDir, {env: options.env})) ?? meta
 
   let level = meta.compactLevel ?? 0
   try {

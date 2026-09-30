@@ -7,6 +7,12 @@
 // branch, token usage and thinking blocks. Image pixels are saved separately,
 // so an inline image keeps only its media type.
 
+/**
+ * Recorded in a session's meta once its copy holds only the conversation. A
+ * copy without it was saved by an older CLI and is trimmed before upload.
+ */
+export const TRANSCRIPT_FORMAT = 'conversation-v1'
+
 type Json = Record<string, unknown>
 const isObject = (value: unknown): value is Json =>
   value != null && typeof value === 'object' && !Array.isArray(value)
