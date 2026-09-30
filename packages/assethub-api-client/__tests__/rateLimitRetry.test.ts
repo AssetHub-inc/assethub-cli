@@ -25,13 +25,30 @@ it('retries a rate-limited GET after Retry-After', async () => {
   expect(fetcher).toHaveBeenCalledTimes(2)
 })
 
-// @testdoc A rate-limited POST is not replayed by the client: the caller owns idempotency.
-it('does not retry a rate-limited POST', async () => {
-  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(limited('1'))
+// @testdoc A POST refused by the rate limiter is replayed unchanged: the limiter answers before any handler runs, so nothing was queued or charged (CLI 0.1.27+).
+it('retries a POST the rate limiter refused', async () => {
+  vi.useFakeTimers()
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(limited('1')).mockResolvedValueOnce(ok())
+  const client = createAssetHubClient({apiKey: 'k', fetch: fetcher})
+  const pending = client.v1.analyzeProduction({agentVersion: 'V2.1-beta'} as never)
+  await vi.advanceTimersByTimeAsync(1_300)
+  await expect(pending).resolves.toEqual({agents: []})
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(fetcher.mock.calls[1]?.[1]?.method).toBe('POST')
+})
+
+// @testdoc A plan's agent-run limit is not a rate limit: waiting cannot lift it, so the caller (production batch) gets it at once.
+it('does not retry a 429 for the agent-run plan limit', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+    new Response(
+      JSON.stringify({success: false, error: {code: 'AGENT_OWNER_LIMIT_EXCEEDED', message: 'Your plan allows up to 1 active agent run.'}}),
+      {status: 429, headers: {'content-type': 'application/json'}},
+    ),
+  )
   const client = createAssetHubClient({apiKey: 'k', fetch: fetcher})
   await expect(
     client.v1.analyzeProduction({agentVersion: 'V2.1-beta'} as never),
-  ).rejects.toBeInstanceOf(AssetHubApiError)
+  ).rejects.toMatchObject({status: 429, code: 'AGENT_OWNER_LIMIT_EXCEEDED'})
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
 

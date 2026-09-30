@@ -2046,13 +2046,11 @@ export class AssetHubClient {
         },
       })
     let response = await send()
-    // Wait out a rate limit instead of failing: a GET (a `--wait` poll) is
-    // always safe to repeat. A mutation is replayed only when it carries an
-    // Idempotency-Key and the rate limiter refused it (RATE_LIMITED), which
-    // happens before the idempotency store, so it cannot start a run twice.
-    // Other 429s, such as an agent-run plan limit, go back to the caller.
-    const method = (init.method ?? 'GET').toUpperCase()
-    const idempotent = new Headers(init.headers).has('Idempotency-Key')
+    // Wait out a rate limit instead of failing. The rate limiter answers
+    // before any handler or the idempotency store runs, so the same request
+    // (headers, body, any Idempotency-Key) is replayed unchanged: nothing was
+    // queued or charged yet. An agent-run plan limit is also a 429, but waiting
+    // cannot lift it, so it goes straight back to the caller.
     for (
       let attempt = 1;
       response.status === 429 && attempt <= RATE_LIMIT_RETRIES;
@@ -2062,11 +2060,7 @@ export class AssetHubClient {
         .clone()
         .json()
         .catch(() => ({}))) as ApiErrorPayload
-      const retryable =
-        method === 'GET' ||
-        method === 'HEAD' ||
-        (idempotent && limited.error?.code === 'RATE_LIMITED')
-      if (!retryable) break
+      if (limited.error?.code === 'AGENT_OWNER_LIMIT_EXCEEDED') break
       await this.sleepImpl(
         retryDelayMs(response, limited.error?.message ?? '', attempt),
       )
