@@ -236,6 +236,23 @@ describe('uploadRun', () => {
     for (const call of calls) expect(call.headers['x-assethub-workspace']).toBe('ws-1')
   })
 
+  it('lets registrationExtra add fields but never replace what the plan registers', async () => {
+    const {calls, fetchImpl} = recorder(call =>
+      call.method === 'HEAD' ? new Response(null, {status: 200}) : ok(),
+    )
+    const plan = planWith([])
+    await uploadRun({
+      plan,
+      baseUrl: BASE_URL,
+      apiKey: API_KEY,
+      fetchImpl,
+      registrationExtra: {graphId: 'someone-else', session: {client: 'claude'}},
+    })
+    const body = JSON.parse(String(calls[0]?.body))
+    expect(body.graphId).toBe(plan.registration.graphId)
+    expect(body.session).toEqual({client: 'claude'})
+  })
+
   it('skips registration when asked', async () => {
     const {calls, fetchImpl} = recorder(() => ok())
     const result = await uploadRun({

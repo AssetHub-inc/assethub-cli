@@ -190,7 +190,11 @@ const latestViaRegistry = async (): Promise<string> => {
 type DoctorReport = {ok?: boolean; version?: string; checks?: {name?: string; code?: string}[]}
 
 /** Wires runUpdate to the real registry, package manager and freshly installed binary. */
-export const createNodeUpdateDeps = (forwardFlags: string[]): UpdateDeps => ({
+/**
+ * `forwardFlags` reach the verifying `assethub doctor` on its command line;
+ * `forwardEnv` carries what must not appear there, such as an explicit API key.
+ */
+export const createNodeUpdateDeps = (forwardFlags: string[], forwardEnv: Record<string, string> = {}): UpdateDeps => ({
   currentVersion: cliVersion,
   latestVersion: () => resolveLatestVersion(latestViaNpm, latestViaRegistry),
   binPath: () => realpath(argv[1]),
@@ -213,7 +217,13 @@ export const createNodeUpdateDeps = (forwardFlags: string[]): UpdateDeps => ({
   verify: async () => {
     let raw: string
     try {
-      raw = (await execFileAsync('assethub', ['doctor', ...forwardFlags], {shell, timeout: 60_000})).stdout
+      raw = (
+        await execFileAsync('assethub', ['doctor', ...forwardFlags], {
+          shell,
+          timeout: 60_000,
+          env: {...env, ...forwardEnv},
+        })
+      ).stdout
     } catch (error) {
       // doctor exits 2 when a check fails but still prints its report.
       raw = (error as {stdout?: string}).stdout ?? ''

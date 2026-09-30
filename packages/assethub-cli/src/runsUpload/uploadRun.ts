@@ -88,7 +88,8 @@ export const uploadRun = async ({
     await request(fetchImpl, urls.graphs, {
       method: 'POST',
       headers: {...authHeaders, 'content-type': 'application/json'},
-      body: JSON.stringify({...plan.registration, ...registrationExtra}),
+      // Extra fields may add to the registration, never replace what the plan registers.
+      body: JSON.stringify({...registrationExtra, ...plan.registration}),
     })
     registered = true
   }

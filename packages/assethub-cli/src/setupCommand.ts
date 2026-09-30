@@ -1,5 +1,6 @@
 import {execFile} from 'node:child_process'
-import {access, copyFile, mkdir, readFile, writeFile} from 'node:fs/promises'
+import {constants} from 'node:fs'
+import {access, copyFile, mkdir, readFile, stat, writeFile} from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {delimiter, dirname, join} from 'node:path'
 import {API_KEY_ENV, launchAgentPath, launchAgentPlist, loadKeyIntoLaunchd, readLaunchdKey} from './appEnv.js'
@@ -87,11 +88,20 @@ const scrub = (text: string, key: string): string =>
 const TOML_HEADER = /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/
 // `[mcp_servers."assethub"]` and `[mcp_servers.'assethub']` name the same table
 // as `[mcp_servers.assethub]`, so quotes around a key segment are dropped.
+// Whitespace is dropped only outside quotes: `"asset hub"` is another server.
 const tableName = (line: string): string | undefined => {
   const match = TOML_HEADER.exec(line)
-  return match
-    ? match[1].replace(/\s+/g, '').replace(/"([^"]*)"|'([^']*)'/g, (_m, dq?: string, sq?: string) => dq ?? sq ?? '')
-    : undefined
+  if (!match) return undefined
+  let name = ''
+  let quote: string | undefined
+  for (const char of match[1]) {
+    if (quote) {
+      if (char === quote) quote = undefined
+      else name += char
+    } else if (char === '"' || char === "'") quote = char
+    else if (!/\s/.test(char)) name += char
+  }
+  return name
 }
 const isAssetHubTable = (name: string): boolean =>
   name === 'mcp_servers.assethub' || name.startsWith('mcp_servers.assethub.')
@@ -337,7 +347,10 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     } else {
       let backup = ''
       if (existing !== undefined) {
-        backup = `${path}.bak-${timestamp(deps.now())}`
+        // Never overwrite an earlier backup made in the same instant.
+        const base = `${path}.bak-${timestamp(deps.now())}`
+        backup = base
+        for (let n = 1; (await deps.readFileIfExists(backup)) !== undefined; n++) backup = `${base}-${n}`
         await deps.backupFile(path, backup)
       }
       await deps.writeFileEnsuringDir(path, merged)
@@ -493,8 +506,9 @@ export const findOnPath = async (name: string, pathValue = process.env.PATH ?? '
   for (const dir of pathValue.split(delimiter).filter(Boolean)) {
     const candidate = join(dir, name)
     try {
-      await access(candidate)
-      return candidate
+      // Only an executable file: a directory or a plain file of that name is not a usable command.
+      await access(candidate, constants.X_OK)
+      if ((await stat(candidate)).isFile()) return candidate
     } catch {
       /* try the next directory */
     }

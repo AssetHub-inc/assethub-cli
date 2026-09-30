@@ -7708,14 +7708,16 @@ const run = async (): Promise<void> => {
     return
   }
   if (command === 'update') {
-    const forwardFlags = (['profile', 'config'] as const).flatMap(name => {
+    // The verifying doctor checks the same login this command was given.
+    const forwardFlags = (['profile', 'config', 'base-url', 'workspace'] as const).flatMap(name => {
       const value = getFlag(parsed.flags, name)
       return value ? [`--${name}`, value] : []
     })
+    const apiKey = getFlag(parsed.flags, 'api-key')
     print(
       await runUpdate(
         {check: hasFlag(parsed.flags, 'check'), dryRun: hasFlag(parsed.flags, 'dry-run'), yes: hasFlag(parsed.flags, 'yes')},
-        createNodeUpdateDeps(forwardFlags),
+        createNodeUpdateDeps(forwardFlags, apiKey ? {ASSETHUB_API_KEY: apiKey} : {}),
       ),
     )
     return

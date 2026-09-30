@@ -135,7 +135,8 @@ export const buildSessionGraphFolder = async (
   const transcript = parseTranscript(transcriptBytes.toString('utf8'))
   await resetSessionGraphFolder(sessionDir)
   const folder = join(sessionDir, SESSION_GRAPH_FOLDER)
-  await mkdir(join(folder, 'blobs'), {recursive: true})
+  // The folder holds a full copy of the masked transcript: private like the rest.
+  await mkdir(join(folder, 'blobs'), {recursive: true, mode: 0o700})
 
   const savedAt = new Date(meta.savedAt)
   const nodes: ArtifactNode[] = []
@@ -151,7 +152,7 @@ export const buildSessionGraphFolder = async (
     if (!blobKeys.has(key)) {
       blobKeys.add(key)
       blobs.push({key, mime, size: bytes.length, sha256: sha, name, file: `blobs/${sha}`})
-      await writeFile(join(folder, 'blobs', sha), bytes)
+      await writeFile(join(folder, 'blobs', sha), bytes, {mode: 0o600})
     }
     return {key, mime, size: bytes.length, sha256: sha, name}
   }
@@ -291,14 +292,16 @@ export const buildSessionGraphFolder = async (
     run: {sessionId: meta.sessionId, client: meta.client},
   }
 
-  await writeFile(join(folder, MANIFEST_FILE_NAME), `${JSON.stringify(manifest, null, 2)}\n`)
+  await writeFile(join(folder, MANIFEST_FILE_NAME), `${JSON.stringify(manifest, null, 2)}\n`, {mode: 0o600})
   await writeFile(
     join(folder, NODES_FILE_NAME),
     graph.nodes.map(node => `${canonicalJsonLine(node)}\n`).join(''),
+    {mode: 0o600},
   )
   await writeFile(
     join(folder, EDGES_FILE_NAME),
     graph.edges.map(e => `${canonicalJsonLine(e)}\n`).join(''),
+    {mode: 0o600},
   )
   return folder
 }

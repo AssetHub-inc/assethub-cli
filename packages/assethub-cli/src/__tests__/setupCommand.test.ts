@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url'
 import {describe, expect, it, vi} from 'vitest'
 import {
   claudeAddArgs,
+  findOnPath,
   mergeCodexSection,
   redactKey,
   runSetup,
@@ -643,4 +644,42 @@ describe('assethub setup (spawned CLI)', () => {
       await rm(dir, {recursive: true, force: true})
     }
   }, 60_000)
+})
+
+describe('setup review fixes', () => {
+  const section = '[mcp_servers.assethub]\nurl = "https://app.assethub.io/api/mcp"\n'
+
+  it('keeps another server whose quoted name only differs by a space', () => {
+    const existing = '[mcp_servers."asset hub"]\nurl = "https://other.test"\n'
+    const merged = mergeCodexSection(existing, section)
+    expect(merged).toContain('[mcp_servers."asset hub"]\nurl = "https://other.test"')
+    expect(merged).toContain('[mcp_servers.assethub]')
+  })
+
+  it('never overwrites an earlier Codex backup made in the same instant', async () => {
+    const {deps, files} = makeDeps()
+    const path = '/home/u/.codex/config.toml'
+    files.set(path, 'model = "gpt-5"\n')
+    files.set(`${path}.bak-20260929T100000000Z`, 'the first backup\n')
+    await runSetup(options({client: 'codex', saveSessions: false}), deps)
+    expect(files.get(`${path}.bak-20260929T100000000Z`)).toBe('the first backup\n')
+    expect(files.get(`${path}.bak-20260929T100000000Z-1`)).toBe('model = "gpt-5"\n')
+  })
+
+  it('finds only an executable file on PATH, not a directory or a plain file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'assethub-path-'))
+    try {
+      const [asDir, asPlain, asExec] = ['a', 'b', 'c'].map(name => join(root, name))
+      await mkdir(join(asDir, 'claude'), {recursive: true})
+      await mkdir(asPlain, {recursive: true})
+      await writeFile(join(asPlain, 'claude'), 'not executable')
+      await mkdir(asExec, {recursive: true})
+      await writeFile(join(asExec, 'claude'), '#!/bin/sh\n')
+      await chmod(join(asExec, 'claude'), 0o755)
+      expect(await findOnPath('claude', [asDir, asPlain, asExec].join(':'))).toBe(join(asExec, 'claude'))
+      expect(await findOnPath('claude', [asDir, asPlain].join(':'))).toBeUndefined()
+    } finally {
+      await rm(root, {recursive: true, force: true})
+    }
+  })
 })

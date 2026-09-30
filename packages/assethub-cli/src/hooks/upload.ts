@@ -13,7 +13,7 @@ import {readGraphFolder} from '../runsUpload/graphFolder.js'
 import {uploadRun} from '../runsUpload/uploadRun.js'
 import {RunUploadError} from '../runsUpload/runUploadError.js'
 import {MAX_COMPACT_LEVEL, buildSessionGraphFolder, sessionGraphId} from './graph.js'
-import {listSessionDirs, readMeta, resolveHome, updateMeta} from './paths.js'
+import {acquireLock, listSessionDirs, readMeta, resolveHome, updateMeta} from './paths.js'
 import {redactText} from './redact.js'
 import {materializeSession} from './save.js'
 import type {SessionMeta, UploadOutcome} from './types.js'
@@ -55,7 +55,7 @@ export const resolveUploadAuth = async (
   const configPath = env.ASSETHUB_CLI_CONFIG ?? join(resolveHome(options.home), '.assethub', 'config.json')
   let config: {
     defaultProfile?: string
-    profiles?: Record<string, {apiKey?: string; baseUrl?: string; workspaceId?: string}>
+    profiles?: Record<string, {apiKey?: string; baseUrl?: string; workspaceId?: string; authentication?: string}>
   } = {}
   try {
     config = JSON.parse(await readFile(configPath, 'utf8'))
@@ -65,7 +65,10 @@ export const resolveUploadAuth = async (
   const name = options.profile ?? config.defaultProfile ?? 'default'
   const stored = config.profiles?.[name]
   const envKey = env.ASSETHUB_API_KEY?.trim()
-  const useStored = Boolean(options.profile || stored?.workspaceId)
+  // Same precedence as the CLI's own auth: an explicit profile, a selected
+  // workspace or a personal profile wins over ASSETHUB_API_KEY.
+  const personal = stored?.authentication === 'personal' || Boolean(stored?.apiKey?.startsWith('ah_pat_'))
+  const useStored = Boolean(options.profile || stored?.workspaceId || personal)
   const apiKey = useStored ? stored?.apiKey : envKey || stored?.apiKey
   if (!apiKey) return null
   const baseUrl =
@@ -97,9 +100,27 @@ const isSizeOrTimeFailure = (error: unknown): boolean => {
   return error.code === 'network_unreachable' && (cause === 'TimeoutError' || cause === 'AbortError')
 }
 
+/**
+ * One upload per session at a time: the SessionEnd upload and a background
+ * retry would otherwise rebuild the same graph folder under each other.
+ */
 export const uploadSession = async (
   sessionDir: string,
   options: UploadOptions = {},
+): Promise<UploadOutcome> => {
+  if (!(await readMeta(sessionDir))) return {ok: false, reason: 'no-session'}
+  const release = await acquireLock(join(sessionDir, '.upload.lock'), {waitMs: 0, staleMs: 15 * 60_000})
+  if (!release) return {ok: false, reason: 'upload-in-progress', throttled: true}
+  try {
+    return await uploadSessionUnlocked(sessionDir, options)
+  } finally {
+    await release()
+  }
+}
+
+const uploadSessionUnlocked = async (
+  sessionDir: string,
+  options: UploadOptions,
 ): Promise<UploadOutcome> => {
   const now = options.now ?? (() => new Date())
   let meta = await readMeta(sessionDir)

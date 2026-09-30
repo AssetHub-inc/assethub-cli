@@ -19,7 +19,9 @@ import {
   uploadSession,
 } from '../hooks/index.js'
 import {chunkTranscript, compactLimits} from '../hooks/graph.js'
-import {MAX_SETTINGS_BACKUPS, SESSION_SAVE_DISCLOSURE} from '../hooks/install.js'
+import {MAX_SETTINGS_BACKUPS, SESSION_SAVE_DISCLOSURE, isOurCommand} from '../hooks/install.js'
+import {readMeta, updateMeta} from '../hooks/paths.js'
+import {materializeSession} from '../hooks/save.js'
 import {redactText} from '../hooks/redact.js'
 import {buildRunUploadPlan} from '../runsUpload/buildRunUpload.js'
 import {readGraphFolder} from '../runsUpload/graphFolder.js'
@@ -911,5 +913,69 @@ describe('runs upload', () => {
     const uploads = seen.filter(call => call.url.includes('/runs/') || call.url.includes('/graphs'))
     expect(uploads.length).toBeGreaterThan(1)
     expect(uploads.every(call => call.workspace === 'ws-personal')).toBe(true)
+  })
+})
+
+describe('session hooks review fixes', () => {
+  it('recognises only a command that runs the CLI itself', () => {
+    for (const ours of ['assethub hooks save', '/opt/assethub/bin/assethub hooks save', '"/Users/a b/assethub" hooks save', 'assethub.js hooks save --x'])
+      expect(isOurCommand(ours), ours).toBe(true)
+    for (const other of ['echo assethub hooks save', 'my-tool --then assethub hooks save', 'assethub-other hooks save', 'assethub hooks saved'])
+      expect(isOurCommand(other), other).toBe(false)
+  })
+
+  it('keeps every concurrent metadata update', async () => {
+    const transcript = await writeTranscript()
+    const {sessionDir} = await saveSession({stdin: hook(transcript, 'Stop'), home, now, env: UPLOAD_OFF})
+    const base = (await readMeta(sessionDir))!
+    await Promise.all(
+      Array.from({length: 20}, () =>
+        updateMeta(sessionDir, base, latest => ({...latest, failedAttempts: (latest.failedAttempts ?? 0) + 1})),
+      ),
+    )
+    expect((await readMeta(sessionDir))?.failedAttempts).toBe(20)
+  })
+
+  it('lets only one upload of a session run at a time', async () => {
+    const transcript = await writeTranscript()
+    const {sessionDir} = await saveSession({stdin: hook(transcript, 'SessionEnd'), home, now, env: UPLOAD_OFF})
+    await mkdir(join(sessionDir, '.upload.lock'))
+    const {fetchImpl, calls} = fakeServer()
+    const result = await uploadSession(sessionDir, {fetchImpl, auth: {apiKey: 'ah_live_x', baseUrl: 'https://x.test'}})
+    expect(result).toMatchObject({ok: false, reason: 'upload-in-progress'})
+    expect(calls).toHaveLength(0)
+  })
+
+  it('builds the upload folder with private permissions', async () => {
+    const transcript = await writeTranscript()
+    const {sessionDir} = await saveSession({stdin: hook(transcript, 'SessionEnd'), home, now, env: UPLOAD_OFF})
+    const folder = await buildSessionGraphFolder(sessionDir)
+    expect((await stat(folder)).mode & 0o777).toBe(0o700)
+    expect((await stat(join(folder, 'blobs'))).mode & 0o777).toBe(0o700)
+    for (const name of await readdir(join(folder, 'blobs'))) expect((await stat(join(folder, 'blobs', name))).mode & 0o777).toBe(0o600)
+    for (const name of ['manifest.json', 'nodes.jsonl', 'edges.jsonl']) expect((await stat(join(folder, name))).mode & 0o777).toBe(0o600)
+  })
+
+  it('replaces the saved copy when the live transcript grew, even if the masked copy is shorter', async () => {
+    const transcript = await writeTranscript()
+    const {sessionDir} = await saveSession({stdin: hook(transcript, 'SessionEnd'), home, now, env: UPLOAD_OFF})
+    // A copy saved by an older CLI that masked less: longer than today's masking produces.
+    await writeFile(join(sessionDir, 'transcript.jsonl'), `${'x'.repeat(50_000)}\n`)
+    await writeFile(transcript, `${readFileSync(transcript, 'utf8')}${jsonl({type: 'user', message: {role: 'user', content: 'one more turn'}})}`)
+    await materializeSession(sessionDir)
+    const saved = await readFile(join(sessionDir, 'transcript.jsonl'), 'utf8')
+    expect(saved).toContain('one more turn')
+    expect(saved).not.toContain(SECRET)
+  })
+
+  it('uses a personal saved profile over ASSETHUB_API_KEY, like the rest of the CLI', async () => {
+    const transcript = await writeTranscript()
+    const {sessionDir} = await saveSession({stdin: hook(transcript, 'Stop'), home, now, env: UPLOAD_OFF})
+    await writeFile(join(home, '.assethub', 'config.json'), JSON.stringify({defaultProfile: 'personal', profiles: {personal: {
+      apiKey: 'ah_live_fromconfig1', authentication: 'personal', baseUrl: 'https://cfg.test', updatedAt: '',
+    }}}))
+    const {fetchImpl, calls} = fakeServer()
+    expect((await uploadSession(sessionDir, {home, env: {ASSETHUB_API_KEY: 'test-env-key-not-secret'}, fetchImpl})).ok).toBe(true)
+    expect(calls[0].headers.authorization).toBe('Bearer ah_live_fromconfig1')
   })
 })

@@ -1,4 +1,4 @@
-import {appendFile, chmod, mkdir, readFile, readdir, rename, writeFile} from 'node:fs/promises'
+import {appendFile, chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile} from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {join} from 'node:path'
 
@@ -41,17 +41,51 @@ export const writeMeta = async (sessionDir: string, meta: SessionMeta): Promise<
 }
 
 /**
- * Re-read meta just before writing, so a hook or upload that ran concurrently
- * keeps what it wrote; `update` sees the latest copy, not an earlier snapshot.
+ * A lock is a directory, because creating one is atomic. A lock older than
+ * `staleMs` belongs to a process that died, and is taken over. Returns the
+ * release function, or null when the lock is still held after `waitMs`.
+ */
+export const acquireLock = async (
+  path: string,
+  {waitMs, staleMs}: {waitMs: number; staleMs: number},
+): Promise<(() => Promise<void>) | null> => {
+  const deadline = Date.now() + waitMs
+  for (;;) {
+    try {
+      await mkdir(path, {mode: PRIVATE_DIR_MODE})
+      return () => rm(path, {recursive: true, force: true})
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      const age = await stat(path).then(info => Date.now() - info.mtimeMs, () => 0)
+      if (age > staleMs) {
+        await rm(path, {recursive: true, force: true})
+        continue
+      }
+      if (Date.now() >= deadline) return null
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+  }
+}
+
+/**
+ * Read, update and write meta under a per-session lock, so a hook and an
+ * upload running at the same time cannot overwrite each other's fields.
+ * If the lock cannot be had in time the write still happens: a hook must
+ * never hang on a stuck lock.
  */
 export const updateMeta = async (
   sessionDir: string,
   fallback: SessionMeta,
   update: (latest: SessionMeta) => SessionMeta,
 ): Promise<SessionMeta> => {
-  const next = update((await readMeta(sessionDir)) ?? fallback)
-  await writeMeta(sessionDir, next)
-  return next
+  const release = await acquireLock(join(sessionDir, '.meta.lock'), {waitMs: 5_000, staleMs: 30_000})
+  try {
+    const next = update((await readMeta(sessionDir)) ?? fallback)
+    await writeMeta(sessionDir, next)
+    return next
+  } finally {
+    await release?.()
+  }
 }
 
 export const listSessionDirs = async (home?: string): Promise<string[]> => {

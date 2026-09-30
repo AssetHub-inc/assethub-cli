@@ -263,7 +263,7 @@ describe('graph export-canvas', () => {
       .mockResolvedValueOnce(ok(readyJob('j7', 7, 'https://signed.test/g7/3.zip?token=SECRET')))
       .mockImplementationOnce(async (url: string, init: RequestInit) => {
         expect(url).toBe('https://signed.test/g7/3.zip?token=SECRET')
-        expect(init.redirect).toBe('follow')
+        expect(init.redirect).toBe('manual')
         expect(init.headers).toBeUndefined()
         return new Response(zipBytes, {status: 200, headers: {'content-type': 'application/zip'}})
       })

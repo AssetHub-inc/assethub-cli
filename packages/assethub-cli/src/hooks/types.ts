@@ -40,6 +40,8 @@ export type SessionMeta = {
   compactLevel?: number
   /** Failed uploads in a row; spaces out the automatic retries. */
   failedAttempts?: number
+  /** Size of the live transcript the local copy was made from (before masking). */
+  sourceBytes?: number
 }
 
 export type UploadOutcome = {

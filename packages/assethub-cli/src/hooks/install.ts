@@ -36,7 +36,10 @@ type Json = Record<string, unknown>
 const isObject = (value: unknown): value is Json =>
   value != null && typeof value === 'object' && !Array.isArray(value)
 
-const OUR_COMMAND_RE = /(^|[\s/\\"'])assethub(?:\.js)?["']?\s+hooks\s+save(?:\s|$)/
+// Only a command that runs the CLI itself: `assethub hooks save`, optionally a
+// (quoted) path to it. `echo assethub hooks save` is somebody else's hook.
+const OUR_COMMAND_RE =
+  /^\s*(?:"(?:[^"]*[/\\])?assethub(?:\.js)?"|'(?:[^']*[/\\])?assethub(?:\.js)?'|(?:[^\s"']*[/\\])?assethub(?:\.js)?)\s+hooks\s+save(?:\s|$)/
 
 export const isOurCommand = (command: unknown): boolean =>
   typeof command === 'string' && OUR_COMMAND_RE.test(command)

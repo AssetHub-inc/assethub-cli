@@ -225,11 +225,23 @@ export const materializeSession = async (
     return meta
   }
   const redacted = source ? redactJsonl(raw) : raw
-  const savedLength = await stat(target).then(info => info.size, () => -1)
-  if (Buffer.byteLength(redacted, 'utf8') < savedLength) return meta
+  // Compare the live transcript before masking: masking rules can change
+  // between CLI versions, so a newer masked copy may be shorter.
+  const sourceBytes = Buffer.byteLength(raw, 'utf8')
+  if (source && meta.sourceBytes != null) {
+    if (sourceBytes < meta.sourceBytes) return meta
+  } else {
+    const savedLength = await stat(target).then(info => info.size, () => -1)
+    if (Buffer.byteLength(redacted, 'utf8') < savedLength) return meta
+  }
   await writePrivateFileAtomic(target, redacted)
   const images = await collectImages(sessionDir, raw, meta.cwd)
-  return updateMeta(sessionDir, meta, latest => ({...latest, images, dirty: false}))
+  return updateMeta(sessionDir, meta, latest => ({
+    ...latest,
+    images,
+    dirty: false,
+    ...(source ? {sourceBytes} : {}),
+  }))
 }
 
 /**
