@@ -44,9 +44,13 @@ never turn it on. Once enabled:
   Code session on the machine, in any project**, is saved to
   `~/.assethub/sessions/` (folders `0700`, files `0600`). `Stop` and `PreCompact`
   only note that the session moved on; the transcript is copied once, when the
-  session ends. The copy is the full transcript with recognised secrets masked
-  (API keys, JWTs, Stripe, Slack, Google and Supabase keys, URL passwords,
-  private keys, `*_KEY=`/`*TOKEN=`/`*PASSWORD=` values). Masking is best effort.
+  session ends. The copy keeps only the conversation: your prompts, the agent's
+  replies, its tool calls and their results, and compaction summaries. Claude
+  Code's skill and tool listings, system prompt, hook context, environment,
+  signed-in email, working directory, token usage and thinking are dropped.
+  Recognised secrets in what remains are masked (API keys, JWTs, Stripe, Slack,
+  Google and Supabase keys, URL passwords, private keys,
+  `*_KEY=`/`*TOKEN=`/`*PASSWORD=` values). Masking is best effort.
 - At session end a detached `assethub hooks upload --session <dir> --auto --sweep 3`
   uploads the session to your AssetHub coding-agent sessions
   (`/api/v2/coding-agent-sessions`): the masked transcript in chunks of up to

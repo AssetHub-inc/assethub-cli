@@ -23,7 +23,7 @@ export const MAX_SETTINGS_BACKUPS = 3
 export const SESSION_SAVE_DISCLOSURE =
   'Session saving adds SessionStart, Stop, PreCompact and SessionEnd hooks to ~/.claude/settings.json. ' +
   'Every Claude Code session on this machine, in any project, is then copied to ~/.assethub/sessions/ when it ends ' +
-  '(the full transcript with recognised secrets masked, readable only by you; copies older than 30 days are deleted), ' +
+  '(the conversation only: your prompts, the agent\'s replies and tool calls, with recognised secrets masked, readable only by you; copies older than 30 days are deleted), ' +
   'and uploaded to AssetHub as a coding-agent session only you can read (internal accounts only for now): the masked transcript, ' +
   'your prompts, the agent\'s replies, its tool calls and images from the project. Uploads that fail are retried in the background ' +
   'when a later session starts or ends. Secret masking is best effort. ' +

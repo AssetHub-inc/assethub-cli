@@ -16,6 +16,7 @@ import {
   writePrivateFileAtomic,
 } from './paths.js'
 import {redactJsonl} from './redact.js'
+import {trimTranscript} from './trim.js'
 import {extractImagePaths} from './transcript.js'
 import type {HookInput, SessionImage, SessionMeta} from './types.js'
 import type {UploadOptions} from './upload.js'
@@ -224,7 +225,8 @@ export const materializeSession = async (
     // Claude Code already cleaned it up: keep whatever copy we have.
     return meta
   }
-  const redacted = source ? redactJsonl(raw) : raw
+  // Only the conversation is kept, then recognised secrets in it are masked.
+  const redacted = source ? redactJsonl(trimTranscript(raw)) : raw
   // Compare the live transcript before masking: masking rules can change
   // between CLI versions, so a newer masked copy may be shorter.
   const sourceBytes = Buffer.byteLength(raw, 'utf8')

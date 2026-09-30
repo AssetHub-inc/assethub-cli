@@ -979,3 +979,82 @@ describe('session hooks review fixes', () => {
     expect(calls[0].headers.authorization).toBe('Bearer ah_live_fromconfig1')
   })
 })
+
+describe('transcript trimming', () => {
+  const claudeTranscript = (): string =>
+    jsonl(
+      {type: 'queue-operation', operation: 'enqueue', content: 'hello'},
+      {type: 'attachment', attachment: {type: 'skill_listing', content: '- private-skill: brief for the weekly sync'}},
+      {type: 'attachment', attachment: {type: 'session_context', context: {userEmail: 'artist@example.test'}}},
+      {type: 'attachment', attachment: {type: 'environment', snapshot: {workingDirectory: '/Users/artist/secret-project'}}},
+      {type: 'attachment', attachment: {type: 'prompt_snapshot', systemPrompt: ['You are Claude Code…']}},
+      {type: 'user', isMeta: true, message: {role: 'user', content: 'Caveat: local command output'}},
+      {
+        type: 'user', uuid: 'u1', parentUuid: null, isSidechain: false, timestamp: '2026-09-30T10:00:00Z',
+        cwd: '/Users/artist/secret-project', gitBranch: 'main', version: '2.1.272', sessionId: 's1', userType: 'external',
+        message: {role: 'user', content: 'make a hero'},
+      },
+      {
+        type: 'assistant', uuid: 'a1', parentUuid: 'u1', isSidechain: false, timestamp: '2026-09-30T10:00:01Z',
+        cwd: '/Users/artist/secret-project', requestId: 'req_1',
+        message: {
+          id: 'msg_1', role: 'assistant', model: 'claude-opus-5', usage: {input_tokens: 10}, diagnostics: null,
+          content: [
+            {type: 'thinking', thinking: 'internal reasoning', signature: 'sig'},
+            {type: 'text', text: 'Generating.'},
+            {type: 'tool_use', id: 'toolu_1', name: 'Bash', input: {command: 'ls'}, caller: {type: 'direct'}},
+          ],
+        },
+      },
+      {
+        type: 'user', uuid: 'u2', parentUuid: 'a1', timestamp: '2026-09-30T10:00:02Z', cwd: '/Users/artist/secret-project',
+        toolUseResult: {stdout: 'hero.png', stderr: ''},
+        message: {role: 'user', content: [
+          {type: 'tool_result', tool_use_id: 'toolu_1', content: 'hero.png\n<system-reminder>Contents of CLAUDE.md: private rules</system-reminder>'},
+          {type: 'image', source: {type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgoAAAA'}},
+        ]},
+      },
+      {type: 'summary', summary: 'Made a hero image.', leafUuid: 'u2'},
+      {type: 'last-prompt', lastPrompt: 'make a hero'},
+    )
+
+  it('keeps only the conversation and drops what Claude Code adds around it', async () => {
+    const path = join(root, 'transcript.jsonl')
+    await writeFile(path, claudeTranscript())
+    const {sessionDir} = await saveSession({stdin: hook(path, 'SessionEnd'), home, now, env: UPLOAD_OFF})
+    const saved = await readFile(join(sessionDir, 'transcript.jsonl'), 'utf8')
+    const lines = saved.trim().split('\n').map(line => JSON.parse(line))
+    expect(lines.map(line => line.type)).toEqual(['user', 'assistant', 'user', 'summary'])
+    for (const dropped of ['skill_listing', 'private-skill', 'artist@example.test', 'secret-project', 'You are Claude Code', 'Caveat', 'internal reasoning', 'usage', 'CLAUDE.md', 'iVBORw0KGgo', 'toolUseResult', 'gitBranch', 'requestId'])
+      expect(saved, dropped).not.toContain(dropped)
+    expect(lines[0]).toEqual({type: 'user', uuid: 'u1', parentUuid: null, isSidechain: false, timestamp: '2026-09-30T10:00:00Z', message: {role: 'user', content: 'make a hero'}})
+    expect(lines[1].message).toEqual({role: 'assistant', model: 'claude-opus-5', content: [
+      {type: 'text', text: 'Generating.'},
+      {type: 'tool_use', id: 'toolu_1', name: 'Bash', input: {command: 'ls'}},
+    ]})
+    expect(lines[2].message.content).toEqual([
+      {type: 'tool_result', tool_use_id: 'toolu_1', content: 'hero.png\n'},
+      {type: 'image', media_type: 'image/png'},
+    ])
+    expect(lines[3]).toEqual({type: 'summary', summary: 'Made a hero image.', leafUuid: 'u2'})
+  })
+
+  it('still builds prompt, reply and tool nodes from the trimmed copy', async () => {
+    const path = join(root, 'transcript.jsonl')
+    await writeFile(path, claudeTranscript())
+    const {sessionDir} = await saveSession({stdin: hook(path, 'SessionEnd'), home, now, env: UPLOAD_OFF})
+    const folder = await readGraphFolder(await buildSessionGraphFolder(sessionDir))
+    const kinds = folder.graph.nodes.map(node => node.semanticType ?? node.artifactKind).sort()
+    expect(kinds).toEqual(expect.arrayContaining(['agent-session', 'prompt', 'transcript']))
+    expect(folder.graph.nodes.some(node => node.artifactKind === 'text' && (node.payload as {text?: string})?.text === 'Generating.')).toBe(true)
+    expect(folder.graph.nodes.some(node => node.artifactKind === 'run' && (node.payload as {toolName?: string})?.toolName === 'Bash')).toBe(true)
+  })
+
+  it('leaves a transcript in another format as it is', async () => {
+    const path = join(root, 'transcript.jsonl')
+    const codex = jsonl({type: 'session_meta', payload: {id: 'c1'}}, {type: 'response_item', payload: {type: 'message', role: 'user'}})
+    await writeFile(path, codex)
+    const {sessionDir} = await saveSession({stdin: hook(path, 'SessionEnd'), home, now, env: UPLOAD_OFF})
+    expect(await readFile(join(sessionDir, 'transcript.jsonl'), 'utf8')).toBe(codex)
+  })
+})
