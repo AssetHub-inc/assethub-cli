@@ -294,7 +294,7 @@ describe('built recorded CLI', () => {
     ['V3.0.10-dev.1 Body Fit', 'ah_agent_graph_v3_7_3', 'V3.0.10-dev.1 Body Fit', ['v3.0.10-dev.1', '3.0.10-dev.1']],
     ['Chibi Character (Pluffy) v3.1', 'ah_agent_graph_pluffy_v3_1', 'Chibi Character (Pluffy) v3.1', ['pluffy', 'pluffy v3.1', 'pluffy 3.1']],
     ['V3.7 Artist Skills', 'ah_agent_graph_v3_7', 'V3.7 Artist Skills', ['v3.7', '3.7', 'V3.0.7 Artist Skills', '3.0.7']],
-    ['Humanoid Assembly (internal)', 'ah_agent_graph_humanoid_assembly_auto', 'Humanoid Assembly (internal)', ['humanoid assembly', 'humanoid-assembly', 'humanoid_assembly_auto']],
+    ['Humanoid Assembly', 'ah_agent_graph_humanoid_assembly_auto', 'Humanoid Assembly', ['Humanoid Assembly (internal)', 'humanoid-assembly', 'humanoid_assembly_auto']],
     ['V4 Character Assembly', 'ah_agent_graph_harpy_assembly_v2', 'V4 Character Assembly', ['v4', '4', 'v4 character assembly', 'character assembly']],
   ] as const)('splits and replays %s graphs', async (name, apiValue, label, aliases) => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
