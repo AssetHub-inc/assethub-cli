@@ -1,4 +1,4 @@
-import {createHash, randomUUID} from 'node:crypto'
+import {randomUUID} from 'node:crypto'
 import {stat} from 'node:fs/promises'
 import {isDeepStrictEqual} from 'node:util'
 import {join} from 'node:path'
@@ -94,8 +94,9 @@ export class CliExecutionError extends Error {
     readonly operationId?: string,
     readonly execution?: CanvasExecution,
     readonly runId: string | undefined = execution?.runId,
+    options?: {cause?: unknown},
   ) {
-    super(message)
+    super(message, options)
   }
 }
 
@@ -110,13 +111,6 @@ export const activeExecution: {
   runId?: string
   execution?: CanvasExecution
 } = {}
-
-export const childOperationId = (parent: string, step: string) => {
-  const hash = createHash('sha256')
-    .update(JSON.stringify([parent, step]))
-    .digest('hex')
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`
-}
 
 const operationPath = (stateDir: string, id: string): string => {
   if (
@@ -237,9 +231,12 @@ const submitSaved = async (
         )
         return {...queued, execution: queued.execution}
       } catch (error) {
+        // The agent-run limit does not clear within a retry delay, and the
+        // server stores that rejection for this key: a retry only replays it.
         const retryable =
           error instanceof TypeError ||
           (error instanceof AssetHubApiError &&
+            error.code !== 'AGENT_OWNER_LIMIT_EXCEEDED' &&
             ([429, 502, 503, 504].includes(error.status) ||
               error.code === 'IDEMPOTENCY_IN_PROGRESS'))
         if (!retryable || attempt >= 2) throw error
@@ -279,6 +276,7 @@ const submitSaved = async (
       saved.operationId,
       activeExecution.execution,
       activeExecution.runId,
+      {cause: error},
     )
   }
 }
@@ -296,16 +294,21 @@ export const executeRecorded = async (
     )
   const operationId = options.operationId ?? randomUUID()
   const path = operationPath(session.stateDir, operationId)
-  const batchReserved = await stat(
-    join(session.stateDir, 'node-batches', `${operationId}.json`),
-  ).then(
-    () => true,
-    error => {
-      if (error.code === 'ENOENT') return false
-      throw error
-    },
-  )
-  if (batchReserved)
+  const reservedBy = async (dir: string) =>
+    stat(join(session.stateDir, dir, `${operationId}.json`)).then(
+      () => true,
+      error => {
+        if (error.code === 'ENOENT') return false
+        throw error
+      },
+    )
+  if (await reservedBy('production-batches'))
+    throw new CliExecutionError(
+      'Operation ID belongs to a production batch; rerun production batch with it or use a new operation ID',
+      2,
+      operationId,
+    )
+  if (await reservedBy('node-batches'))
     throw new CliExecutionError(
       'Operation ID belongs to a different node batch; use runs resume or a new operation ID',
       2,

@@ -2,6 +2,74 @@
 
 Command line interface for AssetHub.
 
+## Quick setup
+
+Connect Claude Code and Codex to AssetHub in one step:
+
+```sh
+assethub setup                      # prompts for your API key and workspace
+printf '%s' "$KEY" | assethub setup --api-key-stdin --workspace <id> --yes
+assethub setup --dry-run            # show every command and file change, change nothing
+```
+
+Setup logs in (reusing a saved key), selects a workspace, registers the
+`assethub` MCP server in Claude Code (`claude mcp add-json ... --scope user`, run
+again safely), merges an `[mcp_servers.assethub]` section into
+`$CODEX_HOME/config.toml` (default `~/.codex`, original saved as
+`config.toml.bak-<timestamp>`), then runs `doctor --mcp` and prints a checklist
+(`--json` for machine output). Use `--client claude|codex|both` to limit the
+targets.
+
+MCP does not need the CLI. Setup is only a shortcut: both clients call the hosted
+`/api/mcp` server directly and read the key from the `ASSETHUB_API_KEY`
+environment variable. The Claude Code entry is
+`claude mcp add-json assethub '{"type":"http","url":"https://app.assethub.io/api/mcp","headers":{"Authorization":"Bearer ${ASSETHUB_API_KEY}","X-AssetHub-Workspace":"<id>"}}' --scope user`,
+so the key is never written to Claude Code's config or passed on a command line,
+and removing the CLI does not disconnect MCP. Codex uses `bearer_token_env_var`.
+Setup never writes the key to a shell profile; run `assethub setup --print-env` to
+print the `export ASSETHUB_API_KEY=...` line, and export it in the shell that
+starts Claude Code or Codex. The key is redacted
+(`ah_…last4`) everywhere else.
+
+### Session saving (opt-in)
+
+Setup does not record sessions unless you agree. Pass `--save-sessions`, answer
+yes when an interactive setup asks (the default is no), or run
+`assethub hooks install --client claude`. Non-interactive runs and `--yes`
+never turn it on. Once enabled:
+
+- The hooks run `assethub`, so this part (unlike MCP) needs the CLI on `PATH`.
+- `SessionStart`, `Stop` and `PreCompact` hooks (run in the background) and a
+  `SessionEnd` hook are added to `~/.claude/settings.json`, so **every Claude
+  Code session on the machine, in any project**, is saved to
+  `~/.assethub/sessions/` (folders `0700`, files `0600`). `Stop` and `PreCompact`
+  only note that the session moved on; the transcript is copied once, when the
+  session ends. The copy is the full transcript with recognised secrets masked
+  (API keys, JWTs, Stripe, Slack, Google and Supabase keys, URL passwords,
+  private keys, `*_KEY=`/`*TOKEN=`/`*PASSWORD=` values). Masking is best effort.
+- At session end a detached `assethub hooks upload --session <dir> --auto --sweep 3`
+  uploads the session to your AssetHub coding-agent sessions
+  (`/api/v2/coding-agent-sessions`): the masked transcript in chunks of up to
+  3 MiB (a grown session re-sends only its last chunk), plus an index of your
+  prompts, the agent's replies and its tool calls, and images from the project.
+  A session is linked to the canvas named in `.assethub/canvas` (or
+  `ASSETHUB_CANVAS`) and only you can read it; it is not a Production Control
+  run. Uploading is internal-only for now: other keys get a 404 and the session
+  stays local.
+- Failed uploads are retried in the background, at most 3 sessions at a time,
+  when a later session ends or starts (`assethub hooks upload --pending --limit 3`).
+  After an ordinary failure the next automatic try waits 1h, 2h, 4h … up to a
+  day; after a 404 it waits a day. `--force` retries now. A session that never
+  reached `SessionEnd` (a crash or a closed terminal) is picked up by the next
+  `SessionStart` once it has been quiet for 2 hours.
+- An upload that fails for size or time is compacted: the index keeps fewer,
+  shorter messages at each level, and images stay local from level 2. The
+  transcript chunks are always sent.
+- Saved copies older than 30 days are deleted
+  (`ASSETHUB_SESSION_RETENTION_DAYS=<n>`, or `off` to keep them).
+- Opt a project out with `.assethub/no-session-save`, or set
+  `ASSETHUB_SESSION_SAVE=off` / `ASSETHUB_SESSION_UPLOAD=off`. Remove the hooks
+  with `assethub hooks uninstall --client claude`.
 ## API discovery and Workspace Skills
 
 Use `api search [query]` to discover the authenticated server catalog and
@@ -26,6 +94,56 @@ to `production analyze` to apply that exact saved Must/Avoid guidance. Both flag
 are required together; `--context` also selects the execution canvas and must
 match `--canvas` when supplied. Stale revisions and unsupported engines fail
 before generation. Guidance does not expand the model's supported part boundaries.
+
+Body-aware graph runs accept `--base-body <mesh-asset-id>`. The server verifies
+that the GLB belongs to the selected workspace, renders front/oblique/side/back
+references from that exact mesh, and supplies them to preparation and splitting:
+
+```sh
+assethub parts split --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" \
+  --part-extractor 'V3.0.7 Artist Skills' --base-body mesh_42 \
+  --skill-mode auto --auto-repair true \
+  --skill-planner-model openai/gpt-5.6-luna --wait
+```
+
+`--skill-planner-model` changes only workspace Skill selection for that run.
+Allowed models are `openai/gpt-5.6-sol`, `openai/gpt-5.6-luna`, and
+`anthropic/claude-opus-5.5`; omitting it keeps the current SOL default.
+
+Character assembly Alpha is an explicit option on the existing graph entry:
+
+```sh
+assethub production analyze --source-id <owned-image> --canvas <id> \
+  --part-extractor 'V3.0.9 Garment Boundaries' --pipeline-depth composition \
+  --assembly-policy concept-to-character-v1 \
+  --mesh-generation-json '{"modelId":"meshGen.tripo_p2_preview","faceLimit":10000,"params":{"quad":true,"texture":true,"pbr":true,"textureQuality":"standard"}}' \
+  --operation-id <uuid>
+```
+
+It selects the existing Quick assembly (V3) composer, which returns measured part
+pivots for the native review handoff. Explicit incompatible composer selections
+are rejected before dispatch; omitted policy preserves existing defaults.
+It requires existing Internal graph access and Composer body-first/background
+capabilities; a Max plan alone does not grant graph access. The selected policy
+is stored with the graph. Existing production and mesh charges apply. Outputs
+are reviewable candidates, not approved characters; detailed finishing remains
+an explicit follow-up. This option does not add a finishing fee or authorize
+paid regeneration. Omit it to preserve the existing production flow. Reuse the
+same operation ID after an uncertain response rather than starting another run.
+
+`--mesh-generation-json` supplies one explicit graph mesh provider and its options.
+The server applies the existing strict `mesh.generate` model contract before any
+graph credit hold; graph-unsupported options are rejected, never silently substituted.
+P2 Quad has a maximum faceLimit of 25000. Graph settings do not support
+`isLowPoly`, `generateParts`, `ultraMode`, `outputQuality`, or `poseMode`.
+The selected settings are frozen for first generation and retries. Omit the
+option to preserve the legacy provider defaults. P2 Quad retains original FBX;
+the composed GLB is a triangulated preview, not proof of Quad topology.
+
+There is no aggregate credit cap on this graph operation. The production fee,
+each part's mesh generation and composition use their existing billing. Choose
+`--pipeline-depth parts` without `--assembly-policy` to inspect parts before
+authorizing mesh generation. The new settings do not bypass that stopping point.
 
 ## Personal API keys
 
@@ -110,6 +228,28 @@ precedes the saved default. `--api-key` and `--base-url` remain
 explicit overrides. `auth logout` removes the selected saved profile (or the
 saved default); environment credentials remain under your shell’s control.
 Diagnostics omit API keys and raw server error bodies.
+
+## Updating the CLI
+
+```sh
+assethub update --check    # report the latest published version; installs nothing
+assethub update --dry-run  # print the install command it would run
+assethub update            # install the latest version (asks first in a terminal)
+assethub update --yes      # install without asking
+```
+
+`update` reads the latest `@assethub/cli` version with `npm view` (so your
+`.npmrc` registry, auth token and proxy apply; it reads the registry directly
+only when npm is unavailable), finds which package manager installed the
+running CLI globally (npm, pnpm, yarn, bun or Volta), and runs that manager's
+global install pinned to the exact version. Your saved login in
+`~/.assethub/config.json` lives outside the package and is never touched, so you
+do not log in again. Afterwards it runs the updated `assethub doctor` with the
+same `--profile`/`--config` and reports `auth` as `pass`, `fail`, or
+`not_configured`; it fails if the `assethub` on your PATH still reports the old
+version. It never downgrades. A CLI run through `npx`, installed as a project
+dependency, or built from a source checkout is not updated in place; the error
+says what to do instead.
 
 ## Historical meshes and artifact graphs
 
@@ -257,6 +397,87 @@ assethub production analyze --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" 
 assethub production automation --canvas "$CANVAS_ID" --input-json @batch.json --wait
 ```
 
+### V4 Character Assembly: image to assembled 3D character (Internal)
+
+One command runs the whole pipeline (parts, meshes, Blender assembly and review) and
+saves the assembled character GLB:
+
+```sh
+assethub production analyze --file ./concept.png --part-extractor v4 \
+  --name "My character" --canvas "$CANVAS_ID" --wait --download --out-dir ./character
+```
+
+A run takes about an hour, so `--wait` defaults to a 2 hour limit for V4
+(override with `--timeout-ms`). The run finishes `completed` when the assembly
+passes review, and `needs_review` (exit code 3) when it stops with the best
+assembly it made; both return that assembly as a mesh output. `failed` means no
+assembly was made. Follow a run started without `--wait` with
+`runs watch <run-id> --timeout-ms 7200000`.
+
+While a V4 run works, `--wait`, `runs watch` and `runs get` show where it is.
+The receipt's `progress` field has the phase, a one-line summary, each part's
+state and the Blender assembly rounds, in the words of the canvas Part Composer
+card. `--wait` and `runs watch` print a stderr line only when it changes:
+
+```text
+[run] 557d2a58-… running · Step 3 of 4 · Making the parts · 3 of 9 meshes ready · 4 redoing, 2 checking
+```
+
+```sh
+assethub runs watch <run-id> --timeout-ms 7200000 --download --out-dir ./character
+assethub runs get <run-id>                                   # JSON receipt, progress included
+assethub runs get <run-id> --download --out-dir ./character  # save the assembled GLB
+```
+
+A finished run keeps its `progress`. A failed one also carries
+`error.code: CHARACTER_ASSEMBLY_NOT_ACCEPTED` with the reason it stopped.
+
+Pick a stopped run back up (internal, no new charge) with its run ID; `--wait`
+follows the same run until the resumed attempt finishes:
+
+```sh
+assethub production resume <run-id> --wait --download --out-dir ./character
+```
+
+`runs get <run-id>` then reads it as `running` again, and its result is replaced
+by the resumed run's own when it finishes. An order ID still works without
+`--wait`. The API
+contract is in `docs/api-character-assembly-progress.md`.
+
+### Batch runs: many images, or one image many times
+
+`production batch` starts one `production analyze` per image, and per `--repeat`,
+with the same agent and options on one canvas. Use it to run V4 over several
+concepts, or to repeat one concept and compare how consistent the results are:
+
+```sh
+assethub production batch --file ./harpy.png --file ./satyr.png --repeat 2 \
+  --part-extractor v4 --yes --wait --concurrency 2 --download --out-dir ./batch
+assethub production batch --files-dir ./concepts --part-extractor v4 --yes
+```
+
+- Images: `--file` (repeatable), `--files-dir` (its .png/.jpg/.jpeg/.webp files by
+  name), `--source-id` and `--source-url` (repeatable). At most 20 runs per batch.
+- More than one run needs `--yes`: each one is a paid run (V4 takes about an hour).
+- Without `--canvas`, the batch gets one new canvas. Orders are named
+  `<--name> <image> #<repeat>`.
+- Every other `production analyze` option applies to each run.
+- The command prints the batch `--operation-id` first. Rerun the same command
+  with it to resume: started runs are read back, not started or charged again,
+  and different inputs under that ID are refused.
+- When the workspace is at its active agent-run limit, an image is `deferred`,
+  not failed. With `--wait`, it is started once one of the batch's runs finishes.
+  Without `--wait`, rerun the command later to start it.
+- `--wait` keeps at most `--concurrency` (default 2) of the batch's runs going.
+  It prints a stderr line per change and saves each run's outputs under
+  `<out-dir>/<image>/run-<repeat>/`.
+
+The JSON output lists every item with its `status` (`dispatched`, `deferred`,
+`failed`, `pending`, or the finished run's status), `runId` and receipt. Exit
+code 0 means every run started (or, with `--wait`, completed). 3 means some
+are deferred, pending or `needs_review`. 1 means one failed. MCP clients get the
+same behaviour from the `production_analyze_batch` tool.
+
 `parts split` keeps separate analysis and selected-part execution phases. Each phase
 has its own saved operation ID, with the execution linked to the analysis run.
 For Internal `V3.6.1` (`V3.6.1 Primary Images First`), `V3.6.3`
@@ -353,6 +574,79 @@ unavailable. Graph exports are bounded to 100 runs/evaluations and 1,000 nodes;
 truncated exports require `--allow-truncated`. Other commands, including production run/intervene, rig and retopology,
 retain their existing API behavior and do not yet create these receipts.
 `autopilot --demo` is an experimental demo requiring the AssetHub monorepo and its unpublished development dependency `@assethub/autopilot-core`. Standalone project workflow commands do not require or install it. Autonomous budgeted improvement is a later stage.
+
+## Trajectory memory
+
+Internal-only. `memorize` captures a canvas as a reusable recipe; `replay`
+re-runs a memory's recipe onto a new image.
+
+```sh
+# Whole canvas, or just the shapes you name (max 256 tldraw shape ids).
+assethub memory memorize --canvas "$CANVAS_ID" --wait
+assethub memory memorize --canvas "$CANVAS_ID" --nodes shape:a,shape:b --wait
+
+# Replay one memory onto a registered asset.
+assethub memory replay "<graphId>:<nodeId>" --source ast_x --wait
+```
+
+`--source` must be an asset your workspace owns — an `outputs[].assetId` from an
+earlier job, or a generation `resourceId`. A `url` is refused with 400
+`UNSUPPORTED_SOURCE`, because a replay needs a registered image rather than a
+link; bring a remote one in with `files import` first.
+
+`memorize` reserves credit for up to 100 trajectory summaries and settles the
+number actually indexed. If a selection has more than 100 candidates, none are
+automatically indexed; use `--nodes` to select a smaller history. Check
+`job.indexKnown` and `job.trajectoriesIndexed` after completion: saving a graph
+alone does not make its recipes searchable. `--canvas` takes a positive integer.
+Personal-key commands use the selected profile workspace or `--workspace`.
+The replay walk itself meters per step through each model's own consume plan as
+it runs, so a replay costs the sum of its executable steps and there is no
+route-level hold.
+
+Three behaviours worth knowing before scripting against it:
+
+- **A replay that fails is a finished run.** `status` is the walk's verdict, not
+  the state of the machinery — a walk whose every step failed reports `failed`
+  having completed normally. Read `steps[]` for what actually happened;
+  `skipped` and `blocked` are steps the recipe could not run.
+- **A match with no prepared memory is a result, not an error.** It means the
+  organization has curated nothing. Exit 0, empty result.
+- **A canvas you do not own answers 404, not 403** — the same answer a canvas
+  that does not exist gets. That is deliberate: canvas ids are sequential enough
+  that a distinguishable 403 would let a caller learn which ones exist. Both
+  exit 2 with the server's message, and the CLI does not tell them apart.
+
+Exit codes follow the usual convention: `0` completed, `1` terminal failure,
+`2` input/auth/capability, `3` timeout or still pending when `--wait` gave up.
+
+## Canvas export (artifact-graph zips)
+
+Internal-only. Export an organization's workflow canvases as `ag.graph-folder.v1`
+zips — the same exporter the dev dashboard's canvas-export panel drives, without
+a browser. A non-internal key gets 404 from every call here, printed as-is with
+exit 2.
+
+```sh
+# Find the org by name or by a member's email, then list its workflow canvases.
+assethub org search acme
+assethub org canvases --org "$ORG_ID"
+
+# Queue exports (chunked into POSTs of 50), wait for every job, download the zips.
+assethub graph export-canvas --org "$ORG_ID" --canvas 30917,30918 --wait --out-dir ./exports
+```
+
+Without `--wait` the command prints the queued `jobs` and returns. With it, every
+job is polled every 5 seconds until `ready` or `failed` (default `--timeout`
+1800 s), each ready zip is streamed to `<out-dir>/<projectId>-rev<rev>.zip` with
+its `sha256` and `bytes` recorded, and the output is
+`{jobs, omitted, downloaded, failed}` (the signed archive URLs are never printed
+— the zip is on disk). A canvas that already has an export in flight is answered
+with that job rather than a second one.
+Exit codes: 0 success, 1 a job failed, a download failed, or a requested id was
+`omitted` (not a workflow canvas owned by `--org` — the API drops it and the
+command names it rather than reporting a partial batch as success), 2 caller
+error, 3 `--wait` timed out (the partial job list is still printed).
 
 ## Storyboard project workflow
 
@@ -659,6 +953,25 @@ required MFA in AssetHub and provide its signed proof through
 expired proof by logging in again. Explicit `--profile` uses its saved proof and
 ignores environment credentials; an explicit `--api-key` can supply the workspace
 key. Generation uses normal workspace credits.
+
+`composer run --model V6` selects Auto assemble (`part_composer_v6_auto_assemble`).
+`composer run --model V5.1` runs Skill assembly: the CLI sends it as a codex
+`mesh.refine` with `skillAssembly: "assemble-character"` because the server runs
+the bundled Character Assembly skill in the Blender sandbox, not as a compose
+model. It uses identity starting transforms unless you pass `--transforms-json`,
+accepts only Agents API `--agent-model` values and an optional
+`--reasoning low|medium|high`. `composer refine --from-run <run-id> --skill-assembly`
+does the same from a finished compose run's placement. Both models follow their
+release gates. Without `--timeout-ms`, `--wait` allows 95 minutes for V6 and 125
+minutes for V5.1.
+
+`composer run --optimize off|light|medium|heavy` is the Part Composer node's
+Optimize output preset. Assembly always works on its own shrunk parts; the final
+bake uses the original full-resolution meshes and then keeps ~75% (`light`),
+~50% (`medium`) or ~25% (`heavy`) of the geometry with WebP textures, or all of
+it (`off`, also clearing a ratio saved on a `--from-run` or `--input-json`
+input). It is refused with a base body and with `--node`, where the node's own
+Optimize output setting applies.
 
 `composer refine --from-run` accepts a `mesh.compose` or prior `mesh.refine` run
 and uses that receipt's final `composition.transforms` and any replacement

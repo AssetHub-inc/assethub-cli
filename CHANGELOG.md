@@ -1,5 +1,20 @@
 # Changelog
 
+## CLI 0.1.31 / API client 0.1.17
+
+Brings in the CLI and SDK work done in the application repository since the standalone publish, merged with this repository's own changes (nothing here is removed).
+
+- Add `assethub setup`: one command that logs in (reusing a saved key), selects a workspace, registers the hosted MCP server in Claude Code and Codex, makes `ASSETHUB_API_KEY` visible to macOS apps through a login agent, and checks the result. `--dry-run` shows every change without making it. The API key is never written to Claude Code, Codex, or the login agent. Add `assethub env load` for the login agent.
+- Add opt-in session saving: `assethub setup --save-sessions` or `assethub hooks install --client claude` saves each Claude Code session with recognised secrets masked, and uploads it to your private coding-agent sessions (internal accounts for now). Add `hooks save|upload|list|status|uninstall`, `.assethub/no-session-save`, `ASSETHUB_SESSION_SAVE=off`, and `ASSETHUB_SESSION_UPLOAD=off`.
+- Add `assethub update [--check] [--dry-run] [--yes]`, which upgrades a global install with the package manager that installed it and keeps the saved login.
+- Add `production batch`: one `production analyze` per image (`--file`, `--files-dir`, `--source-id`, `--source-url`) times `--repeat`, on one canvas. More than one paid run requires `--yes`. Rerunning with the printed `--operation-id` resumes without starting any run twice, and `--wait` prints each run's new progress step.
+- Add `production resume <run-id|order-id>` (internal), V4 Character Assembly (`--part-extractor v4`) with progress in `runs watch`, `V3.6.2 Single Analysis`, and `V3.0.10-dev.1 Body Fit`. Add `--base-body`, `--skill-planner-model`, `--auto-repair`, and the production graph options `--pipeline-depth`, `--assembly-policy`, and `--mesh-generation-json`.
+- Add Composer V6 and V5.1 to `composer run --model`, `composer refine --skill-assembly [--reasoning]`, `--agent-model`, and `--optimize off|light|medium|heavy`. `--part` accepts `<mesh-id>=<part-image-id>` as well as the existing `<mesh-id>:<part-image-id>`. `--effort` is unchanged.
+- Add `canvas graph-id`, `graph snapshot|node|image`, `skills memory|validate|schema|build|official`, `runs get|watch --download`, and the internal `memory memorize|replay`, `org search|canvases`, and `graph export-canvas` commands (the server refuses them for non-internal accounts).
+- Client 429 handling: a GET is always retried after the server's `Retry-After` (or its "Try again in N seconds" message); a mutation is retried only when it carries an `Idempotency-Key` and the limiter answered `RATE_LIMITED`. Other 429s, such as an agent-run plan limit, go back to the caller. At most 5 retries.
+- `runs upload` and session uploads send `X-AssetHub-Workspace`, so personal keys can upload.
+- API client: add graph reads (`getGraphSnapshot`, `getGraphNode`, `getGraphNodeImage`), production batch helpers, skill review, memory, build, and official skill methods, binary artifact reads, `AssetHubApiError.replayed`, and V4 progress and judgment policy fields on executions.
+
 ## CLI 0.1.30 / API client 0.1.16
 
 - Add the Composer Alpha `effort` option to the mesh refinement client request. The CLI accepts `--effort light|standard|thorough`, forwards it from JSON input, and preserves it across `--from-run` continuation.

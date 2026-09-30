@@ -38,6 +38,13 @@ export const INTERVENTION_OPS = [
 export type PartAddIntervention = {
   op: 'part.add'
   name: string
+  sourceRegion?: {
+    sourceArtifactId: string
+    x: number
+    y: number
+    width: number
+    height: number
+  }
 }
 
 export type PartRenameIntervention = {

@@ -1,3 +1,4 @@
+import {childOperationId} from '@assethub/api-client'
 import {join} from 'node:path'
 import type {
   CanvasExecution,
@@ -7,7 +8,6 @@ import type {
 import {readState, writeState} from './canvas.js'
 import {
   activeExecution,
-  childOperationId,
   CliExecutionError,
   executeRecorded,
   openExecutionSession,
@@ -100,10 +100,12 @@ export const executeNodeMeshBatch = async (
       baseUrl: session.baseUrl,
       ownerId: session.ownerId,
       canvasId: session.canvas.id,
-      children: input.children.map(nodeId => ({
-        nodeId,
-        operationId: childOperationId(input.operationId, nodeId),
-      })),
+      children: await Promise.all(
+        input.children.map(async nodeId => ({
+          nodeId,
+          operationId: await childOperationId(input.operationId, nodeId),
+        })),
+      ),
     }),
   ) as NodeMeshBatch
   const path = batchPath(session.stateDir, batch.operationId)

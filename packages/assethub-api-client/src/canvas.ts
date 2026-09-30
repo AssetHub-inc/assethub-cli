@@ -26,6 +26,8 @@ export type CanvasNode = {
 export type CanvasNodesResult = {items: CanvasNode[]}
 export type MeshVolumeCentroid = [number, number, number]
 export type MeshComposerPart = {
+  sourceAssetId?: string
+  transform?: number[]
   assetId: string
   name?: string
   canonicalKey?: string
@@ -85,6 +87,54 @@ export type EvaluationSubmission = {
   evaluator: {name: string; version?: string}
   report: EvaluationReport
 }
+/**
+ * A V4 Character Assembly run's progress, in the words the canvas uses. Set on
+ * `CanvasExecution.progress` while the run works and after it finishes.
+ */
+export type CharacterAssemblyProgress = {
+  kind: 'character_assembly'
+  phase: 'plan' | 'body' | 'parts' | 'assembly' | 'done'
+  /** 1 plan, 2 base body, 3 parts, 4 assembly (a finished run stays on 4). */
+  step: number
+  steps: 4
+  /** One line, e.g. `Step 3 of 4 · Making the parts · 6 of 10 meshes ready`. */
+  summary: string
+  headline: string
+  partsReady: number
+  partsTotal: number
+  parts: Array<{
+    label: string
+    state:
+      | 'waiting'
+      | 'drawing'
+      | 'meshing'
+      | 'checking'
+      | 'redoing'
+      | 'ready'
+      | 'kept'
+      | 'failed'
+    stateText: string
+    note?: string
+    meshModel?: string
+    drawingAttempts: number
+    meshAttempts: number
+  }>
+  rounds: Array<{
+    round: number
+    state: 'running' | 'accepted' | 'repair' | 'failed'
+    stateText: string
+    summary?: string
+  }>
+  /** Set before the first assembly round. */
+  note?: string
+  /** Set once the run stopped for good; `detail` says what stopped it. */
+  outcome?: {
+    accepted: boolean
+    outcome: string
+    stopReason?: string
+    detail?: string
+  }
+}
 export type CanvasExecution = {
   schemaVersion: 'assethub.execution.v1'
   runId: string
@@ -100,6 +150,12 @@ export type CanvasExecution = {
   canvas: Canvas
   jobIds: string[]
   meshGeneration?: {id: string; progress?: number}
+  /** V4 Character Assembly runs only, while running and after they finish. */
+  progress?: CharacterAssemblyProgress
+  judgmentPolicy?:
+    | 'complete-object-evidence-v1'
+    | 'complete-object-evidence-v2'
+    | 'complete-object-evidence-body-neutral-v1'
   orderIds: string[]
   graphRefs: Array<{graphId: string; nodeId?: string; revision?: string}>
   outputs: Array<{
@@ -113,10 +169,13 @@ export type CanvasExecution = {
   }>
   history: {status: 'recorded' | 'pending' | 'failed'; error?: string}
   composition?: {
+    turntableRefinement?: Record<string, unknown>
     transforms?: Record<string, number[]>
     parts?: MeshComposerPart[]
     referenceTransform?: number[]
   }
+  /** Pinned methods used for this run; never execution authority or creator adoption. */
+  appliedSkills?: {skillId: string; skillRevision: number}[]
   refinement?: {
     mode:
       | 'standard'

@@ -14,6 +14,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
   const requests: {
     path: string
     auth?: string
+    workspace?: string | string[]
     cookie?: string
     method?: string
   }[] = []
@@ -33,6 +34,7 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     requests.push({
       path: req.url!,
       auth: req.headers.authorization,
+      workspace: req.headers['x-assethub-workspace'],
       cookie: req.headers.cookie,
       method: rpc.method,
     })
@@ -223,7 +225,8 @@ test('diagnoses API/MCP setup and keeps explicit profile credentials isolated', 
     requests.length = 0
 
     envOrigin = 'http://127.0.0.1:1'
-    const healthy = await invoke('doctor', '--mcp', '--profile', 'selected')
+    const healthy = await invoke('doctor', '--mcp', '--profile', 'selected', '--workspace', 'test-workspace')
+    expect(requests.every(request => request.workspace === 'test-workspace')).toBe(true)
     expect({
       code: healthy.code,
       stdout: healthy.stdout,

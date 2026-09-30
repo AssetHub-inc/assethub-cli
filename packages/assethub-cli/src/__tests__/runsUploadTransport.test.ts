@@ -214,7 +214,26 @@ describe('uploadRun', () => {
     for (const call of calls) {
       expect(call.url).not.toContain(API_KEY)
       expect(call.headers.authorization).toBe(`Bearer ${API_KEY}`)
+      expect(call.headers['x-assethub-workspace']).toBeUndefined()
     }
+  })
+
+  // A personal key is refused without it: "Set X-AssetHub-Workspace to an allowed workspace UUID".
+  it('sends the selected workspace with every request', async () => {
+    const {calls, fetchImpl} = recorder(call =>
+      call.method === 'HEAD' ? new Response(null, {status: 404}) : ok(),
+    )
+
+    await uploadRun({
+      plan: planWith([blobA]),
+      baseUrl: BASE_URL,
+      apiKey: API_KEY,
+      workspaceId: 'ws-1',
+      fetchImpl,
+    })
+
+    expect(calls.map(call => call.method)).toEqual(['POST', 'HEAD', 'PUT', 'PUT'])
+    for (const call of calls) expect(call.headers['x-assethub-workspace']).toBe('ws-1')
   })
 
   it('skips registration when asked', async () => {

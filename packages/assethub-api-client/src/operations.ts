@@ -220,23 +220,36 @@ export const describeApiOperation = (
   return {...operation, components: {schemas}}
 }
 
+// Path separators count as word breaks, so "image generate" finds
+// `POST /image/generate` and "concept preparation" finds
+// `/workspace-skills/concept-preparation/start`.
+const searchText = (value: string) =>
+  value.toLowerCase().replace(/[\s/_\-.:{}]+/g, ' ')
+
+/**
+ * Every word of the query must appear, in any order. Matching the query as ONE
+ * substring meant any natural phrase found nothing: "image generate" is not a
+ * substring of "POST /image/generate", and "apply skill" appears nowhere as
+ * written. A single word still matches exactly as it did.
+ */
 export const searchApiOperations = (
   catalog: Map<string, ApiOperation>,
   query = '',
-) =>
-  [...catalog.values()]
-    .filter(
-      operation =>
-        !query ||
-        `${operation.id} ${operation.contract.summary ?? ''} ${operation.contract.description ?? ''}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-    )
+) => {
+  const words = searchText(query).split(' ').filter(Boolean)
+  return [...catalog.values()]
+    .filter(operation => {
+      const text = searchText(
+        `${operation.id} ${operation.contract.summary ?? ''} ${operation.contract.description ?? ''}`,
+      )
+      return words.every(word => text.includes(word))
+    })
     .map(operation => ({
       operation: operation.id,
       summary: operation.contract.summary ?? '',
       cost: operation.contract['x-assethub-credit-cost'],
     }))
+}
 
 export const buildApiRequest = (
   catalog: Map<string, ApiOperation>,
@@ -324,7 +337,7 @@ export const callApiOperation = async (
   client: AssetHubClient,
   discovery: ApiOperationDiscovery,
   input: ApiOperationInput,
-  options: {signal?: AbortSignal} = {},
+  options: {signal?: AbortSignal; binaryMode?: 'base64' | 'metadata'} = {},
 ) => {
   const operation = discovery.catalog.get(input.operation)
   if (!operation)
@@ -356,5 +369,106 @@ export const callApiOperation = async (
         ? {}
         : {body: JSON.stringify(request.body)}),
     },
+    isBinaryApiOperation(operation)
+      ? options.binaryMode === 'metadata'
+        ? 'binary-metadata'
+        : 'binary'
+      : 'json',
   )
+}
+
+/** Binary response support is discovered from OpenAPI, shared by every operation transport. */
+export function isBinaryApiOperation(operation: ApiOperation) {
+  const responses = operation.contract.responses
+  return (
+    isRecord(responses) &&
+    Object.entries(responses).some(([status, response]) => {
+      if (
+        !/^2\d\d$/.test(status) ||
+        !isRecord(response) ||
+        !isRecord(response.content)
+      )
+        return false
+      return Object.values(response.content).some(
+        media =>
+          isRecord(media) &&
+          isRecord(media.schema) &&
+          media.schema.format === 'binary',
+      )
+    })
+  )
+}
+
+export async function readApiBinaryArtifact(
+  response: Response,
+  mode: 'base64' | 'metadata' = 'base64',
+) {
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('API artifact response body is missing')
+  const declared = response.headers.get('content-length')
+  const declaredLength = declared === null ? null : Number(declared)
+  if (
+    declared !== null &&
+    (!/^\d+$/.test(declared) || !Number.isSafeInteger(declaredLength))
+  ) {
+    await reader.cancel()
+    reader.releaseLock()
+    throw new Error('API artifact invalid content length')
+  }
+  if (declaredLength !== null && declaredLength > 64 * 1024 * 1024) {
+    await reader.cancel()
+    reader.releaseLock()
+    throw new Error('API artifact exceeds 64 MiB')
+  }
+  const chunks: Uint8Array[] = []
+  let byteLength = 0
+  if (reader)
+    try {
+      for (;;) {
+        const next = await reader.read()
+        if (next.done) break
+        byteLength += next.value.byteLength
+        if (byteLength > 64 * 1024 * 1024) {
+          await reader.cancel()
+          throw new Error('API artifact exceeds 64 MiB')
+        }
+        if (mode === 'base64') chunks.push(next.value)
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  if (declaredLength !== null && byteLength !== declaredLength)
+    throw new Error('API artifact content length mismatch')
+  const mediaType =
+    response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ||
+    'application/octet-stream'
+  if (mode === 'metadata')
+    return {
+      success: true,
+      data: {
+        schemaVersion: 'assethub.binary-artifact.v1',
+        mediaType,
+        byteLength,
+        contentIncluded: false,
+      },
+    }
+  const bytes = new Uint8Array(byteLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += 32768)
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768))
+  return {
+    success: true,
+    data: {
+      schemaVersion: 'assethub.binary-artifact.v1',
+      encoding: 'base64',
+      mediaType,
+      byteLength,
+      data: btoa(binary),
+    },
+  }
 }

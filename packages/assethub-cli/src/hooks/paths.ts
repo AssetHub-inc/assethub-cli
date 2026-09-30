@@ -1,0 +1,80 @@
+import {appendFile, chmod, mkdir, readFile, readdir, rename, writeFile} from 'node:fs/promises'
+import {homedir} from 'node:os'
+import {join} from 'node:path'
+
+import {redactText} from './redact.js'
+import type {SessionMeta} from './types.js'
+
+export const resolveHome = (home?: string): string => home ?? homedir()
+export const sessionsRoot = (home?: string): string =>
+  join(resolveHome(home), '.assethub', 'sessions')
+export const errorsLogPath = (home?: string): string => join(sessionsRoot(home), 'errors.log')
+
+// Sessions hold the artist's conversation and images, and redaction is best
+// effort, so everything under ~/.assethub/sessions is private to the user.
+export const PRIVATE_DIR_MODE = 0o700
+export const PRIVATE_FILE_MODE = 0o600
+
+/** mkdir -p with private modes; also tightens a directory an older version made. */
+export const ensurePrivateDir = async (dir: string): Promise<void> => {
+  await mkdir(dir, {recursive: true, mode: PRIVATE_DIR_MODE})
+  await chmod(dir, PRIVATE_DIR_MODE)
+}
+
+/** Write via a temp file and rename, so a reader never sees a half-written file. */
+export const writePrivateFileAtomic = async (target: string, content: string): Promise<void> => {
+  const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  await writeFile(tmp, content, {mode: PRIVATE_FILE_MODE})
+  await rename(tmp, target)
+}
+
+export const readMeta = async (sessionDir: string): Promise<SessionMeta | null> => {
+  try {
+    return JSON.parse(await readFile(join(sessionDir, 'meta.json'), 'utf8')) as SessionMeta
+  } catch {
+    return null
+  }
+}
+
+export const writeMeta = async (sessionDir: string, meta: SessionMeta): Promise<void> => {
+  await writePrivateFileAtomic(join(sessionDir, 'meta.json'), `${JSON.stringify(meta, null, 2)}\n`)
+}
+
+/**
+ * Re-read meta just before writing, so a hook or upload that ran concurrently
+ * keeps what it wrote; `update` sees the latest copy, not an earlier snapshot.
+ */
+export const updateMeta = async (
+  sessionDir: string,
+  fallback: SessionMeta,
+  update: (latest: SessionMeta) => SessionMeta,
+): Promise<SessionMeta> => {
+  const next = update((await readMeta(sessionDir)) ?? fallback)
+  await writeMeta(sessionDir, next)
+  return next
+}
+
+export const listSessionDirs = async (home?: string): Promise<string[]> => {
+  const root = sessionsRoot(home)
+  try {
+    const entries = await readdir(root, {withFileTypes: true})
+    return entries
+      .filter(entry => entry.isDirectory())
+      .map(entry => join(root, entry.name))
+      .sort()
+  } catch {
+    return []
+  }
+}
+
+export const logError = async (home: string | undefined, error: unknown): Promise<void> => {
+  try {
+    await ensurePrivateDir(sessionsRoot(home))
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error)
+    await appendFile(errorsLogPath(home), `${new Date().toISOString()} ${redactText(message)}\n`, {
+      mode: PRIVATE_FILE_MODE,
+    })
+  } catch {
+    // The hook must never fail the agent, even when logging fails.
+  }
+}

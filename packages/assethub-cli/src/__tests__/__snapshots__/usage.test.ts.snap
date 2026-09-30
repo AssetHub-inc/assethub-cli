@@ -7,6 +7,13 @@ CLI and MCP are available to all AssetHub users. Workspace permissions and featu
 
 Usage:
   assethub --version
+  assethub setup [--client claude|codex|both] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--save-sessions] [--no-hook] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
+  assethub env load [--profile <name>]
+  assethub hooks install|uninstall --client claude|codex
+  assethub hooks save [--transcript <path> --session-id <id>]
+  assethub hooks upload [--session <dir> [--auto] [--sweep <n>] | --pending [--force] [--limit <n>]]
+  assethub hooks list|status [--json]
+  assethub update [--check] [--dry-run] [--yes]
   assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
   assethub init [--agent claude-code|codex|cursor...] [--project] [--dry-run] [--base-url <url>] [--workspace <id>] [--profile <name>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
@@ -50,31 +57,30 @@ Usage:
   assethub api search [query]
   assethub api describe "<METHOD /path>"
   assethub api call "<METHOD /path>" [--path-json <json|@file>] [--query-json <json|@file>] [--input-json <json|@file|@->] [--operation-id <uuid>]
-  assethub skills list [--cursor <cursor>]
-  assethub skills get <skill-id> [--revision <n>]
-  assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
-  assethub skills update <skill-id> --input-json <json|@file|@->
-  assethub skills controls <skill-id> --revision <n> --grant-revision <n> --mode automatic|manual|off [--share]
-  assethub skills prepare --input-json <json|@file|@->
-  assethub skills proposal <proposal-id>
-  assethub skills accept <proposal-id> --input-json <json|@file|@->
   assethub composer models
   assethub composer refine --list-modes
-  assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--effort light|standard|thorough] [--max-rounds <n>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
+  assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--effort light|standard|thorough] [--max-rounds <n>] [--agent-model <provider:id|unambiguous-id>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
-  assethub composer run --part <mesh-asset-id>[:<part-image-asset-id>] [--part <mesh-asset-id>[:<part-image-asset-id>]...] --reference <image-asset-id> [--model <id>] [--mode quick|quality] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer refine --from-run <run-id> --skill-assembly [--reasoning low|medium|high] [--agent-model <agents-api model>] [--wait]
+  assethub composer run --part <mesh-asset-id>[=<part-image-id>] [--part <mesh-asset-id>[=<part-image-id>]...] --reference <image-asset-id> [--model <id>] [--agent-model <provider:id|unambiguous-id>] [--mode quick|quality] [--optimize off|light|medium|heavy] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer run --part <mesh-asset-id>=<part-image-id>... --reference <image-asset-id> --model V6 [--optimize off|light|medium|heavy] [--canvas <id>] [--wait]
+  assethub composer run --part <mesh-asset-id>... --reference <image-asset-id> --model V5.1 [--reasoning low|medium|high] [--agent-model <agents-api model>] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer run --from-run <run-id> [--transforms-json <json|@file>] [--mode quick|quality] [--wait]
   assethub composer run --node <shape:id> --canvas <id> [--model <id>] [--mode quick|quality] [--operation-id <uuid>] [--wait]
   assethub canvas create [--name <name>] [--operation-id <uuid>]
   assethub canvas list [--cursor <cursor>] [--limit <n>]
   assethub canvas get|use|open [<id>]
+  assethub canvas graph-id <canvas-id>
   assethub runs list [--canvas <id>] [--cursor <cursor>] [--limit <n>]
-  assethub runs get|watch|wait <run-id> [--interval-ms <ms>] [--timeout-ms <n>] [--summary]
+  assethub runs get|watch|wait <run-id> [--interval-ms <ms>] [--timeout-ms <n>] [--summary] [--download --out-dir <dir>]
   assethub runs resume <operation-id> [--wait]
   assethub graph list [--cursor <cursor>] [--limit <n>]
   assethub graph show|export [--canvas <id> | --graph <id>] [--source generated|upload] [--artifact <node-id>] [--out <path>] [--allow-truncated]
   assethub graph lineage --artifact <node-id> [--canvas <id> | --graph <id>] [--source generated|upload] [--direction ancestors|descendants|both] [--depth <n>] [--out <path>]
+  assethub graph snapshot <graph-id> [--offset <n>] [--limit <n>]
+  assethub graph node <graph-id> <node-id>
+  assethub graph image <graph-id> <node-id> [--out <path>]
   assethub evaluate list
   assethub evaluations submit --artifact <asset-id> --report <json|file|@file|@-> [--agent <name>] [--canvas <id>] [--reference <asset-id>...] [--run <run-id>] [--operation-id <uuid>] [--require-pass]
   assethub evaluations list [--canvas <id>] [--artifact <asset-id>]
@@ -95,7 +101,10 @@ Usage:
   assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
   assethub jobs get <job-id> [--download --out-dir <dir>]
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
-  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
+    Production graph options: --pipeline-depth parts|mesh|composition [--assembly-policy concept-to-character-v1] [--mesh-generation-json <json|@file>]
+  assethub production batch (--file <path>... | --files-dir <dir> | --source-id <id>... | --source-url <url>...) --part-extractor <name> [--repeat <n>] [--yes] [--canvas <id>] [--operation-id <uuid>] [--wait [--concurrency <n>]] [--download --out-dir <dir>]
+    One production analyze per image × --repeat, on one canvas. Takes the production analyze options. Rerun with the printed --operation-id to resume; nothing is started twice.
   assethub production agents
   assethub production automation --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--wait]
   assethub production status <order-id> [--wait] [--download --out-dir <dir>]
@@ -105,10 +114,32 @@ Usage:
   assethub production watch <order-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
   assethub production intervene <order-id> (--exclude <target-id> | --include <target-id> | --add-part <name> | --rename <target-id>=<name> | --reject <target-id>[=<reason>] | --regenerate <target-id>=<mode> | --set-param <key>=<value> | --ops-json <json|@file|@->)... [--idempotency-key <key>]
   assethub production interventions <order-id>
+  assethub production resume <run-id|order-id> [--expected-resume-count <n>] [--wait] [--timeout-ms <ms>] [--download --out-dir <dir>]   (internal: after a fix, pick a stopped or stalled graph run back up; no new charge)
   assethub runs upload <path> [--graph-id <id>] [--stream-id <id>] [--rev <n>] [--description <text>] [--tag <tag>...] [--skip-register] [--dry-run]
-  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
+  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
+  assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
+  assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
+  assethub skills list [--cursor <cursor>]
+  assethub skills get <skill-id> [--revision <n>]
+  assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
+  assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
+  assethub skills update <skill-id> --input-json <json|@file|@->
+  assethub skills controls <skill-id> --revision <n> --grant-revision <n> --mode automatic|manual|off [--share]
+  assethub skills prepare --input-json <json|@file|@->
+  assethub skills proposal <proposal-id>
+  assethub skills accept <proposal-id> --input-json <json|@file|@->
+  assethub skills validate --input-json <json|@file|@-> [--build <build-id>]
+  assethub skills schema
+  assethub skills build --goal <text> (--canvas <id>... | --memory <id>...) [--instructions <text>] [--operation-id <uuid>] [--wait] [--dry-run]
+  assethub skills official list
+  assethub skills official install <skill-id> --revision <n> --content-sha256 <sha256> [--expected-revision <n>] [--expected-grant-revision <n>]
+  assethub skills official prepare <skill-id> --input-json <json|@file|@->
+  assethub skills official customize <skill-id> --input-json <json|@file|@->
+  assethub org search <query>
+  assethub org canvases --org <orgId>
+  assethub graph export-canvas --org <orgId> --canvas <id>[,<id>...] [--wait] [--timeout <s>] [--out-dir <dir>]
 
 Global options:
   --api-key <key>       Overrides saved auth and ASSETHUB_API_KEY.
@@ -137,6 +168,8 @@ Examples:
   assethub rig create --source-resource-id mesh_x --rig-type biped --wait
   assethub animate retarget --resource-id rig_x --animation preset:idle --wait
   assethub production analyze --file ./input.png --part-extractor "V1.5" --wait
+  assethub production analyze --file ./concept.png --part-extractor v4 --wait --download --out-dir ./character
+  assethub production batch --file ./harpy.png --file ./satyr.png --repeat 2 --part-extractor v4 --yes --wait --download --out-dir ./batch
   assethub production run --order-id ord_x --mission-id ms_x --run-mode full_auto --max-cost-credits 200 --wait
   assethub production run --image ./character.png --estimate
   assethub production run --image ./character.png --compose v6 --max-cost 500 --wait --download --out-dir ./out/asset
@@ -145,6 +178,8 @@ Examples:
   assethub runs wait run_x --timeout-ms 3600000
   assethub production intervene ord_x --exclude 7 --rename 3="left wing" --idempotency-key review-2026-07-29
   assethub production interventions ord_x
+  assethub production resume ord_x
+  assethub production resume <run-id> --wait --download --out-dir ./character
   assethub runs upload ./out/pluffy-run-2026-07-30 --dry-run
   assethub runs upload ./out/pluffy-run-2026-07-30 --tag pluffy --description "V3 humanoid, 18 parts"
   assethub parts split --file ./input.png --part-extractor "V1.5" --wait --all-ready

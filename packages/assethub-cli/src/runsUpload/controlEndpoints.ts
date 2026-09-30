@@ -29,10 +29,15 @@ export type ControlRunUploadUrls = {
   blob: (graphId: string, blobKey: string) => string
 }
 
-export const controlRunUploadUrls = (baseUrl: string): ControlRunUploadUrls => {
+export const controlRunUploadUrls = (
+  baseUrl: string,
+  apiPrefix: string = CONTROL_RUN_UPLOAD_API_PREFIX,
+): ControlRunUploadUrls => {
   // Matches @assethub/api-client's own URL construction: trim the trailing
   // slash and append, so a base URL carrying a path prefix keeps it.
-  const prefix = `${trimTrailingSlash(baseUrl)}${CONTROL_RUN_UPLOAD_API_PREFIX}`
+  // `apiPrefix` lets another store with the same wire contract (coding-agent
+  // sessions) reuse this upload loop.
+  const prefix = `${trimTrailingSlash(baseUrl)}${apiPrefix}`
   return {
     graphs: `${prefix}/graphs`,
     snapshot: graphId => `${prefix}/graphs/${encodeURIComponent(graphId)}/snapshot`,
