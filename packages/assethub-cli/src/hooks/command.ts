@@ -4,7 +4,6 @@
 import {installHooks, sessionSaveDisclosure, uninstallHooks, type HookScope} from './install.js'
 import {listSessionDirs, readMeta} from './paths.js'
 import {saveSession} from './save.js'
-import type {HookClient} from './types.js'
 import {canUploadSessions, resolveUploadAuth, uploadPending, uploadSession, type UploadOptions} from './upload.js'
 
 export type HooksCommandDeps = {
@@ -23,7 +22,7 @@ export type HooksCommandDeps = {
 const USAGE =
   'Usage: assethub hooks <install|uninstall|save|upload|list|status> [--client claude|codex] [--json]\n' +
   '  install|uninstall [--global]   (the current folder by default; --global for every project)\n' +
-  '  save [--transcript <path> --session-id <id>]   (reads hook JSON from stdin without flags)\n' +
+  '  save [--client codex] [--transcript <path> --session-id <id>]   (reads hook JSON from stdin without flags)\n' +
   '  upload [--session <dir> [--auto] [--sweep <n>]|--pending [--force] [--limit <n>]]\n' +
   '         --auto and --pending wait out earlier failures (1h, 2h, 4h … up to a day); --force retries now'
 
@@ -94,31 +93,20 @@ export const runHooksCommand = async (
         }
         // Sessions are saved only where the hooks are: this folder, unless --global.
         const scope: HookScope = flags.global === true ? {} : {projectDir: deps.cwd ?? process.cwd()}
+        const paths = {home: deps.home, codexHome: (deps.env ?? process.env).CODEX_HOME?.trim() || undefined}
         if (sub === 'install') {
           // Only accounts that may upload sessions (internal for now) can turn
           // session saving on; for anyone else the hooks would only pile up.
-          if (client === 'claude') {
-            const auth = await resolveUploadAuth(uploadOptions)
-            if (!auth || !(await canUploadSessions(auth, deps.fetchImpl))) {
-              write('Session saving is not available for this account.\n')
-              return 1
-            }
+          const auth = await resolveUploadAuth(uploadOptions)
+          if (!auth || !(await canUploadSessions(auth, deps.fetchImpl))) {
+            write('Session saving is not available for this account.\n')
+            return 1
           }
-          const result = await installHooks({
-            ...scope,
-            client: client as HookClient,
-            home: deps.home,
-            cliPath: deps.cliPath,
-          })
-          out(
-            result.installed && client === 'claude'
-              ? `${result.detail}\n${sessionSaveDisclosure(scope)}`
-              : result.detail,
-            result,
-          )
-          return result.installed || client === 'codex' ? 0 : 1
+          const result = await installHooks({...scope, ...paths, client, cliPath: deps.cliPath})
+          out(result.installed ? `${result.detail}\n${sessionSaveDisclosure(scope, client)}` : result.detail, result)
+          return result.installed ? 0 : 1
         }
-        const result = await uninstallHooks({...scope, client: client as HookClient, home: deps.home})
+        const result = await uninstallHooks({...scope, ...paths, client})
         out(result.detail, result)
         return 0
       }
@@ -138,6 +126,7 @@ export const runHooksCommand = async (
         const result = await saveSession({
           stdin,
           input,
+          client: flags.client === 'codex' ? 'codex' : 'claude',
           home: deps.home,
           env: deps.env,
           now: deps.now,

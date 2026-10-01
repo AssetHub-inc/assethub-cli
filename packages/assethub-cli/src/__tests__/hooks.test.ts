@@ -22,6 +22,7 @@ import {chunkTranscript, compactLimits} from '../hooks/graph.js'
 import {MAX_SETTINGS_BACKUPS, isOurCommand, sessionSaveDisclosure} from '../hooks/install.js'
 import {readMeta, updateMeta} from '../hooks/paths.js'
 import {materializeSession} from '../hooks/save.js'
+import {extractImagePaths} from '../hooks/transcript.js'
 import {redactText} from '../hooks/redact.js'
 import {buildRunUploadPlan} from '../runsUpload/buildRunUpload.js'
 import {readGraphFolder} from '../runsUpload/graphFolder.js'
@@ -244,14 +245,6 @@ describe('installHooks / uninstallHooks', () => {
     const result = await installHooks({client: 'claude', home})
     expect(result.installed).toBe(false)
     expect(await readFile(settingsPath(), 'utf8')).toBe('{not json')
-  })
-
-  it('does not write codex hooks', async () => {
-    expect(await installHooks({client: 'codex', home})).toEqual({
-      installed: false,
-      detail: 'Codex: run `assethub hooks save --transcript <path>` manually for now',
-    })
-    await expect(stat(settingsPath())).rejects.toThrow()
   })
 
   it('uninstall removes only our entries', async () => {
@@ -920,7 +913,6 @@ describe('runHooksCommand', () => {
     expect(installed.out).toContain(sessionSaveDisclosure({projectDir: cwd}))
     expect(await readFile(join(cwd, '.claude', 'settings.local.json'), 'utf8')).toContain('assethub hooks save')
     await expect(stat(join(home, '.claude', 'settings.json'))).rejects.toThrow()
-    expect((await run(['install', '--client', 'codex'], {cwd})).out).toContain('Codex')
     const removed = await run(['uninstall', '--client', 'claude'], {cwd})
     expect(removed).toMatchObject({code: 0, out: expect.stringContaining('settings.local.json')})
     expect((await run(['install'])).code).toBe(2)
@@ -1155,10 +1147,10 @@ describe('transcript trimming', () => {
 
   it('leaves a transcript in another format as it is', async () => {
     const path = join(root, 'transcript.jsonl')
-    const codex = jsonl({type: 'session_meta', payload: {id: 'c1'}}, {type: 'response_item', payload: {type: 'message', role: 'user'}})
-    await writeFile(path, codex)
+    const other = jsonl({kind: 'note', text: 'hand-written'}, {kind: 'note', text: 'second'})
+    await writeFile(path, other)
     const {sessionDir} = await saveSession({stdin: hook(path, 'SessionEnd'), home, now, env: UPLOAD_OFF})
-    expect(await readFile(join(sessionDir, 'transcript.jsonl'), 'utf8')).toBe(codex)
+    expect(await readFile(join(sessionDir, 'transcript.jsonl'), 'utf8')).toBe(other)
   })
 })
 
@@ -1200,5 +1192,189 @@ describe('sessions saved before transcript trimming', () => {
     }
     expect(saved).toContain('make a hero')
     expect(JSON.parse(await readFile(join(sessionDir, 'meta.json'), 'utf8')).transcriptFormat).toBe('conversation-v1')
+  })
+})
+
+describe('Codex session hooks', () => {
+  const codexHome = () => join(home, '.codex')
+  const projectHooks = () => join(cwd, '.codex', 'hooks.json')
+  const git = (...args: string[]) => promisify(execFile)('git', ['-C', cwd, ...args])
+  const trust = async (dir: string) => {
+    await mkdir(codexHome(), {recursive: true})
+    await writeFile(join(codexHome(), 'config.toml'), `model = "gpt-5"\n\n[projects."${dir}"]\ntrust_level = "trusted"\n`)
+  }
+
+  it('installs into the folder\'s .codex/hooks.json, synchronously, with --client codex', async () => {
+    const result = await installHooks({client: 'codex', home, projectDir: cwd})
+    expect(result).toMatchObject({installed: true, detail: expect.stringContaining(projectHooks())})
+    const hooks = JSON.parse(await readFile(projectHooks(), 'utf8')).hooks
+    expect(Object.keys(hooks).sort()).toEqual(['PreCompact', 'SessionEnd', 'SessionStart', 'Stop'])
+    expect(hooks.Stop).toEqual([{hooks: [{type: 'command', command: 'assethub hooks save --client codex', timeout: 30}]}])
+    expect(hooks.SessionEnd).toEqual([{hooks: [{type: 'command', command: 'assethub hooks save --client codex', timeout: 10}]}])
+    await expect(stat(codexHome())).rejects.toThrow()
+    expect((await installHooks({client: 'codex', home, projectDir: cwd})).detail).toContain('already installed')
+  })
+
+  it('upgrades a hand-written `assethub hooks save` entry instead of adding a second one', async () => {
+    await mkdir(join(cwd, '.codex'), {recursive: true})
+    await writeFile(projectHooks(), JSON.stringify({hooks: {SessionEnd: [{hooks: [{type: 'command', command: 'assethub hooks save', timeout: 10}]}]}}))
+    await installHooks({client: 'codex', home, projectDir: cwd})
+    const hooks = JSON.parse(await readFile(projectHooks(), 'utf8')).hooks
+    expect(hooks.SessionEnd).toEqual([{hooks: [{type: 'command', command: 'assethub hooks save --client codex', timeout: 10}]}])
+  })
+
+  it('--global writes $CODEX_HOME/hooks.json, and uninstall removes only our entries', async () => {
+    await mkdir(codexHome(), {recursive: true})
+    await writeFile(join(codexHome(), 'hooks.json'), JSON.stringify({hooks: {Stop: [{hooks: [{type: 'command', command: 'echo mine'}]}]}}))
+    await installHooks({client: 'codex', home, codexHome: codexHome()})
+    expect(await readFile(join(codexHome(), 'hooks.json'), 'utf8')).toContain('assethub hooks save --client codex')
+    expect((await uninstallHooks({client: 'codex', home, codexHome: codexHome()})).removed).toBe(true)
+    expect(JSON.parse(await readFile(join(codexHome(), 'hooks.json'), 'utf8'))).toEqual({hooks: {Stop: [{hooks: [{type: 'command', command: 'echo mine'}]}]}})
+  })
+
+  it('uninstalls from the folder and leaves the global file alone', async () => {
+    await installHooks({client: 'codex', home, codexHome: codexHome()})
+    await installHooks({client: 'codex', home, projectDir: cwd})
+    expect((await uninstallHooks({client: 'codex', home, projectDir: cwd})).removed).toBe(true)
+    expect(JSON.parse(await readFile(projectHooks(), 'utf8'))).toEqual({})
+    expect(await readFile(join(codexHome(), 'hooks.json'), 'utf8')).toContain('assethub hooks save --client codex')
+  })
+
+  it('refuses the home folder, and a project .codex that is a symlink to ~/.codex', async () => {
+    expect(await installHooks({client: 'codex', home, projectDir: home})).toMatchObject({installed: false, detail: expect.stringContaining('--global')})
+    await mkdir(codexHome(), {recursive: true})
+    await symlink(codexHome(), join(cwd, '.codex'))
+    expect(await installHooks({client: 'codex', home, projectDir: cwd, codexHome: codexHome()})).toMatchObject({installed: false, detail: expect.stringContaining('--global')})
+    expect(await readdir(codexHome())).toEqual([])
+  })
+
+  it('keeps the hooks file out of git: excluded when untracked, refused when tracked', async () => {
+    await git('init', '-q')
+    await installHooks({client: 'codex', home, projectDir: cwd})
+    await installHooks({client: 'codex', home, projectDir: cwd, cliPath: '/opt/assethub'})
+    const exclude = await readFile(join(cwd, '.git', 'info', 'exclude'), 'utf8')
+    expect(exclude.split('\n').filter(line => line === '/.codex/hooks.json*')).toHaveLength(1)
+    expect((await git('status', '--porcelain')).stdout).toBe('')
+
+    await uninstallHooks({client: 'codex', home, projectDir: cwd})
+    await rm(join(cwd, '.git', 'info', 'exclude'))
+    await git('add', '-f', '.codex/hooks.json')
+    const before = await readFile(projectHooks(), 'utf8')
+    const result = await installHooks({client: 'codex', home, projectDir: cwd})
+    expect(result).toMatchObject({installed: false, detail: expect.stringContaining('tracked by git')})
+    expect(await readFile(projectHooks(), 'utf8')).toBe(before)
+  })
+
+  it('says what Codex still needs: trust for an untrusted folder, and review in /hooks', async () => {
+    const untrusted = await installHooks({client: 'codex', home, projectDir: cwd, codexHome: codexHome()})
+    expect(untrusted.detail).toContain('trust_level = "trusted"')
+    expect(untrusted.detail).toContain('/hooks')
+    await uninstallHooks({client: 'codex', home, projectDir: cwd})
+    await trust(cwd)
+    const trusted = await installHooks({client: 'codex', home, projectDir: cwd, codexHome: codexHome()})
+    expect(trusted.detail).not.toContain('trust_level')
+    expect(trusted.detail).toContain('/hooks')
+  })
+
+  it('names the folder and the Codex file in the disclosure', () => {
+    const text = sessionSaveDisclosure({projectDir: '/work/hero'}, 'codex')
+    expect(text).toContain('/work/hero/.codex/hooks.json')
+    expect(text).toContain('Every Codex session opened in /work/hero (and only there)')
+    expect(text).toContain('`assethub hooks uninstall --client codex`')
+    expect(sessionSaveDisclosure({}, 'codex')).toContain('Every Codex session on this machine')
+  })
+
+  const rollout = (): string =>
+    jsonl(
+      {timestamp: '2026-10-01T05:00:00Z', type: 'session_meta', payload: {
+        session_id: 'c-1', id: 'c-1', cwd: '/Users/artist/secret-project', cli_version: '0.159.0',
+        base_instructions: {text: 'You are Codex, base instructions'}, git: {commit_hash: 'abc123'},
+      }},
+      {timestamp: '2026-10-01T05:00:00Z', type: 'response_item', payload: {type: 'message', role: 'developer', content: [{type: 'input_text', text: '<permissions instructions>sandbox</permissions instructions>'}]}},
+      {timestamp: '2026-10-01T05:00:00Z', type: 'response_item', payload: {type: 'message', role: 'user', content: [{type: 'input_text', text: '# AGENTS.md instructions for /Users/artist/secret-project\n\nprivate rules'}]}},
+      {timestamp: '2026-10-01T05:00:00Z', type: 'response_item', payload: {type: 'message', role: 'user', content: [{type: 'input_text', text: '<environment_context>\n  <cwd>/Users/artist/secret-project</cwd>\n</environment_context>'}]}},
+      {timestamp: '2026-10-01T05:00:01Z', type: 'turn_context', payload: {cwd: '/Users/artist/secret-project', model: 'gpt-5'}},
+      {timestamp: '2026-10-01T05:00:01Z', type: 'event_msg', payload: {type: 'user_message', message: 'make a hero'}},
+      {timestamp: '2026-10-01T05:00:01Z', type: 'response_item', payload: {type: 'message', role: 'user', content: [{type: 'input_text', text: '<in-app-browser-context source="ambient-ui-state">\nOpen tab: /workflow/57213\n</in-app-browser-context>\nmake a hero'}]}},
+      {timestamp: '2026-10-01T05:00:02Z', type: 'response_item', payload: {type: 'reasoning', summary: [], encrypted_content: 'gAAAAencrypted'}},
+      {timestamp: '2026-10-01T05:00:03Z', type: 'response_item', payload: {type: 'message', role: 'assistant', content: [{type: 'output_text', text: 'Generating.'}]}},
+      {timestamp: '2026-10-01T05:00:03Z', type: 'response_item', payload: {type: 'function_call', name: 'exec_command', arguments: '{"cmd":"assethub image generate --out hero.png"}', call_id: 'call_1'}},
+      {timestamp: '2026-10-01T05:00:04Z', type: 'response_item', payload: {type: 'function_call_output', call_id: 'call_1', output: [
+        {type: 'input_text', text: JSON.stringify({chunk_id: 'c', wall_time_seconds: 0.4, exit_code: 0, original_token_count: 3, output: 'wrote hero.png'})},
+      ]}},
+      {timestamp: '2026-10-01T05:00:05Z', type: 'response_item', payload: {type: 'custom_tool_call', name: 'apply_patch', input: '*** Begin Patch', call_id: 'call_2'}},
+      {timestamp: '2026-10-01T05:00:06Z', type: 'response_item', payload: {type: 'custom_tool_call_output', call_id: 'call_2', output: {output: 'Success', metadata: {exit_code: 0}}}},
+      {timestamp: '2026-10-01T05:00:07Z', type: 'event_msg', payload: {type: 'token_count', info: {total_token_usage: {input_tokens: 99}}}},
+      {timestamp: '2026-10-01T05:00:08Z', type: 'compacted', payload: {message: 'Made a hero image.', replacement_history: [{type: 'message'}]}},
+    )
+
+  it('saves a Codex session as codex, keeping only the conversation', async () => {
+    const path = join(root, 'rollout.jsonl')
+    await writeFile(path, rollout())
+    const {sessionDir} = await saveSession({stdin: hook(path, 'SessionEnd'), client: 'codex', home, now, env: UPLOAD_OFF})
+    expect(JSON.parse(await readFile(join(sessionDir, 'meta.json'), 'utf8')).client).toBe('codex')
+    const saved = await readFile(join(sessionDir, 'transcript.jsonl'), 'utf8')
+    for (const dropped of ['base instructions', 'permissions instructions', 'AGENTS.md', 'private rules', 'environment_context', 'secret-project', 'gAAAAencrypted', 'token', 'abc123', 'replacement_history', 'in-app-browser-context', '/workflow/57213', 'wall_time'])
+      expect(saved, dropped).not.toContain(dropped)
+    const lines = saved.trim().split('\n').map(line => JSON.parse(line))
+    expect(lines).toEqual([
+      {type: 'user', timestamp: '2026-10-01T05:00:01Z', message: {role: 'user', content: 'make a hero'}},
+      {type: 'assistant', timestamp: '2026-10-01T05:00:03Z', message: {role: 'assistant', content: [{type: 'text', text: 'Generating.'}]}},
+      {type: 'assistant', timestamp: '2026-10-01T05:00:03Z', message: {role: 'assistant', content: [
+        {type: 'tool_use', id: 'call_1', name: 'exec_command', input: {cmd: 'assethub image generate --out hero.png'}},
+      ]}},
+      {type: 'user', timestamp: '2026-10-01T05:00:04Z', message: {role: 'user', content: [{type: 'tool_result', tool_use_id: 'call_1', content: 'wrote hero.png'}]}},
+      {type: 'assistant', timestamp: '2026-10-01T05:00:05Z', message: {role: 'assistant', content: [
+        {type: 'tool_use', id: 'call_2', name: 'apply_patch', input: {input: '*** Begin Patch'}},
+      ]}},
+      {type: 'user', timestamp: '2026-10-01T05:00:06Z', message: {role: 'user', content: [{type: 'tool_result', tool_use_id: 'call_2', content: 'Success'}]}},
+      {type: 'summary', summary: 'Made a hero image.'},
+    ])
+  })
+
+  it('builds Codex-tagged prompt, reply and tool nodes', async () => {
+    const path = join(root, 'rollout.jsonl')
+    await writeFile(path, rollout())
+    const {sessionDir} = await saveSession({stdin: hook(path, 'SessionEnd'), client: 'codex', home, now, env: UPLOAD_OFF})
+    const folder = await readGraphFolder(await buildSessionGraphFolder(sessionDir))
+    expect(folder.graph.nodes.some(node => node.tags?.includes('agent:claude'))).toBe(false)
+    expect(folder.graph.nodes.filter(node => node.tags?.includes('agent:codex')).length).toBeGreaterThan(2)
+    expect(folder.graph.nodes.some(node => node.artifactKind === 'run' && (node.payload as {toolName?: string})?.toolName === 'exec_command')).toBe(true)
+  })
+
+  it('hooks save --client codex records the session as codex', async () => {
+    const path = join(root, 'rollout.jsonl')
+    await writeFile(path, rollout())
+    let out = ''
+    const code = await runHooksCommand(['save', '--client', 'codex'], {
+      home, env: UPLOAD_OFF, now, write: t => { out += t }, readStdin: async () => hook(path, 'SessionEnd'),
+    })
+    expect(code).toBe(0)
+    const dir = out.trim().replace(/^Saved /, '')
+    expect(JSON.parse(await readFile(join(dir, 'meta.json'), 'utf8')).client).toBe('codex')
+  })
+
+  it('hooks install --client codex is gated like Claude, and installs into the folder', async () => {
+    const withKey = {ASSETHUB_API_KEY: 'test-env-key-not-secret', ASSETHUB_API_BASE_URL: 'https://x.test'}
+    const server = (status: number) => fakeServer(() => new Response('{}', {status, headers: {'content-type': 'application/json'}}))
+    let out = ''
+    const run = (argv: string[], status: number) =>
+      runHooksCommand(argv, {home, cwd, env: withKey, fetchImpl: server(status).fetchImpl, write: t => { out += t }})
+    expect(await run(['install', '--client', 'codex'], 404)).toBe(1)
+    await expect(stat(projectHooks())).rejects.toThrow()
+    out = ''
+    expect(await run(['install', '--client', 'codex'], 400)).toBe(0)
+    expect(out).toContain(sessionSaveDisclosure({projectDir: cwd}, 'codex'))
+    expect(await readFile(projectHooks(), 'utf8')).toContain('assethub hooks save --client codex')
+  })
+})
+
+describe('extractImagePaths', () => {
+  it('finds image paths in linear time, even in long text without spaces', () => {
+    const slashes = '/a'.repeat(50_000)
+    const started = Date.now()
+    expect(extractImagePaths(`${slashes} and /work/hero.png, ${'x/'.repeat(50_000)}y`)).toEqual(['/work/hero.png'])
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(extractImagePaths('saved "/tmp/out/hero.jpeg" and /tmp/out/hero.jpeg.bak')).toEqual(['/tmp/out/hero.jpeg'])
   })
 })

@@ -14,7 +14,7 @@ export type SessionImage = {original: string; file: string; size: number; mime: 
 export type SessionMeta = {
   sessionId: string
   cwd: string
-  client: 'claude'
+  client: HookClient
   lastEvent: string
   savedAt: string
   canvasId?: string

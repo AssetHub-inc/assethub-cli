@@ -18,7 +18,7 @@ import {
 import {redactJsonl} from './redact.js'
 import {TRANSCRIPT_FORMAT, trimTranscript} from './trim.js'
 import {extractImagePaths} from './transcript.js'
-import type {HookInput, SessionImage, SessionMeta} from './types.js'
+import type {HookClient, HookInput, SessionImage, SessionMeta} from './types.js'
 import type {UploadOptions} from './upload.js'
 
 export const MAX_IMAGES = 50
@@ -37,6 +37,8 @@ export type SaveSessionOptions = {
   stdin?: string
   /** Or the already-parsed fields. */
   input?: HookInput
+  /** The agent the hook runs in; its hook command says so (`--client codex`). */
+  client?: HookClient
   home?: string
   now?: () => Date
   env?: NodeJS.ProcessEnv
@@ -327,11 +329,12 @@ export const saveSession = async (options: SaveSessionOptions = {}): Promise<Sav
     const canvasId = await readCanvasId(cwd, env)
     const sessionId = input.session_id
     const transcriptPath = input.transcript_path
+    const client = options.client ?? 'claude'
     const full = FULL_SAVE_EVENTS.has(event)
     const fresh: SessionMeta = {
       sessionId,
       cwd,
-      client: 'claude',
+      client,
       lastEvent: event,
       savedAt: now.toISOString(),
       status: 'saved',
@@ -343,7 +346,7 @@ export const saveSession = async (options: SaveSessionOptions = {}): Promise<Sav
       ...latest,
       sessionId,
       cwd,
-      client: 'claude',
+      client,
       transcriptPath,
       lastEvent: event,
       savedAt: now.toISOString(),

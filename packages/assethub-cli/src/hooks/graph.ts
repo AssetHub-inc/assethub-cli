@@ -131,6 +131,8 @@ export const buildSessionGraphFolder = async (
   const meta = await readMeta(sessionDir)
   if (!meta) throw new Error(`No meta.json in ${sessionDir}`)
   const limits = compactLimits(options.compactLevel ?? 0)
+  // A session an older CLI saved has no client: it came from Claude Code.
+  const agentTag = `agent:${meta.client ?? 'claude'}`
   const transcriptBytes = await readFile(join(sessionDir, 'transcript.jsonl'))
   const transcript = parseTranscript(transcriptBytes.toString('utf8'))
   await resetSessionGraphFolder(sessionDir)
@@ -165,7 +167,7 @@ export const buildSessionGraphFolder = async (
     const id = `transcript_${pad(index)}`
     const blobRef = await addBlob(part, TRANSCRIPT_BLOB_MIME, `transcript-${pad(index)}.jsonl`)
     nodes.push({
-      id, artifactKind: 'file', semanticType: 'transcript', tags: ['session', 'agent:claude'],
+      id, artifactKind: 'file', semanticType: 'transcript', tags: ['session', agentTag],
       metadata: {part: index, parts: transcriptParts.length},
       payload: {blobRef},
     })
@@ -188,12 +190,12 @@ export const buildSessionGraphFolder = async (
           }
         : item.kind === 'assistant'
           ? {
-              id, artifactKind: 'text', tags: ['session', 'agent:claude'],
+              id, artifactKind: 'text', tags: ['session', agentTag],
               metadata: {role: 'assistant', timestamp: createdAt},
               payload: clip(redactText(item.text), limits.textChars),
             }
           : {
-              id, artifactKind: 'run', tags: ['session', 'agent:claude', `tool:${item.toolName}`],
+              id, artifactKind: 'run', tags: ['session', agentTag, `tool:${item.toolName}`],
               metadata: {toolUseId: item.toolUseId, timestamp: createdAt},
               payload: {toolName: item.toolName, input: redactedInput(item.input, limits.toolInputBytes)},
             }
@@ -240,7 +242,7 @@ export const buildSessionGraphFolder = async (
     const blobRef = await addBlob(bytes, image.mime, image.file.slice(0, 200))
     const id = `image_${pad(index)}`
     nodes.push({
-      id, artifactKind: 'image', tags: ['session', 'agent:claude'],
+      id, artifactKind: 'image', tags: ['session', agentTag],
       metadata: {sourcePath: redactText(image.original)},
       payload: {blobRef},
     })
@@ -249,7 +251,7 @@ export const buildSessionGraphFolder = async (
 
   nodes.push({
     id: sessionNodeId, artifactKind: 'console', semanticType: 'agent-session',
-    tags: ['session', 'agent:claude'],
+    tags: ['session', agentTag],
     metadata: {
       sessionId: meta.sessionId, client: meta.client, lastEvent: meta.lastEvent,
       messageCount: messageNodes.length, skippedImages,
