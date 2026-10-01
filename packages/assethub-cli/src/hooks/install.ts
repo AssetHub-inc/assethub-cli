@@ -1,11 +1,13 @@
-// Register / remove our Claude Code hooks in the user's settings.json.
+// Register / remove our Claude Code hooks: in one project's
+// .claude/settings.local.json (the default for `hooks install`), or with
+// --global in the user's ~/.claude/settings.json.
 //
 // Merge rules: keep every existing key and hook, identify our entry by its
 // command string (`<assethub> hooks save`), never duplicate it, and back the
 // original file up before any change.
 
-import {copyFile, mkdir, readFile, readdir, rename, rm, writeFile} from 'node:fs/promises'
-import {basename, dirname, join} from 'node:path'
+import {copyFile, mkdir, readFile, readdir, realpath, rename, rm, writeFile} from 'node:fs/promises'
+import {basename, dirname, join, resolve} from 'node:path'
 
 import {resolveHome} from './paths.js'
 import type {HookClient} from './types.js'
@@ -19,16 +21,32 @@ export const HOOK_TIMEOUT_SECONDS = 30
 export const SESSION_END_TIMEOUT_SECONDS = 10
 export const MAX_SETTINGS_BACKUPS = 3
 
+/** Where the hooks go: one project folder, or every project when omitted (--global). */
+export type HookScope = {projectDir?: string}
+
+const projectSettingsPath = (projectDir: string): string =>
+  join(resolve(projectDir), '.claude', 'settings.local.json')
+
 /** What `hooks install` and `setup` must tell the user before recording starts. */
-export const SESSION_SAVE_DISCLOSURE =
-  'Session saving adds SessionStart, Stop, PreCompact and SessionEnd hooks to ~/.claude/settings.json. ' +
-  'Every Claude Code session on this machine, in any project, is then copied to ~/.assethub/sessions/ when it ends ' +
-  '(the conversation only: your prompts, the agent\'s replies and tool calls, with recognised secrets masked, readable only by you; copies older than 30 days are deleted), ' +
-  'and uploaded to AssetHub as a coding-agent session only you can read (internal accounts only for now): the masked transcript, ' +
-  'your prompts, the agent\'s replies, its tool calls and images from the project. Uploads that fail are retried in the background ' +
-  'when a later session starts or ends. Secret masking is best effort. ' +
-  'Opt a project out with .assethub/no-session-save, or turn it off with ASSETHUB_SESSION_SAVE=off / ASSETHUB_SESSION_UPLOAD=off; ' +
-  'remove it with `assethub hooks uninstall --client claude`.'
+export const sessionSaveDisclosure = (scope: HookScope): string => {
+  const where = scope.projectDir
+    ? `${projectSettingsPath(scope.projectDir)}. ` +
+      `Every Claude Code session opened in ${resolve(scope.projectDir)} (and only there)`
+    : '~/.claude/settings.json (--global). Every Claude Code session on this machine, in any project,'
+  const remove = scope.projectDir
+    ? '`assethub hooks uninstall --client claude` from that folder'
+    : '`assethub hooks uninstall --client claude --global`'
+  return (
+    `Session saving adds SessionStart, Stop, PreCompact and SessionEnd hooks to ${where} ` +
+    'is then copied to ~/.assethub/sessions/ when it ends ' +
+    '(the conversation only: your prompts, the agent\'s replies and tool calls, with recognised secrets masked, readable only by you; copies older than 30 days are deleted), ' +
+    'and uploaded to AssetHub as a coding-agent session only you can read (internal accounts only for now): the masked transcript, ' +
+    'your prompts, the agent\'s replies, its tool calls and images from the project. Uploads that fail are retried in the background ' +
+    'when a later session starts or ends. Secret masking is best effort. ' +
+    'Opt a project out with .assethub/no-session-save, or turn it off with ASSETHUB_SESSION_SAVE=off / ASSETHUB_SESSION_UPLOAD=off; ' +
+    `remove it with ${remove}.`
+  )
+}
 
 const CODEX_DETAIL = 'Codex: run `assethub hooks save --transcript <path>` manually for now'
 
@@ -49,12 +67,35 @@ const quoteIfNeeded = (value: string): string => (/\s/.test(value) ? JSON.string
 export const hookCommand = (cliPath?: string): string =>
   `${quoteIfNeeded(cliPath ?? 'assethub')} hooks save`
 
-const settingsPath = (home?: string): string => join(resolveHome(home), '.claude', 'settings.json')
+const settingsPath = (home: string | undefined, scope: HookScope): string =>
+  scope.projectDir ? projectSettingsPath(scope.projectDir) : join(resolveHome(home), '.claude', 'settings.json')
+
+// Symlinks are followed: a project path or a .claude folder that leads to the
+// home folder is the home folder. A path that does not exist yet is taken as is.
+const realOrResolved = async (path: string): Promise<string> => realpath(path).catch(() => resolve(path))
+
+/**
+ * A project install in the home folder would land in ~/.claude, which Claude
+ * Code also reads for every project, so it is refused rather than silently global.
+ */
+export const hookScopeError = async (home: string | undefined, scope: HookScope): Promise<string | undefined> => {
+  if (!scope.projectDir) return undefined
+  const homeDir = resolveHome(home)
+  const [project, projectClaude, realHome, homeClaude] = await Promise.all([
+    realOrResolved(scope.projectDir),
+    realOrResolved(join(scope.projectDir, '.claude')),
+    realOrResolved(homeDir),
+    realOrResolved(join(homeDir, '.claude')),
+  ])
+  return project === realHome || projectClaude === homeClaude
+    ? 'Run this inside a project folder: in your home folder the hooks would apply to every project. Use --global if that is what you want.'
+    : undefined
+}
 
 type Loaded = {path: string; exists: boolean; settings: Json; raw: string}
 
-const load = async (home?: string): Promise<Loaded | {error: string; path: string}> => {
-  const path = settingsPath(home)
+const load = async (home: string | undefined, scope: HookScope): Promise<Loaded | {error: string; path: string}> => {
+  const path = settingsPath(home, scope)
   let raw: string
   try {
     raw = await readFile(path, 'utf8')
@@ -74,11 +115,12 @@ const load = async (home?: string): Promise<Loaded | {error: string; path: strin
   }
 }
 
-const BACKUP_RE = /^settings\.json\.bak-\d+$/
+const escapeRe = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 const pruneBackups = async (path: string): Promise<void> => {
   const dir = dirname(path)
-  const ours = (await readdir(dir)).filter(name => BACKUP_RE.test(name))
+  const backupRe = new RegExp(`^${escapeRe(basename(path))}\\.bak-\\d+$`)
+  const ours = (await readdir(dir)).filter(name => backupRe.test(name))
   const byAge = ours.sort((a, b) => Number(b.split('-').pop()) - Number(a.split('-').pop()))
   for (const name of byAge.slice(MAX_SETTINGS_BACKUPS)) await rm(join(dir, name), {force: true})
 }
@@ -109,14 +151,16 @@ export const hookEntry = (event: (typeof HOOK_EVENTS)[number], command: string):
     ? {type: 'command', command, timeout: SESSION_END_TIMEOUT_SECONDS}
     : {type: 'command', command, timeout: HOOK_TIMEOUT_SECONDS, async: true}
 
-export const installHooks = async (options: {
+export const installHooks = async (options: HookScope & {
   client: HookClient
   home?: string
   cliPath?: string
 }): Promise<{installed: boolean; detail: string}> => {
   if (options.client === 'codex') return {installed: false, detail: CODEX_DETAIL}
+  const refused = await hookScopeError(options.home, options)
+  if (refused) return {installed: false, detail: refused}
 
-  const loaded = await load(options.home)
+  const loaded = await load(options.home, options)
   if ('error' in loaded) return {installed: false, detail: loaded.error}
 
   const command = hookCommand(options.cliPath)
@@ -154,17 +198,17 @@ export const installHooks = async (options: {
   return {installed: true, detail: `Installed ${HOOK_EVENTS.join(', ')} hooks in ${loaded.path}`}
 }
 
-export const uninstallHooks = async (options: {
+export const uninstallHooks = async (options: HookScope & {
   client: HookClient
   home?: string
 }): Promise<{removed: boolean; detail: string}> => {
   if (options.client === 'codex') {
     return {removed: false, detail: 'Codex: no hooks were installed by assethub.'}
   }
-  const loaded = await load(options.home)
+  const loaded = await load(options.home, options)
   if ('error' in loaded) return {removed: false, detail: loaded.error}
   if (!loaded.exists || !isObject(loaded.settings.hooks)) {
-    return {removed: false, detail: 'No assethub hooks found.'}
+    return {removed: false, detail: `No assethub hooks found in ${loaded.path}.`}
   }
 
   const settings: Json = structuredClone(loaded.settings)
@@ -192,7 +236,7 @@ export const uninstallHooks = async (options: {
     if (keptGroups.length > 0) hooks[event] = keptGroups
     else if (eventChanged) delete hooks[event]
   }
-  if (!changed) return {removed: false, detail: 'No assethub hooks found.'}
+  if (!changed) return {removed: false, detail: `No assethub hooks found in ${loaded.path}.`}
   if (Object.keys(hooks).length === 0) delete settings.hooks
 
   await backupAndWrite(loaded, settings)

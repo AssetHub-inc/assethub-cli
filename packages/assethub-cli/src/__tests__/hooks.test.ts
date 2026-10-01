@@ -1,4 +1,4 @@
-import {mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile} from 'node:fs/promises'
 import {readFileSync, writeFileSync} from 'node:fs'
 import {execFile} from 'node:child_process'
 import {createServer} from 'node:http'
@@ -19,7 +19,7 @@ import {
   uploadSession,
 } from '../hooks/index.js'
 import {chunkTranscript, compactLimits} from '../hooks/graph.js'
-import {MAX_SETTINGS_BACKUPS, SESSION_SAVE_DISCLOSURE, isOurCommand} from '../hooks/install.js'
+import {MAX_SETTINGS_BACKUPS, isOurCommand, sessionSaveDisclosure} from '../hooks/install.js'
 import {readMeta, updateMeta} from '../hooks/paths.js'
 import {materializeSession} from '../hooks/save.js'
 import {redactText} from '../hooks/redact.js'
@@ -271,6 +271,76 @@ describe('installHooks / uninstallHooks', () => {
     await installHooks({client: 'claude', home})
     await uninstallHooks({client: 'claude', home})
     expect(JSON.parse(await readFile(settingsPath(), 'utf8'))).toEqual({})
+  })
+
+  const projectSettings = () => join(cwd, '.claude', 'settings.local.json')
+
+  it('with projectDir writes only that folder\'s settings.local.json', async () => {
+    const result = await installHooks({client: 'claude', home, projectDir: cwd})
+    expect(result).toMatchObject({installed: true, detail: expect.stringContaining(projectSettings())})
+    const settings = JSON.parse(await readFile(projectSettings(), 'utf8'))
+    expect(JSON.stringify(settings).match(/assethub hooks save/g)).toHaveLength(4)
+    await expect(stat(settingsPath())).rejects.toThrow()
+  })
+
+  it('with projectDir uninstalls from that folder and leaves the global file alone', async () => {
+    await installHooks({client: 'claude', home})
+    await installHooks({client: 'claude', home, projectDir: cwd})
+    const result = await uninstallHooks({client: 'claude', home, projectDir: cwd})
+    expect(result.removed).toBe(true)
+    expect(JSON.parse(await readFile(projectSettings(), 'utf8'))).toEqual({})
+    expect(JSON.stringify(JSON.parse(await readFile(settingsPath(), 'utf8'))).match(/assethub hooks save/g)).toHaveLength(4)
+  })
+
+  it('refuses a projectDir that is the home folder, where it would apply everywhere', async () => {
+    const result = await installHooks({client: 'claude', home, projectDir: home})
+    expect(result).toMatchObject({installed: false, detail: expect.stringContaining('--global')})
+    await expect(stat(join(home, '.claude'))).rejects.toThrow()
+  })
+
+  it('refuses the home folder reached through a symlink, either way round', async () => {
+    const linkedHome = join(root, 'linked-home')
+    await symlink(home, linkedHome)
+    for (const [asHome, asProject] of [[linkedHome, home], [home, linkedHome]]) {
+      const result = await installHooks({client: 'claude', home: asHome, projectDir: asProject})
+      expect(result).toMatchObject({installed: false, detail: expect.stringContaining('--global')})
+    }
+    await expect(stat(join(home, '.claude'))).rejects.toThrow()
+  })
+
+  it('refuses a project whose .claude folder is a symlink to ~/.claude', async () => {
+    await mkdir(join(home, '.claude'), {recursive: true})
+    await symlink(join(home, '.claude'), join(cwd, '.claude'))
+    const result = await installHooks({client: 'claude', home, projectDir: cwd})
+    expect(result).toMatchObject({installed: false, detail: expect.stringContaining('--global')})
+    expect(await readdir(join(home, '.claude'))).toEqual([])
+  })
+
+  it('keeps settings.local.json backups separate from settings.json ones', async () => {
+    await mkdir(join(cwd, '.claude'), {recursive: true})
+    await writeFile(projectSettings(), '{}')
+    for (const stamp of [1, 2, 3, 4, 5]) {
+      await writeFile(join(cwd, '.claude', `settings.local.json.bak-${stamp}`), '{}')
+    }
+    await installHooks({client: 'claude', home, projectDir: cwd})
+    const ours = (await readdir(join(cwd, '.claude'))).filter(n => /^settings\.local\.json\.bak-\d+$/.test(n))
+    expect(ours).toHaveLength(MAX_SETTINGS_BACKUPS)
+  })
+})
+
+describe('sessionSaveDisclosure', () => {
+  it('names the folder for a project install and says it applies nowhere else', () => {
+    const text = sessionSaveDisclosure({projectDir: '/work/hero'})
+    expect(text).toContain('/work/hero/.claude/settings.local.json')
+    expect(text).toContain('opened in /work/hero')
+    expect(text).not.toContain('in any project')
+  })
+
+  it('says every project for a global install', () => {
+    const text = sessionSaveDisclosure({})
+    expect(text).toContain('~/.claude/settings.json')
+    expect(text).toContain('in any project')
+    expect(text).toContain('--global')
   })
 })
 
@@ -844,13 +914,32 @@ describe('runHooksCommand', () => {
     expect((await run(['install', '--client', 'claude'])).code).toBe(1)
   })
 
-  it('installs and uninstalls', async () => {
-    const installed = await run(['install', '--client', 'claude'], {env: withKey, fetchImpl: probeServer(400).fetchImpl})
+  it('installs into the current folder by default, and uninstalls from it', async () => {
+    const installed = await run(['install', '--client', 'claude'], {cwd, env: withKey, fetchImpl: probeServer(400).fetchImpl})
     expect(installed.code).toBe(0)
-    expect(installed.out).toContain(SESSION_SAVE_DISCLOSURE)
-    expect((await run(['install', '--client', 'codex'])).out).toContain('Codex')
-    expect((await run(['uninstall', '--client', 'claude'])).code).toBe(0)
+    expect(installed.out).toContain(sessionSaveDisclosure({projectDir: cwd}))
+    expect(await readFile(join(cwd, '.claude', 'settings.local.json'), 'utf8')).toContain('assethub hooks save')
+    await expect(stat(join(home, '.claude', 'settings.json'))).rejects.toThrow()
+    expect((await run(['install', '--client', 'codex'], {cwd})).out).toContain('Codex')
+    const removed = await run(['uninstall', '--client', 'claude'], {cwd})
+    expect(removed).toMatchObject({code: 0, out: expect.stringContaining('settings.local.json')})
     expect((await run(['install'])).code).toBe(2)
+  })
+
+  it('--global installs into ~/.claude/settings.json for every project', async () => {
+    const installed = await run(['install', '--client', 'claude', '--global'], {cwd, env: withKey, fetchImpl: probeServer(400).fetchImpl})
+    expect(installed.code).toBe(0)
+    expect(installed.out).toContain(sessionSaveDisclosure({}))
+    expect(await readFile(join(home, '.claude', 'settings.json'), 'utf8')).toContain('assethub hooks save')
+    await expect(stat(join(cwd, '.claude'))).rejects.toThrow()
+    expect((await run(['uninstall', '--client', 'claude', '--global'], {cwd})).out).toContain('settings.json')
+  })
+
+  it('refuses a default install from the home folder and points at --global', async () => {
+    const result = await run(['install', '--client', 'claude'], {cwd: home, env: withKey, fetchImpl: probeServer(400).fetchImpl})
+    expect(result.code).toBe(1)
+    expect(result.out).toContain('--global')
+    await expect(stat(join(home, '.claude'))).rejects.toThrow()
   })
 
   it('saves from stdin JSON and from flags, then lists and reports status as JSON', async () => {

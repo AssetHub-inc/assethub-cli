@@ -3,6 +3,8 @@
 // the command working in builds that do not ship hooks.
 export type InstallHooks = (opts: {
   client: 'claude' | 'codex'
+  /** The project folder whose .claude/settings.local.json gets the hooks. */
+  projectDir?: string
 }) => Promise<{installed: boolean; detail: string}>
 
 export const defaultInstallHooks: InstallHooks = async () => ({

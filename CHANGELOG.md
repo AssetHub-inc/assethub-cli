@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `assethub hooks install --client claude` now installs the session-saving hooks for the current folder only, in `.claude/settings.local.json`, instead of `~/.claude/settings.json`, which saved every Claude Code session on the machine. `--global` keeps the old behaviour. A folder install is refused in the home folder, where it would apply to every project. `hooks uninstall` follows the same scope.
+- `setup --save-sessions` installs for the folder setup runs in, and the disclosure names that folder. In the home folder setup refuses up front, in the dry run as in the real run, and does not offer session saving.
+- Hooks installed globally by 0.1.31 or earlier stay until removed with `assethub hooks uninstall --client claude --global`.
+
 ## CLI 0.1.31 / API client 0.1.17
 
 - Add `assethub setup`: signs in (reusing a saved key), selects a workspace, registers the hosted MCP server in Claude Code and Codex, and checks the connection. On macOS it also makes `ASSETHUB_API_KEY` available to desktop apps, re-applied at login by `assethub env load`. `--dry-run` lists every change without making it. The API key is never written to a configuration file.
