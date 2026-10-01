@@ -1,5 +1,13 @@
 # Changelog
 
+## CLI 0.1.36
+
+- The CLI keeps itself current. Auto-update is on by default: at most once a day a detached background process checks the registry and installs a newer release with the package manager that installed the CLI, as `assethub update --yes` would, keeping the saved login. No command waits for it. The next command prints one stderr line, `@assethub/cli updated itself from <old> to <new>`; a failed install prints `could not update itself …` and the `is available` notice continues. stdout JSON is unchanged. Two commands started together never install twice (lock file).
+- Auto-update applies only to a global install, never to `npx`, a project dependency or a source checkout. It is off in CI, with `ASSETHUB_NO_AUTO_UPDATE=1` (notice only) or `ASSETHUB_NO_UPDATE_CHECK=1` (nothing). `assethub setup` shows it as a new `auto-update` step; `--no-auto-update` / `--auto-update` save the choice in `~/.assethub/settings.json`.
+- An older CLI never replaces a newer installed skill: the skill copy is refreshed only by an upgrade, and setup reports such a copy as `kept … newer than this CLI`.
+- `assethub update` and `update --check` refresh that daily check, so the notice stops as soon as you upgrade.
+- The bundled agent skill starts every session with `assethub update --check` (auto-update may be off, may have failed, or may not have run yet): when an update is available the agent runs `assethub update --yes`, tells you the versions, and re-reads the refreshed skill; when the update cannot run it continues on the current version and says so once.
+
 ## CLI 0.1.35
 
 - `assethub setup` is now the one command that connects coding agents. It runs the steps `login`, `workspace`, `mcp`, `skills`, `app-env` and `doctor`, finds Claude Code, Codex and Cursor on the machine, registers the MCP server in each and installs the bundled `assethub` skill. Each step checks the current state first and reports it as unchanged, updated, or what a `--dry-run` would change, so running setup again is safe.

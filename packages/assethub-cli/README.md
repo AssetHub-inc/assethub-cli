@@ -62,6 +62,29 @@ print the `export ASSETHUB_API_KEY=...` line, and export it in the shell that
 starts Claude Code or Codex. The key is redacted
 (`ah_…last4`) everywhere else.
 
+## Staying up to date
+
+```sh
+assethub update --check            # JSON: up_to_date or update_available
+assethub update                    # upgrade a global install now; the saved login is kept
+assethub setup --no-auto-update    # turn background updates off (--auto-update turns them on)
+```
+
+Auto-update is on by default. Once a day, a detached background process checks
+for a newer release and installs it with the package manager that installed the
+CLI, the same way `assethub update --yes` does, keeping the saved login. No
+command waits for it, and an install never happens inside a running command; the
+next command prints one line on stderr (`updated itself from 0.1.36 to 0.1.37`).
+stdout stays one JSON object. If the install fails, the CLI keeps the current
+version and says so, then keeps announcing the newer release.
+
+It applies only to a global install (not `npx`, a project dependency or a source
+checkout) and is off in CI, with `ASSETHUB_NO_AUTO_UPDATE=1` (no install, notice
+only) or with `ASSETHUB_NO_UPDATE_CHECK=1` (no check at all). The choice is saved
+in `~/.assethub/settings.json`, and `assethub setup` shows it as its `auto-update`
+step. The bundled agent skill also asks agents to run `assethub update --check`
+at the start of each session.
+
 ## API discovery and Workspace Skills
 
 Use `api search [query]` to discover the authenticated server catalog and

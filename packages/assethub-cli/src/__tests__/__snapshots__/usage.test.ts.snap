@@ -7,9 +7,9 @@ CLI and MCP are available to all AssetHub users. Workspace permissions and featu
 
 Usage:
   assethub --version
-  assethub setup [--agent claude-code|codex|cursor...] [--project] [--only <step,...>] [--skip <step,...>] [--no-skills] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
+  assethub setup [--agent claude-code|codex|cursor...] [--project] [--only <step,...>] [--skip <step,...>] [--no-skills] [--no-auto-update | --auto-update] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
   assethub env load [--profile <name>]
-  assethub update [--check] [--dry-run] [--yes]
+  assethub update [--check] [--dry-run] [--yes]   (once a day a newer version installs itself in the background; turn off: setup --no-auto-update or ASSETHUB_NO_AUTO_UPDATE=1)
   assethub doctor [--mcp] [--setup [--agent <name>...] [--project]] [--profile <name>] [--timeout-ms <n>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--account] [--base-url <url>]

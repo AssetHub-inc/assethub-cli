@@ -76,6 +76,10 @@ const makeDeps = (over: Partial<SetupDeps> = {}) => {
     home: '/Users/u',
     cwd: '/Users/u/work/hero',
     launchAgentProgram: ['/opt/node', '/opt/cli.js', 'env', 'load', '--profile', 'default'],
+    readAutoUpdate: async () => undefined,
+    writeAutoUpdate: async () => {},
+    canSelfUpdate: async () => true,
+    autoUpdateBlockedByEnv: false,
     ...over,
   }
   return {deps, files, logs, runs}
@@ -173,6 +177,7 @@ describe('runSetup', () => {
       ['claude-mcp', 'ok'],
       ['codex-mcp', 'ok'],
       ['skills', 'ok'],
+      ['auto-update', 'ok'],
       ['app-env', 'skip'],
       ['hook', 'ok'],
       ['hook', 'ok'],
@@ -705,7 +710,7 @@ describe('assethub setup (spawned CLI)', () => {
       expect(report.ok).toBe(true)
       expect(report.workspaceId).toBe('ws-e2e')
       // The fake server does not grant session uploads, like a non-internal account: no session step at all.
-      expect(report.steps.map((s: {name: string}) => s.name)).toEqual(['agents', 'login', 'workspace', 'claude-mcp', 'codex-mcp', 'skills', 'app-env', 'doctor'])
+      expect(report.steps.map((s: {name: string}) => s.name)).toEqual(['agents', 'login', 'workspace', 'claude-mcp', 'codex-mcp', 'skills', 'auto-update', 'app-env', 'doctor'])
       expect(report.agents).toEqual(['claude-code', 'codex'])
       // The skill is copied once and linked into each agent.
       expect(await readFile(join(dir, '.agents', 'skills', 'assethub', 'SKILL.md'), 'utf8')).toContain('name: assethub')
@@ -895,7 +900,7 @@ describe('one setup for every agent', () => {
       resolveTarget: async () => ({baseUrl: 'https://saved.test'}),
     })
     const result = await runSetup(
-      options({agents: ['codex'], skip: ['login', 'workspace', 'app-env', 'hook', 'doctor']}),
+      options({agents: ['codex'], skip: ['login', 'workspace', 'auto-update', 'app-env', 'hook', 'doctor']}),
       deps,
     )
     expect(result.ok).toBe(true)
@@ -912,7 +917,7 @@ describe('one setup for every agent', () => {
   it('installs only the skill with --only skills', async () => {
     const {deps, files, runs} = makeDeps()
     const result = await runSetup(
-      options({skip: ['login', 'workspace', 'mcp', 'app-env', 'hook', 'doctor']}),
+      options({skip: ['login', 'workspace', 'mcp', 'auto-update', 'app-env', 'hook', 'doctor']}),
       deps,
     )
     expect(result.steps.map(s => s.name)).toEqual(['agents', 'skills'])
@@ -1035,7 +1040,7 @@ describe('review fixes: safe re-runs', () => {
     const installSkills = vi.fn(makeDeps().deps.installSkills)
     const {deps} = makeDeps({detectAgents: async () => [], installSkills})
     const result = await runSetup(
-      options({agents: undefined, project: true, skip: ['login', 'workspace', 'mcp', 'app-env', 'hook', 'doctor']}),
+      options({agents: undefined, project: true, skip: ['login', 'workspace', 'mcp', 'auto-update', 'app-env', 'hook', 'doctor']}),
       deps,
     )
     expect(result.ok).toBe(true)
@@ -1066,5 +1071,35 @@ describe('review fixes: safe re-runs', () => {
     } finally {
       await rm(dir, {recursive: true, force: true})
     }
+  })
+})
+
+describe('auto-update step', () => {
+  it('is on by default and says how to turn it off', async () => {
+    const {deps} = makeDeps()
+    const step = (await runSetup(options(), deps)).steps.find(s => s.name === 'auto-update')
+    expect(step).toEqual({name: 'auto-update', status: 'ok', change: 'unchanged', detail: expect.stringContaining('--no-auto-update')})
+  })
+
+  it('saves --no-auto-update and --auto-update, and only reports in a dry run', async () => {
+    const writeAutoUpdate = vi.fn(async () => {})
+    const off = await runSetup(options({autoUpdate: false}), makeDeps({writeAutoUpdate}).deps)
+    expect(writeAutoUpdate).toHaveBeenCalledWith(false)
+    expect(off.steps.find(s => s.name === 'auto-update')).toMatchObject({status: 'ok', change: 'updated', detail: expect.stringContaining('off')})
+
+    writeAutoUpdate.mockClear()
+    const dry = await runSetup(options({autoUpdate: false, dryRun: true}), makeDeps({writeAutoUpdate}).deps)
+    expect(writeAutoUpdate).not.toHaveBeenCalled()
+    expect(dry.steps.find(s => s.name === 'auto-update')).toMatchObject({change: 'would-update'})
+
+    const on = await runSetup(options({autoUpdate: true}), makeDeps({writeAutoUpdate, readAutoUpdate: async () => false}).deps)
+    expect(writeAutoUpdate).toHaveBeenCalledWith(true)
+    expect(on.steps.find(s => s.name === 'auto-update')?.detail).toContain('on:')
+  })
+
+  it('keeps a saved off, and explains when it cannot apply', async () => {
+    expect((await runSetup(options(), makeDeps({readAutoUpdate: async () => false}).deps)).steps.find(s => s.name === 'auto-update')?.detail).toContain('off')
+    expect((await runSetup(options(), makeDeps({canSelfUpdate: async () => false}).deps)).steps.find(s => s.name === 'auto-update')).toMatchObject({status: 'skip', detail: expect.stringContaining('not a global install')})
+    expect((await runSetup(options(), makeDeps({autoUpdateBlockedByEnv: true}).deps)).steps.find(s => s.name === 'auto-update')).toMatchObject({status: 'skip', detail: expect.stringContaining('ASSETHUB_NO_AUTO_UPDATE')})
   })
 })
