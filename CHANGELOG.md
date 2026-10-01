@@ -2,10 +2,6 @@
 
 ## CLI 0.1.37
 
-- `ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN` sets how often a running session is uploaded while you work, in minutes (default 20, at least 1). Set it where the hooks run, for example in your shell profile or the `env` block of Claude Code settings: `ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN=2`. Each upload sends a new snapshot of the whole transcript; images the server already holds are skipped. A value that is not a positive number keeps the default.
-
-## CLI 0.1.37
-
 - A running session is uploaded while you work every 8 minutes instead of every 20, so work shows up in AssetHub sooner.
 - `ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN` sets that interval in minutes (at least 1). Set it where the hooks run, for example in your shell profile or the `env` block of Claude Code settings: `ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN=2`. Each upload sends a new snapshot of the whole transcript; images the server already holds are skipped. A value that is not a positive number keeps the default.
 

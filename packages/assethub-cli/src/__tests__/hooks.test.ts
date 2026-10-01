@@ -1458,7 +1458,7 @@ describe('uploads while a session is still running', () => {
     expect(workingUploadIntervalMs({ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN: ' 5 '})).toBe(5 * 60_000)
     expect(workingUploadIntervalMs({ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN: '2.5'})).toBe(150_000)
     expect(workingUploadIntervalMs({ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN: '0.1'})).toBe(60_000)
-    for (const raw of ['', '0', '-3', 'soon', 'Infinity'])
+    for (const raw of ['', '0', '-3', 'soon', 'Infinity', '1e306'])
       expect(workingUploadIntervalMs({ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN: raw})).toBe(8 * 60_000)
   })
 
