@@ -12,11 +12,16 @@ import {
 } from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {dirname, join, resolve} from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {promisify} from 'node:util'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {
   canonicalSkillDir,
-  initAgents,
+  detectAgents,
+  installAgentSkills,
+  mergeJsonServer,
+  mcpServerEntry,
+  parseAgentIds,
   syncInstalledSkill,
 } from '../agentSetup.js'
 import {cliVersion} from '../setup.js'
@@ -27,132 +32,101 @@ const exists = async (path: string): Promise<boolean> =>
     () => false,
   )
 
-describe('assethub init', () => {
+describe('agent selection', () => {
+  it('accepts repeated and comma separated names, and claude for claude-code', () => {
+    expect(parseAgentIds(['cursor', 'claude,codex'])).toEqual(['claude-code', 'codex', 'cursor'])
+    expect(parseAgentIds(['Claude-Code'])).toEqual(['claude-code'])
+    expect(() => parseAgentIds(['vim'])).toThrow('Unknown agent: vim')
+  })
+
+  it('detects an agent by its home folder or its command on PATH', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'assethub-detect-'))
+    try {
+      await mkdir(join(home, '.codex'))
+      const found = await detectAgents(home, async name => (name === 'cursor' ? '/bin/cursor' : undefined))
+      expect(found).toEqual(['codex', 'cursor'])
+      expect(await detectAgents(home, async () => undefined)).toEqual(['codex'])
+      // Codex is also found by $CODEX_HOME.
+      await rm(join(home, '.codex'), {recursive: true})
+      expect(await detectAgents(home, async () => undefined, home)).toEqual(['codex'])
+    } finally {
+      await rm(home, {recursive: true, force: true})
+    }
+  })
+})
+
+describe('mergeJsonServer', () => {
+  const entry = mcpServerEntry('cursor', 'https://app.assethub.io', 'ws_123')
+
+  it('adds the entry and keeps every other key', () => {
+    const merged = JSON.parse(
+      mergeJsonServer('/x/mcp.json', JSON.stringify({theme: 'dark', mcpServers: {other: {command: 'o'}}}), entry),
+    )
+    expect(merged.theme).toBe('dark')
+    expect(merged.mcpServers.other).toEqual({command: 'o'})
+    expect(merged.mcpServers.assethub).toEqual({
+      url: 'https://app.assethub.io/api/mcp',
+      headers: {Authorization: 'Bearer ${env:ASSETHUB_API_KEY}', 'X-AssetHub-Workspace': 'ws_123'},
+    })
+  })
+
+  it('returns the same text when the entry already matches', () => {
+    const once = mergeJsonServer('/x/mcp.json', undefined, entry)
+    expect(mergeJsonServer('/x/mcp.json', once, entry)).toBe(once)
+  })
+
+  it('refuses unparseable JSON and a malformed mcpServers instead of replacing them', () => {
+    expect(() => mergeJsonServer('/x/mcp.json', '{not json', entry)).toThrow('is not valid JSON')
+    expect(() => mergeJsonServer('/x/mcp.json', '[]', entry)).toThrow('must contain a JSON object')
+    expect(() => mergeJsonServer('/x/mcp.json', '{"mcpServers": []}', entry)).toThrow('non-object "mcpServers"')
+  })
+})
+
+describe('installAgentSkills', () => {
   let home: string
-  let cwd: string
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'assethub-init-home-'))
-    cwd = await mkdtemp(join(tmpdir(), 'assethub-init-cwd-'))
+    home = await mkdtemp(join(tmpdir(), 'assethub-skills-home-'))
     vi.stubEnv('ASSETHUB_CLI_HOME', home)
-    vi.stubEnv('ASSETHUB_API_KEY', '')
   })
 
   afterEach(async () => {
     vi.unstubAllEnvs()
     await rm(home, {recursive: true, force: true})
-    await rm(cwd, {recursive: true, force: true})
   })
 
-  it('configures every detected agent, merging into existing files', async () => {
-    await mkdir(join(home, '.claude'), {recursive: true})
-    await mkdir(join(home, '.codex'), {recursive: true})
-    // Existing settings on both sides must survive untouched.
-    await writeFile(
-      join(home, '.claude.json'),
-      JSON.stringify({
-        theme: 'dark',
-        mcpServers: {other: {command: 'other-mcp'}},
-      }),
-    )
-    await writeFile(
-      join(home, '.codex', 'config.toml'),
-      'model = "gpt-5"\n\n[mcp_servers.other]\ncommand = "other-mcp"\n',
-    )
+  it('copies the skill once and links it into each agent, idempotently', async () => {
+    const first = await installAgentSkills({root: home, agents: ['claude-code', 'codex'], dryRun: false})
+    expect(first.status).toBe('installed')
+    expect(first.version).toBe(await cliVersion())
+    expect(first.links.map(link => link.status)).toEqual(['linked', 'linked'])
 
-    const report = await initAgents({
-      baseUrl: 'https://app.assethub.io',
-      workspaceId: 'ws_123',
-      home,
-      cwd,
-    })
-
-    expect(report.scope).toBe('global')
-    expect(report.agents.map(agent => agent.id)).toEqual(['claude-code', 'codex'])
-    expect(report.skill.status).toBe('installed')
-    expect(report.skill.version).toBe(await cliVersion())
-
-    const claude = JSON.parse(await readFile(join(home, '.claude.json'), 'utf8'))
-    expect(claude.theme).toBe('dark')
-    expect(claude.mcpServers.other).toEqual({command: 'other-mcp'})
-    expect(claude.mcpServers.assethub).toEqual({
-      type: 'http',
-      url: 'https://app.assethub.io/api/mcp',
-      headers: {
-        Authorization: 'Bearer ${ASSETHUB_API_KEY}',
-        'X-AssetHub-Workspace': 'ws_123',
-      },
-    })
-
-    const codex = await readFile(join(home, '.codex', 'config.toml'), 'utf8')
-    expect(codex).toContain('model = "gpt-5"')
-    expect(codex).toContain('[mcp_servers.other]\ncommand = "other-mcp"')
-    expect(codex).toContain(
-      '[mcp_servers.assethub]\nurl = "https://app.assethub.io/api/mcp"\nbearer_token_env_var = "ASSETHUB_API_KEY"',
-    )
-    expect(codex).not.toContain('ah_live')
-
-    // The skill lives once under ~/.agents and is linked into each agent.
     const canonical = canonicalSkillDir(home)
     expect(await readFile(join(canonical, 'SKILL.md'), 'utf8')).toContain('name: assethub')
-    expect((await readFile(join(canonical, '.assethub-cli-version'), 'utf8')).trim()).toBe(
-      await cliVersion(),
-    )
     for (const dir of ['.claude/skills', '.codex/skills']) {
       const link = join(home, dir, 'assethub')
       expect((await lstat(link)).isSymbolicLink()).toBe(true)
       expect(resolve(join(home, dir), await readlink(link))).toBe(canonical)
     }
     expect(await exists(join(home, '.cursor'))).toBe(false)
-    expect(report.next.join(' ')).toContain('ASSETHUB_API_KEY')
+
+    const second = await installAgentSkills({root: home, agents: ['claude-code', 'codex'], dryRun: false})
+    expect(second.status).toBe('unchanged')
+    expect(second.links.map(link => link.status)).toEqual(['unchanged', 'unchanged'])
   })
 
-  it('is idempotent and replaces a stale codex table in place', async () => {
-    await mkdir(join(home, '.codex'), {recursive: true})
-    await writeFile(
-      join(home, '.codex', 'config.toml'),
-      '[mcp_servers.assethub]\nurl = "https://old.example/api/mcp"\nbearer_token_env_var = "OLD"\n\n[mcp_servers.other]\ncommand = "other-mcp"\n',
-    )
-    const first = await initAgents({baseUrl: 'https://app.assethub.io', home, cwd})
-    expect(first.agents[0].mcp.status).toBe('updated')
-    const codex = await readFile(join(home, '.codex', 'config.toml'), 'utf8')
-    expect(codex).not.toContain('old.example')
-    expect(codex.match(/\[mcp_servers\.assethub\]/g)).toHaveLength(1)
-    expect(codex).toContain('[mcp_servers.other]\ncommand = "other-mcp"')
-
-    const second = await initAgents({baseUrl: 'https://app.assethub.io', home, cwd})
-    expect(second.agents[0].mcp.status).toBe('unchanged')
-    expect(second.agents[0].skill.status).toBe('unchanged')
-    expect(second.skill.status).toBe('unchanged')
-  })
-
-  it('writes project-level config into the working directory when asked', async () => {
-    await mkdir(join(home, '.cursor'), {recursive: true})
-    const report = await initAgents({
-      baseUrl: 'https://app.assethub.io',
-      agents: ['cursor', 'claude-code'],
-      project: true,
-      home,
-      cwd,
-    })
-    expect(report.scope).toBe('project')
-    expect(report.agents.find(agent => agent.id === 'claude-code')?.detected).toBe(false)
-    const cursor = JSON.parse(await readFile(join(cwd, '.cursor', 'mcp.json'), 'utf8'))
-    expect(cursor.mcpServers.assethub.headers.Authorization).toBe('Bearer ${env:ASSETHUB_API_KEY}')
-    const claude = JSON.parse(await readFile(join(cwd, '.mcp.json'), 'utf8'))
-    expect(claude.mcpServers.assethub.type).toBe('http')
-    expect(await exists(join(home, '.claude.json'))).toBe(false)
-  })
-
-  it('reports without writing under --dry-run', async () => {
-    await mkdir(join(home, '.claude'), {recursive: true})
-    const report = await initAgents({baseUrl: 'https://app.assethub.io', dryRun: true, home, cwd})
-    expect(report.dryRun).toBe(true)
-    expect(report.agents[0].mcp.status).toBe('created')
-    expect(report.skill.status).toBe('installed')
-    expect(await exists(join(home, '.claude.json'))).toBe(false)
+  it('reports without writing under a dry run', async () => {
+    const report = await installAgentSkills({root: home, agents: ['claude-code'], dryRun: true})
+    expect(report.status).toBe('installed')
+    expect(report.links[0].status).toBe('linked')
     expect(await exists(canonicalSkillDir(home))).toBe(false)
     expect(await exists(join(home, '.claude', 'skills'))).toBe(false)
+  })
+
+  it('links with a relative path inside a project, so the folder can be committed', async () => {
+    const project = join(home, 'repo')
+    await installAgentSkills({root: project, agents: ['cursor'], dryRun: false})
+    expect(await readlink(join(project, '.cursor', 'skills', 'assethub'))).toBe(join('..', '..', '.agents', 'skills', 'assethub'))
   })
 
   it('never overwrites a directory it did not create', async () => {
@@ -160,37 +134,15 @@ describe('assethub init', () => {
     await writeFile(join(home, '.claude', 'skills', 'assethub', 'SKILL.md'), 'mine')
     await mkdir(canonicalSkillDir(home), {recursive: true})
     await writeFile(join(canonicalSkillDir(home), 'SKILL.md'), 'also mine')
-    const report = await initAgents({baseUrl: 'https://app.assethub.io', home, cwd})
-    expect(report.skill.status).toBe('kept-existing')
-    expect(report.agents[0].skill.status).toBe('kept-existing')
+    const report = await installAgentSkills({root: home, agents: ['claude-code'], dryRun: false})
+    expect(report.status).toBe('kept-existing')
+    expect(report.links[0].status).toBe('kept-existing')
     expect(await readFile(join(home, '.claude', 'skills', 'assethub', 'SKILL.md'), 'utf8')).toBe('mine')
     expect(await readFile(join(canonicalSkillDir(home), 'SKILL.md'), 'utf8')).toBe('also mine')
   })
 
-  it('refuses unknown agents, an empty machine, and unparseable config', async () => {
-    await expect(
-      initAgents({baseUrl: 'https://app.assethub.io', agents: ['vim'], home, cwd}),
-    ).rejects.toThrow('Unknown agent: vim')
-    await expect(initAgents({baseUrl: 'https://app.assethub.io', home, cwd})).rejects.toThrow(
-      'No supported coding agent found',
-    )
-    await mkdir(join(home, '.cursor'), {recursive: true})
-    await writeFile(join(home, '.cursor', 'mcp.json'), '{not json')
-    await expect(initAgents({baseUrl: 'https://app.assethub.io', home, cwd})).rejects.toThrow(
-      'is not valid JSON',
-    )
-    expect(await readFile(join(home, '.cursor', 'mcp.json'), 'utf8')).toBe('{not json')
-    // A malformed mcpServers value is refused, not replaced.
-    await writeFile(join(home, '.cursor', 'mcp.json'), '{"mcpServers": []}')
-    await expect(initAgents({baseUrl: 'https://app.assethub.io', home, cwd})).rejects.toThrow(
-      'non-object "mcpServers"',
-    )
-    expect(await readFile(join(home, '.cursor', 'mcp.json'), 'utf8')).toBe('{"mcpServers": []}')
-  })
-
   it('refreshes an installed skill after a CLI upgrade and stays quiet otherwise', async () => {
-    await mkdir(join(home, '.claude'), {recursive: true})
-    await initAgents({baseUrl: 'https://app.assethub.io', home, cwd})
+    await installAgentSkills({root: home, agents: ['claude-code'], dryRun: false})
     const canonical = canonicalSkillDir(home)
     await writeFile(join(canonical, '.assethub-cli-version'), '0.0.1\n')
     await writeFile(join(canonical, 'SKILL.md'), 'stale')
@@ -206,23 +158,76 @@ describe('assethub init', () => {
   })
 })
 
-// The installed binary is what users run; a real process proves the command is
-// wired, prints one JSON object, and honors ASSETHUB_CLI_HOME.
-it('runs through the built entrypoint', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'assethub-init-bin-'))
-  try {
+// The installed binary is what users run; a real process proves the commands
+// are wired and honor ASSETHUB_CLI_HOME.
+describe('built entrypoint', () => {
+  let home: string
+  const cli = (args: string[]) =>
+    promisify(execFile)(process.execPath, [fileURLToPath(new URL('../../dist/index.js', import.meta.url)), ...args], {
+      env: {
+        ...process.env,
+        ASSETHUB_CLI_HOME: home,
+        ASSETHUB_CLI_CONFIG: join(home, 'config.json'),
+        ASSETHUB_API_BASE_URL: undefined,
+        ASSETHUB_API_KEY: undefined,
+        CODEX_HOME: join(home, '.codex'),
+        PATH: dirname(process.execPath),
+      },
+    })
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'assethub-setup-bin-'))
+  })
+
+  afterEach(async () => {
+    await rm(home, {recursive: true, force: true})
+  })
+
+  it('keeps init as a deprecated alias for agent wiring only', async () => {
     await mkdir(join(home, '.cursor'), {recursive: true})
-    const {stdout} = await promisify(execFile)(
-      process.execPath,
-      [resolve('packages/assethub-cli/dist/index.js'), 'init', '--dry-run', '--base-url', 'https://app.assethub.io'],
-      {env: {...process.env, ASSETHUB_CLI_HOME: home, ASSETHUB_API_BASE_URL: undefined}},
-    )
+    const {stdout, stderr} = await cli(['init', '--dry-run', '--base-url', 'https://app.assethub.io'])
+    expect(stderr).toContain('`assethub init` is deprecated')
     const report = JSON.parse(stdout)
     expect(report.dryRun).toBe(true)
-    expect(report.agents.map((agent: {id: string}) => agent.id)).toEqual(['cursor'])
-    expect(report.agents[0].mcp.path).toBe(join(home, '.cursor', 'mcp.json'))
+    expect(report.agents).toEqual(['cursor'])
+    expect(report.steps.map((step: {name: string}) => step.name)).toEqual(['agents', 'cursor-mcp', 'skills'])
+    // The fields init reported are still there.
+    expect(report.version).toBe(await cliVersion())
+    expect(report.scope).toBe('global')
+    expect(report.detected).toEqual(['cursor'])
+    expect(report.skill).toMatchObject({path: canonicalSkillDir(home), status: 'installed'})
+    expect(report.steps.find((step: {name: string}) => step.name === 'cursor-mcp').path).toBe(join(home, '.cursor', 'mcp.json'))
     expect(await exists(join(home, '.cursor', 'mcp.json'))).toBe(false)
-  } finally {
-    await rm(home, {recursive: true, force: true})
-  }
+  })
+
+  it('wires agents with --only mcp,skills, then doctor --setup finds nothing to fix', async () => {
+    const setup = await cli(['setup', '--only', 'mcp,skills', '--agent', 'cursor,codex', '--base-url', 'https://app.assethub.io', '--yes', '--json'])
+    const report = JSON.parse(setup.stdout)
+    expect(report.ok).toBe(true)
+    expect(report.steps.map((step: {name: string}) => step.name)).toEqual(['agents', 'codex-mcp', 'cursor-mcp', 'skills'])
+    expect(await readFile(join(home, '.codex', 'config.toml'), 'utf8')).toContain('[mcp_servers.assethub]')
+    expect(await readFile(join(home, '.cursor', 'skills', 'assethub', 'SKILL.md'), 'utf8')).toContain('name: assethub')
+
+    // doctor fails on the API (no key here) but its setup check passes.
+    const doctor = await cli(['doctor', '--setup', '--agent', 'cursor,codex', '--base-url', 'https://app.assethub.io']).catch(
+      (error: {stdout: string}) => error,
+    )
+    const setupCheck = JSON.parse(doctor.stdout).checks.find((check: {name: string}) => check.name === 'setup')
+    expect(setupCheck.status).toBe('pass')
+
+    await writeFile(join(home, '.cursor', 'mcp.json'), '{}')
+    const stale = await cli(['doctor', '--setup', '--agent', 'cursor', '--base-url', 'https://app.assethub.io']).catch(
+      (error: {stdout: string}) => error,
+    )
+    const staleCheck = JSON.parse(stale.stdout).checks.find((check: {name: string}) => check.name === 'setup')
+    expect(staleCheck.status).toBe('fail')
+    expect(staleCheck.message).toContain('cursor-mcp')
+    expect(staleCheck.hint).toContain('assethub setup')
+  })
+
+  it('rejects an unknown step', async () => {
+    await expect(cli(['setup', '--skip', 'everything'])).rejects.toMatchObject({
+      stderr: expect.stringContaining('Unknown setup step for --skip: everything'),
+    })
+  })
 })

@@ -1,16 +1,17 @@
 /**
- * `assethub init` and the skill sync that keeps its output current.
+ * The agent-facing half of `assethub setup`: which coding agents are on this
+ * machine, where their MCP config lives, and the skill they read on demand.
  *
  * Coding agents learn a tool from two local files: an MCP server entry in their
- * own config, and a skill directory they read on demand. `init` writes both for
- * every supported agent found on this machine, merging into existing config
- * rather than replacing it, and never touching credentials — the MCP entries
+ * own config, and a skill directory. `setup` writes both, merging into existing
+ * config rather than replacing it and never writing credentials: the MCP entries
  * reference `ASSETHUB_API_KEY` from the agent's environment.
  *
- * The skill is copied once to `~/.agents/skills/assethub` and symlinked into
- * each agent's skill directory. A version marker lets every later command
- * refresh the copy when the CLI has been upgraded, so agents never read rules
- * written for a version they are no longer running.
+ * The skill is copied once to `<root>/.agents/skills/assethub` (root is the home
+ * folder, or the project with --project) and symlinked into each agent's skill
+ * directory. A version marker lets every later command refresh the home copy
+ * when the CLI has been upgraded, so agents never read rules written for a
+ * version they are no longer running.
  */
 import {
   cp,
@@ -26,53 +27,79 @@ import {
 } from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {dirname, join, relative, resolve} from 'node:path'
-import {cwd as processCwd, env, pid} from 'node:process'
+import {env, pid} from 'node:process'
 import {fileURLToPath} from 'node:url'
-import {cliVersion, mcpConfig, validatedBaseUrl} from './setup.js'
+import {cliVersion, validatedBaseUrl} from './setup.js'
 
 export const AGENT_IDS = ['claude-code', 'codex', 'cursor'] as const
 export type AgentId = (typeof AGENT_IDS)[number]
 
-type AgentSpec = {
+export type AgentSpec = {
   id: AgentId
   name: string
-  /** Presence of this directory under home means the agent is installed. */
+  /** The command on PATH; finding it, or `detectDir` under home, means the agent is installed. */
+  binary: string
   detectDir: string
-  globalMcpPath: string
-  projectMcpPath: string
   skillDir: string
   format: 'claude' | 'cursor' | 'codex'
 }
 
-const AGENTS: readonly AgentSpec[] = [
+export const AGENT_SPECS: readonly AgentSpec[] = [
   {
     id: 'claude-code',
     name: 'Claude Code',
+    binary: 'claude',
     detectDir: '.claude',
-    globalMcpPath: '.claude.json',
-    projectMcpPath: '.mcp.json',
     skillDir: '.claude/skills',
     format: 'claude',
   },
   {
     id: 'codex',
     name: 'Codex',
+    binary: 'codex',
     detectDir: '.codex',
-    globalMcpPath: '.codex/config.toml',
-    projectMcpPath: '.codex/config.toml',
     skillDir: '.codex/skills',
     format: 'codex',
   },
   {
     id: 'cursor',
     name: 'Cursor',
+    binary: 'cursor',
     detectDir: '.cursor',
-    globalMcpPath: '.cursor/mcp.json',
-    projectMcpPath: '.cursor/mcp.json',
     skillDir: '.cursor/skills',
     format: 'cursor',
   },
 ]
+
+export const agentSpec = (id: AgentId): AgentSpec =>
+  AGENT_SPECS.find(agent => agent.id === id) as AgentSpec
+
+/** `--agent` values: repeatable or comma separated; `claude` is accepted for `claude-code`. Keeps AGENT_IDS order. */
+export const parseAgentIds = (values: string[]): AgentId[] => {
+  const names = values.flatMap(value => value.split(',')).map(value => value.trim().toLowerCase()).filter(Boolean)
+  const ids = names.map(name => (name === 'claude' ? 'claude-code' : name))
+  const unknown = ids.filter(id => !(AGENT_IDS as readonly string[]).includes(id))
+  if (unknown.length > 0)
+    throw new Error(`Unknown agent: ${unknown.join(', ')}. Use --agent ${AGENT_IDS.join('|')}.`)
+  return AGENT_IDS.filter(id => ids.includes(id))
+}
+
+/** Agents installed here: their folder exists under home (or $CODEX_HOME for Codex), or their command is on PATH. */
+export const detectAgents = async (
+  home: string,
+  findBinary: (name: string) => Promise<string | undefined>,
+  codexHome?: string,
+): Promise<AgentId[]> => {
+  const found = await Promise.all(
+    AGENT_SPECS.map(
+      async agent =>
+        (await isDirectory(join(home, agent.detectDir))) ||
+        (agent.id === 'codex' && codexHome !== undefined && (await isDirectory(codexHome))) ||
+        (await findBinary(agent.binary)) !== undefined,
+    ),
+  )
+  return AGENT_SPECS.filter((_, index) => found[index]).map(agent => agent.id)
+}
 
 const SERVER_NAME = 'assethub'
 const SKILL_NAME = 'assethub'
@@ -130,21 +157,33 @@ export const mcpServerEntry = (
   }
 }
 
-type WriteStatus = 'created' | 'updated' | 'unchanged'
+/** The `mcpServers.assethub` entry of a JSON config, or undefined when the file has none or cannot be read. */
+export const readJsonServer = (text: string | undefined): unknown => {
+  if (text === undefined) return undefined
+  try {
+    const parsed = JSON.parse(text) as {mcpServers?: Record<string, unknown>}
+    return parsed?.mcpServers?.[SERVER_NAME]
+  } catch {
+    return undefined
+  }
+}
 
-const writeJsonServer = async (
+/**
+ * Sets `mcpServers.assethub` in a JSON config and keeps every other key.
+ * Returns the new text, or the input unchanged when the entry already matches.
+ */
+export const mergeJsonServer = (
   path: string,
+  text: string | undefined,
   entry: Record<string, unknown>,
-  dryRun: boolean,
-): Promise<WriteStatus> => {
-  const text = await readText(path)
+): string => {
   let document: Record<string, unknown> = {}
-  if (text !== undefined) {
+  if (text !== undefined && text.trim() !== '') {
     let parsed: unknown
     try {
       parsed = JSON.parse(text)
     } catch {
-      throw new Error(`${path} is not valid JSON. Fix or move it, then rerun init.`)
+      throw new Error(`${path} is not valid JSON. Fix or move it, then rerun setup.`)
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
       throw new Error(`${path} must contain a JSON object.`)
@@ -158,54 +197,17 @@ const writeJsonServer = async (
       Array.isArray(document.mcpServers))
   )
     throw new Error(
-      `${path} has a non-object "mcpServers" value. Fix or move it, then rerun init.`,
+      `${path} has a non-object "mcpServers" value. Fix or move it, then rerun setup.`,
     )
   const servers = (document.mcpServers ?? {}) as Record<string, unknown>
-  if (JSON.stringify(servers[SERVER_NAME]) === JSON.stringify(entry))
-    return 'unchanged'
-  const next = {...document, mcpServers: {...servers, [SERVER_NAME]: entry}}
-  if (!dryRun) {
-    await mkdir(dirname(path), {recursive: true})
-    await writeFile(path, `${JSON.stringify(next, null, 2)}\n`)
-  }
-  return text === undefined ? 'created' : 'updated'
-}
-
-/** Replaces or appends one `[mcp_servers.assethub]` table; every other line is kept verbatim. */
-const writeTomlSection = async (
-  path: string,
-  section: string,
-  dryRun: boolean,
-): Promise<WriteStatus> => {
-  const header = `[mcp_servers.${SERVER_NAME}]`
-  const body = section.trimEnd()
-  const text = await readText(path)
-  const lines = (text ?? '').split('\n')
-  const start = lines.findIndex(line => line.trim() === header)
-  let next: string
-  if (start === -1) {
-    const base = (text ?? '').trimEnd()
-    next = `${base ? `${base}\n\n` : ''}${body}\n`
-  } else {
-    const endOffset = lines
-      .slice(start + 1)
-      .findIndex(line => /^\s*\[/.test(line))
-    const end = endOffset === -1 ? lines.length : start + 1 + endOffset
-    if (lines.slice(start, end).join('\n').trimEnd() === body) return 'unchanged'
-    const before = lines.slice(0, start).join('\n').trimEnd()
-    const after = lines.slice(end).join('\n').trim()
-    next = `${before ? `${before}\n\n` : ''}${body}\n${after ? `\n${after}\n` : ''}`
-  }
-  if (!dryRun) {
-    await mkdir(dirname(path), {recursive: true})
-    await writeFile(path, next)
-  }
-  return text === undefined ? 'created' : 'updated'
+  if (text !== undefined && JSON.stringify(servers[SERVER_NAME]) === JSON.stringify(entry))
+    return text
+  return `${JSON.stringify({...document, mcpServers: {...servers, [SERVER_NAME]: entry}}, null, 2)}\n`
 }
 
 // ── Skill install and sync ───────────────────────────────────────────
 
-type SkillStatus = 'installed' | 'updated' | 'unchanged' | 'kept-existing'
+export type SkillStatus = 'installed' | 'updated' | 'unchanged' | 'kept-existing'
 
 const readMarker = async (dir: string): Promise<string | undefined> =>
   (await readText(join(dir, VERSION_MARKER)))?.trim()
@@ -241,11 +243,12 @@ const replaceSkillDir = async (
 }
 
 export const installSkill = async ({
-  home,
+  root,
   version,
   dryRun,
 }: {
-  home: string
+  /** The home folder, or the project folder for a project install. */
+  root: string
   version: string
   dryRun: boolean
 }): Promise<{path: string; status: SkillStatus; version?: string}> => {
@@ -254,7 +257,7 @@ export const installSkill = async ({
     throw new Error(
       'This CLI installation does not include the packaged agent skill.',
     )
-  const target = canonicalSkillDir(home)
+  const target = canonicalSkillDir(root)
   const marker = await readMarker(target)
   // A directory without our marker is the user's own; leave it alone.
   const status: SkillStatus =
@@ -274,7 +277,7 @@ export const installSkill = async ({
   }
 }
 
-type LinkStatus = 'linked' | 'relinked' | 'unchanged' | 'kept-existing'
+export type LinkStatus = 'linked' | 'relinked' | 'unchanged' | 'kept-existing'
 
 const linkSkill = async (
   agentSkillsDir: string,
@@ -330,109 +333,26 @@ export const syncInstalledSkill = async (): Promise<void> => {
   }
 }
 
-// ── init ─────────────────────────────────────────────────────────────
-
-export type InitOptions = {
-  baseUrl: string
-  workspaceId?: string
-  /** Agent ids to configure; defaults to every agent detected under home. */
-  agents?: string[]
-  /** Write project-level MCP config into the working directory instead of the user's home. */
-  project?: boolean
-  dryRun?: boolean
-  cwd?: string
-  home?: string
+export type SkillsReport = {
+  path: string
+  status: SkillStatus
+  version?: string
+  links: {agent: AgentId; path: string; status: LinkStatus}[]
 }
 
-export type InitReport = {
-  version: string
+/** Installs the skill under `<root>/.agents/skills` and links it into each agent's skill folder under root. */
+export const installAgentSkills = async ({
+  root,
+  agents,
+  dryRun,
+}: {
+  root: string
+  agents: AgentId[]
   dryRun: boolean
-  scope: 'global' | 'project'
-  skill: Awaited<ReturnType<typeof installSkill>>
-  agents: {
-    id: AgentId
-    name: string
-    detected: boolean
-    mcp: {path: string; status: WriteStatus}
-    skill: {path: string; status: LinkStatus}
-  }[]
-  next: string[]
-}
-
-export const initAgents = async (options: InitOptions): Promise<InitReport> => {
-  const home = options.home ?? cliHome()
-  const cwd = options.cwd ?? processCwd()
-  const dryRun = options.dryRun ?? false
-  const version = await cliVersion()
-
-  const requested = options.agents ?? []
-  const unknown = requested.filter(
-    id => !(AGENT_IDS as readonly string[]).includes(id),
-  )
-  if (unknown.length > 0)
-    throw new Error(
-      `Unknown agent: ${unknown.join(', ')}. Use --agent ${AGENT_IDS.join('|')}.`,
-    )
-
-  const detected = new Map(
-    await Promise.all(
-      AGENTS.map(
-        async agent =>
-          [agent.id, await isDirectory(join(home, agent.detectDir))] as const,
-      ),
-    ),
-  )
-  const selected =
-    requested.length > 0
-      ? AGENTS.filter(agent => requested.includes(agent.id))
-      : AGENTS.filter(agent => detected.get(agent.id))
-  if (selected.length === 0)
-    throw new Error(
-      `No supported coding agent found under ${home}. Pass --agent ${AGENT_IDS.join('|')} to choose one.`,
-    )
-
-  const skill = await installSkill({home, version, dryRun})
-  const agents: InitReport['agents'] = []
-  for (const spec of selected) {
-    const mcpPath = options.project
-      ? join(cwd, spec.projectMcpPath)
-      : join(home, spec.globalMcpPath)
-    const mcp =
-      spec.format === 'codex'
-        ? await writeTomlSection(
-            mcpPath,
-            mcpConfig('codex', options.baseUrl, false, options.workspaceId),
-            dryRun,
-          )
-        : await writeJsonServer(
-            mcpPath,
-            mcpServerEntry(spec.format, options.baseUrl, options.workspaceId),
-            dryRun,
-          )
-    const link = await linkSkill(join(home, spec.skillDir), skill.path, dryRun)
-    agents.push({
-      id: spec.id,
-      name: spec.name,
-      detected: detected.get(spec.id) ?? false,
-      mcp: {path: mcpPath, status: mcp},
-      skill: link,
-    })
-  }
-
-  return {
-    version,
-    dryRun,
-    scope: options.project ? 'project' : 'global',
-    skill,
-    agents,
-    next: [
-      ...(env.ASSETHUB_API_KEY
-        ? []
-        : [
-            "Provide ASSETHUB_API_KEY in each agent's environment; the MCP entries read it from there and never store it.",
-          ]),
-      'Restart the agent so it reloads MCP servers and skills.',
-      'Run `assethub doctor --mcp` to verify the connection.',
-    ],
-  }
+}): Promise<SkillsReport> => {
+  const skill = await installSkill({root, version: await cliVersion(), dryRun})
+  const links: SkillsReport['links'] = []
+  for (const agent of agents)
+    links.push({agent, ...(await linkSkill(join(root, agentSpec(agent).skillDir), skill.path, dryRun))})
+  return {...skill, links}
 }

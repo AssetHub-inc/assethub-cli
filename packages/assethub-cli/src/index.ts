@@ -13,7 +13,7 @@ import {
 } from '@assethub/api-client'
 import {setTimeout as delay} from 'node:timers/promises'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
-import {AGENT_IDS, initAgents, syncInstalledSkill} from './agentSetup.js'
+import {AGENT_IDS, parseAgentIds, syncInstalledSkill, type AgentId} from './agentSetup.js'
 import {
   confirmNo,
   confirmYes,
@@ -23,6 +23,10 @@ import {
   promptHidden,
   runProcess,
   runSetup,
+  SETUP_STEPS,
+  type SetupDeps,
+  type SetupOptions,
+  type SetupStepName,
 } from './setupCommand.js'
 import {launchAgentProgram, loadKeyIntoLaunchd} from './appEnv.js'
 import {defaultInstallHooks, type InstallHooks} from './setupHooksBridge.js'
@@ -412,11 +416,10 @@ CLI and MCP are available to all AssetHub users. Workspace permissions and featu
 
 Usage:
   assethub --version
-  assethub setup [--client claude|codex|both] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
+  assethub setup [--agent claude-code|codex|cursor...] [--project] [--only <step,...>] [--skip <step,...>] [--no-skills] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
   assethub env load [--profile <name>]
   assethub update [--check] [--dry-run] [--yes]
-  assethub doctor [--mcp] [--profile <name>] [--timeout-ms <n>]
-  assethub init [--agent claude-code|codex|cursor...] [--project] [--dry-run] [--base-url <url>] [--workspace <id>] [--profile <name>]
+  assethub doctor [--mcp] [--setup [--agent <name>...] [--project]] [--profile <name>] [--timeout-ms <n>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--account] [--base-url <url>]
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
@@ -554,7 +557,8 @@ Global options:
 Examples:
   ASSETHUB_API_KEY=ah_live_xxx assethub models list
   assethub auth login --api-key-stdin
-  assethub init --dry-run
+  assethub setup --dry-run
+  assethub setup --only skills --project
   assethub models list --ids-only
   assethub files upload ./input.png --media-type image
   assethub source create --file ./input.png --media-type image
@@ -2538,14 +2542,43 @@ const commandAuth = async (
 
 // One-command onboarding. Login and workspace selection reuse commandAuth and
 // commandWorkspace (their JSON output is suppressed); setupCommand.ts owns the
-// client configuration and the summary.
-export const commandSetup = async (
+// steps, the agent configuration and the summary.
+const parseSetupSelection = (flags: Flags): {agents?: AgentId[]; skip: SetupStepName[]} => {
+  const agentValues = getFlagValues(flags, 'agent').map(value => assertFlagHasValue(value, '--agent <name>'))
+  let agents: AgentId[] | undefined = agentValues.length > 0 ? parseAgentIds(agentValues) : undefined
+  if (!agents && hasFlag(flags, 'client')) {
+    // Older spelling: --client claude|codex|both.
+    const client = getFlag(flags, 'client')
+    if (client !== 'claude' && client !== 'codex' && client !== 'both')
+      throw new Error('--client must be claude, codex or both (use --agent claude-code|codex|cursor)')
+    agents = client === 'both' ? ['claude-code', 'codex'] : parseAgentIds([client])
+  }
+  const stepValues = (name: string) =>
+    getFlagValues(flags, name)
+      .map(value => assertFlagHasValue(value, `--${name} <step>`))
+      .flatMap(value => value.split(','))
+      .map(value => value.trim())
+      .filter(Boolean)
+  const known = (name: string, values: string[]) => {
+    const unknown = values.filter(value => !(SETUP_STEPS as readonly string[]).includes(value))
+    if (unknown.length > 0)
+      throw new Error(`Unknown setup step for --${name}: ${unknown.join(', ')}. Steps: login, workspace, mcp, skills, app-env, doctor.`)
+    return values as SetupStepName[]
+  }
+  const only = known('only', stepValues('only'))
+  const skip = new Set(known('skip', stepValues('skip')))
+  if (only.length > 0) for (const step of SETUP_STEPS) if (!only.includes(step)) skip.add(step)
+  if (hasFlag(flags, 'no-skills')) skip.add('skills')
+  return {agents, skip: SETUP_STEPS.filter(step => skip.has(step))}
+}
+
+/** The `runSetup` options and real dependencies for these flags; `setup`, `init` and `doctor --setup` share them. */
+const setupRun = async (
   flags: Flags,
-  installHooks: InstallHooks = defaultInstallHooks,
-): Promise<void> => {
-  const client = getFlag(flags, 'client') ?? 'both'
-  if (client !== 'claude' && client !== 'codex' && client !== 'both')
-    throw new Error('--client must be claude, codex or both')
+  installHooks: InstallHooks,
+  overrides: {skip?: SetupStepName[]; dryRun?: boolean; quietLog?: boolean} = {},
+): Promise<{options: SetupOptions; deps: SetupDeps}> => {
+  const selection = parseSetupSelection(flags)
   const config = await readAuthConfig(getConfigPath(flags))
   // Only name a profile the user chose or one that is saved: a synthetic profile
   // would make resolveAuth reject a fresh machine before its ASSETHUB_API_KEY fallback.
@@ -2565,91 +2598,130 @@ export const commandSetup = async (
       printSuppressed = false
     }
   }
-  const result = await runSetup(
-    {
-      client,
-      workspace: getFlag(flags, 'workspace'),
-      apiKeyStdin,
-      apiKey: flagKey ?? envKey,
-      apiKeySource: flagKey ? 'flag' : envKey ? 'env' : undefined,
-      noHook: hasFlag(flags, 'no-hook'),
-      noAppEnv: hasFlag(flags, 'no-app-env'),
-      saveSessions: hasFlag(flags, 'save-sessions'),
-      dryRun: hasFlag(flags, 'dry-run'),
-      yes: hasFlag(flags, 'yes'),
-      printEnv: hasFlag(flags, 'print-env'),
-    },
-    {
-      ...defaultFileDeps(),
-      launchAgentProgram: launchAgentProgram(
-        process.execPath,
-        realpathSync(argv[1] ?? fileURLToPath(import.meta.url)),
-        ['env', 'load', ...(hasFlag(flags, 'profile') ? ['--profile', requireFlag(flags, 'profile')] : [])],
-      ),
-      interactive: Boolean(stdin.isTTY && stderr.isTTY) && !apiKeyStdin,
-      installHooks,
-      log: line => {
-        stderr.write(`${line}\n`)
-      },
-      hasWorkingKey: async () => {
-        try {
-          const auth = await resolveAuth(base)
-          if (auth.source !== 'profile') return false
-          if (await personalAccount(auth)) return true
-          await createAssetHubClient({apiKey: auth.apiKey, baseUrl: auth.baseUrl}).v2.listModels()
-          return true
-        } catch {
-          return false
-        }
-      },
-      promptApiKey: () => promptHidden('AssetHub API key (input hidden): '),
-      login: ({apiKey}) =>
-        quiet(() => {
-          const loginFlags: Flags = {...base, profile: typeof base.profile === 'string' ? base.profile : defaultProfileName}
-          if (apiKey) {
-            delete loginFlags['api-key-stdin']
-            loginFlags['api-key'] = apiKey
-          }
-          return commandAuth('login', loginFlags)
-        }),
-      resolveAuth: async () => {
+  const options: SetupOptions = {
+    agents: selection.agents,
+    project: hasFlag(flags, 'project'),
+    skip: [...new Set([...selection.skip, ...(overrides.skip ?? [])])],
+    workspace: getFlag(flags, 'workspace'),
+    apiKeyStdin,
+    apiKey: flagKey ?? envKey,
+    apiKeySource: flagKey ? 'flag' : envKey ? 'env' : undefined,
+    noHook: hasFlag(flags, 'no-hook'),
+    noAppEnv: hasFlag(flags, 'no-app-env'),
+    saveSessions: hasFlag(flags, 'save-sessions'),
+    dryRun: overrides.dryRun ?? hasFlag(flags, 'dry-run'),
+    yes: hasFlag(flags, 'yes'),
+    printEnv: hasFlag(flags, 'print-env'),
+  }
+  const deps: SetupDeps = {
+    ...defaultFileDeps(),
+    launchAgentProgram: launchAgentProgram(
+      process.execPath,
+      realpathSync(argv[1] ?? fileURLToPath(import.meta.url)),
+      ['env', 'load', ...(hasFlag(flags, 'profile') ? ['--profile', requireFlag(flags, 'profile')] : [])],
+    ),
+    interactive: Boolean(stdin.isTTY && stderr.isTTY) && !apiKeyStdin,
+    installHooks,
+    log: overrides.quietLog
+      ? () => {}
+      : line => {
+          stderr.write(`${line}\n`)
+        },
+    hasWorkingKey: async () => {
+      try {
         const auth = await resolveAuth(base)
-        return {apiKey: auth.apiKey, baseUrl: auth.baseUrl, profile: auth.profile, workspaceId: auth.workspaceId}
-      },
-      discoverWorkspace: async auth => {
-        try {
-          const capabilities = await createAssetHubClient({apiKey: auth.apiKey, baseUrl: auth.baseUrl}).v2.getCapabilities()
-          return typeof capabilities.ownerId === 'string' && capabilities.ownerId ? capabilities.ownerId : undefined
-        } catch {
-          return undefined
-        }
-      },
-      useWorkspace: async id => {
-        await quiet(() => commandWorkspace('use', ['workspace', 'use', id], base))
-        // A non-personal `workspace use` stores its key under a new default profile.
-        const saved = await readAuthConfig(getConfigPath(flags))
-        if (saved.defaultProfile) base.profile = saved.defaultProfile
-      },
-      listWorkspaces: async () =>
-        (await (await workspaceAuth(base, true)).client.list()).workspaces.map(item => ({id: item.id, name: item.name})),
-      pickWorkspace: pickFromList,
-      confirm: confirmYes,
-      confirmOptIn: confirmNo,
-      canSaveSessions: auth => canUploadSessions(auth),
-      diagnose: () =>
-        diagnose({
-          resolveAuth: () => resolveAuth(base),
-          includeMcp: true,
-          timeoutMs: parsePositiveIntegerFlag(flags, 'timeout-ms', 15000),
-        }),
+        if (auth.source !== 'profile') return false
+        if (await personalAccount(auth)) return true
+        await createAssetHubClient({apiKey: auth.apiKey, baseUrl: auth.baseUrl}).v2.listModels()
+        return true
+      } catch {
+        return false
+      }
     },
-  )
+    promptApiKey: () => promptHidden('AssetHub API key (input hidden): '),
+    login: ({apiKey}) =>
+      quiet(() => {
+        const loginFlags: Flags = {...base, profile: typeof base.profile === 'string' ? base.profile : defaultProfileName}
+        if (apiKey) {
+          delete loginFlags['api-key-stdin']
+          loginFlags['api-key'] = apiKey
+        }
+        return commandAuth('login', loginFlags)
+      }),
+    resolveTarget: () => resolveMcpTarget(flags),
+    resolveAuth: async () => {
+      const auth = await resolveAuth(base)
+      return {apiKey: auth.apiKey, baseUrl: auth.baseUrl, profile: auth.profile, workspaceId: auth.workspaceId}
+    },
+    discoverWorkspace: async auth => {
+      try {
+        const capabilities = await createAssetHubClient({apiKey: auth.apiKey, baseUrl: auth.baseUrl}).v2.getCapabilities()
+        return typeof capabilities.ownerId === 'string' && capabilities.ownerId ? capabilities.ownerId : undefined
+      } catch {
+        return undefined
+      }
+    },
+    useWorkspace: async id => {
+      await quiet(() => commandWorkspace('use', ['workspace', 'use', id], base))
+      // A non-personal `workspace use` stores its key under a new default profile.
+      const saved = await readAuthConfig(getConfigPath(flags))
+      if (saved.defaultProfile) base.profile = saved.defaultProfile
+    },
+    listWorkspaces: async () =>
+      (await (await workspaceAuth(base, true)).client.list()).workspaces.map(item => ({id: item.id, name: item.name})),
+    pickWorkspace: pickFromList,
+    confirm: confirmYes,
+    confirmOptIn: confirmNo,
+    canSaveSessions: auth => canUploadSessions(auth),
+    diagnose: () =>
+      diagnose({
+        resolveAuth: () => resolveAuth(base),
+        includeMcp: true,
+        timeoutMs: parsePositiveIntegerFlag(flags, 'timeout-ms', 15000),
+      }),
+  }
+  return {options, deps}
+}
+
+export const commandSetup = async (
+  flags: Flags,
+  installHooks: InstallHooks = defaultInstallHooks,
+  overrides: {skip?: SetupStepName[]} = {},
+): Promise<void> => {
+  const {options, deps} = await setupRun(flags, installHooks, overrides)
+  if (hasFlag(flags, 'client') && !hasFlag(flags, 'agent'))
+    stderr.write('--client is deprecated; use --agent claude-code|codex|cursor.\n')
+  const result = await runSetup(options, deps)
   if (hasFlag(flags, 'json')) print(result)
   else {
     stdout.write(formatSetupSummary(result))
     if (result.exportLine) stdout.write(`${result.exportLine}\n`)
   }
   if (!result.ok) process.exitCode = 2
+}
+
+/**
+ * `doctor --setup`: the setup steps as a dry run that changes nothing, needs no
+ * network, and fails when MCP config or the skill is missing or out of date.
+ */
+const setupCheck = async (flags: Flags) => {
+  const {options, deps} = await setupRun(flags, installSessionHooks, {
+    skip: ['login', 'workspace', 'app-env', 'hook', 'doctor'],
+    dryRun: true,
+    quietLog: true,
+  })
+  const result = await runSetup(options, deps)
+  const outdated = result.steps.filter(step => step.status === 'fail' || step.change === 'would-update')
+  return {
+    name: 'setup' as const,
+    status: outdated.length === 0 ? ('pass' as const) : ('fail' as const),
+    ...(outdated.length > 0
+      ? {
+          message: outdated.map(step => `${step.name}: ${step.detail.replace(/ \(dry run\)$/, '')}`).join('; '),
+          hint: `Run \`assethub setup${options.project ? ' --project' : ''}\` to fix it.`,
+        }
+      : {message: `${result.agents.join(', ')}: MCP config and skill are up to date`}),
+  }
 }
 
 // `env load` is what the macOS login agent installed by `setup` runs: it copies
@@ -7629,17 +7701,13 @@ const run = async (): Promise<void> => {
   if (command === 'init') {
     if (subcommand)
       throw new Error(`Use init [--agent ${AGENT_IDS.join('|')}] [--project] [--dry-run]`)
-    const target = await resolveMcpTarget(parsed.flags)
-    print(
-      await initAgents({
-        ...target,
-        agents: getFlagValues(parsed.flags, 'agent').map(value =>
-          assertFlagHasValue(value, '--agent <name>'),
-        ),
-        project: hasFlag(parsed.flags, 'project'),
-        dryRun: hasFlag(parsed.flags, 'dry-run'),
-      }),
+    // Kept for existing scripts: agent wiring only, as before, through setup's steps.
+    stderr.write(
+      '`assethub init` is deprecated and will be removed in a later version; use `assethub setup` (or `assethub setup --only mcp,skills` for agent wiring only).\n',
     )
+    await commandSetup({...parsed.flags, json: true, yes: true}, installSessionHooks, {
+      skip: ['login', 'workspace', 'app-env', 'hook', 'doctor'],
+    })
     return
   }
   if (command === 'mcp' && subcommand === 'tools') {
@@ -7727,11 +7795,15 @@ const run = async (): Promise<void> => {
   }
   if (command === 'doctor') {
     stderr.write('Checking AssetHub connection…\n')
-    const report = await diagnose({
+    const diagnosed = await diagnose({
       resolveAuth: () => resolveAuth(parsed.flags),
       includeMcp: hasFlag(parsed.flags, 'mcp'),
       timeoutMs: parsePositiveIntegerFlag(parsed.flags, 'timeout-ms', 15000),
     })
+    const setup = hasFlag(parsed.flags, 'setup') ? await setupCheck(parsed.flags) : undefined
+    const report = setup
+      ? {...diagnosed, ok: diagnosed.ok && setup.status === 'pass', checks: [...diagnosed.checks, setup]}
+      : diagnosed
     print(report)
     if (!report.ok) process.exitCode = 2
     return

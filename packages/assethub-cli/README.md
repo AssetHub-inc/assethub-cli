@@ -4,7 +4,7 @@ Command line interface for AssetHub.
 
 ## Quick setup
 
-Connect Claude Code and Codex to AssetHub in one step:
+Connect Claude Code, Codex and Cursor to AssetHub in one step:
 
 ```sh
 assethub setup                      # prompts for your API key and workspace
@@ -12,20 +12,51 @@ printf '%s' "$KEY" | assethub setup --api-key-stdin --workspace <id> --yes
 assethub setup --dry-run            # show every command and file change, change nothing
 ```
 
-Setup logs in (reusing a saved key), selects a workspace, registers the
-`assethub` MCP server in Claude Code (`claude mcp add-json ... --scope user`, run
-again safely), merges an `[mcp_servers.assethub]` section into
-`$CODEX_HOME/config.toml` (default `~/.codex`, original saved as
-`config.toml.bak-<timestamp>`), then runs `doctor --mcp` and prints a checklist
-(`--json` for machine output). Use `--client claude|codex|both` to limit the
-targets.
+`setup` runs these steps in order, and is safe to run again: each step checks the
+current state first and reports it as unchanged, updated, or (with `--dry-run`)
+what it would change.
 
-MCP does not need the CLI. Setup is only a shortcut: both clients call the hosted
+| Step | What it does |
+| --- | --- |
+| `login` | Reuses a saved key, or reads one from `--api-key-stdin`, `ASSETHUB_API_KEY` or a prompt. |
+| `workspace` | Uses `--workspace`, the saved selection, or asks you to pick one. |
+| agents | Finds Claude Code, Codex and Cursor on this machine (their folder or command), or uses `--agent`. |
+| `mcp` | Registers the `assethub` MCP server in each agent: Claude Code through `claude mcp add-json ... --scope user` (Claude Code owns `~/.claude.json`; when `claude` is not on PATH, for example with only an IDE extension, setup writes the same entry into that file itself), Codex as an `[mcp_servers.assethub]` section in `$CODEX_HOME/config.toml`, Cursor as `mcpServers.assethub` in `~/.cursor/mcp.json`. A file setup writes itself is backed up as `<file>.bak-<timestamp>` first and replaced in one step. If `claude mcp add` fails while replacing an outdated entry, the previous entry is put back. |
+| `skills` | Installs the bundled `assethub` skill under `~/.agents/skills/assethub` and links it into each agent's skill folder, so the agent knows the command sequence, cost rules and recovery steps. |
+| `app-env` | macOS: makes `ASSETHUB_API_KEY` visible to apps started from the Dock (see below). |
+| `doctor` | Runs `doctor --mcp` and prints a checklist (`--json` for machine output). |
+
+Choose agents with `--agent claude-code|codex|cursor` (repeat it, or separate
+names with commas; `claude` also works). Run only some steps with
+`--only <step,...>` or leave some out with `--skip <step,...>`; `--no-skills` and
+`--no-app-env` are short for skipping those. `--project` writes the MCP config
+and the skill into the current folder instead of your home folder
+(`.mcp.json`, `.codex/config.toml`, `.cursor/mcp.json`, `.agents/skills/assethub`
+with relative links), for a repository to share:
+
+```sh
+assethub setup --only skills --project   # put the agent guidance in this repository
+assethub setup --only mcp,skills         # wire the agents without logging in
+assethub doctor --setup                  # report missing or outdated MCP config and skill
+```
+
+`assethub doctor --setup` checks the same steps without changing anything and
+fails when an agent's MCP entry or the skill is missing or out of date; run
+`assethub setup` to fix it. Directories setup did not create are left untouched.
+After a CLI upgrade, the next command refreshes the installed skill automatically.
+Set `ASSETHUB_CLI_HOME` to redirect these writes, for example in tests.
+
+`assethub init` is deprecated: it now runs `setup --only mcp,skills` and prints
+the result as JSON, and will be removed in a later version. `--client
+claude|codex|both` still works and means the same as `--agent`.
+
+MCP does not need the CLI. Setup is only a shortcut: every agent calls the hosted
 `/api/mcp` server directly and read the key from the `ASSETHUB_API_KEY`
 environment variable. The Claude Code entry is
 `claude mcp add-json assethub '{"type":"http","url":"https://app.assethub.io/api/mcp","headers":{"Authorization":"Bearer ${ASSETHUB_API_KEY}","X-AssetHub-Workspace":"<id>"}}' --scope user`,
 so the key is never written to Claude Code's config or passed on a command line,
-and removing the CLI does not disconnect MCP. Codex uses `bearer_token_env_var`.
+and removing the CLI does not disconnect MCP. Codex uses `bearer_token_env_var`,
+and Cursor `${env:ASSETHUB_API_KEY}`.
 Setup never writes the key to a shell profile; run `assethub setup --print-env` to
 print the `export ASSETHUB_API_KEY=...` line, and export it in the shell that
 starts Claude Code or Codex. The key is redacted
@@ -146,8 +177,7 @@ authentication. Existing workspace keys and user-token login remain supported.
 ```sh
 assethub --version
 assethub doctor --mcp --profile my-workspace
-assethub init --dry-run
-assethub init
+assethub doctor --setup
 assethub mcp config --client cursor
 assethub mcp config --client codex
 ```
@@ -168,18 +198,8 @@ Use the same key as your CLI profile. Personal profiles include the selected
 For a different API origin, pass
 `--base-url https://your-host/prefix` (HTTP is accepted only for localhost).
 
-`init` sets up every supported coding agent found on this machine — Claude Code,
-Codex, and Cursor — in one step. It writes the hosted MCP entry into each agent's
-own configuration (merging with what is already there), installs the bundled
-`assethub` skill under `~/.agents/skills/assethub`, and links it into each agent's
-skill directory so the agent knows the correct command sequence, cost rules, and
-recovery steps without being told. Pass `--agent <name>` to choose agents
-explicitly, `--project` to write project-level MCP files into the current
-directory instead of your home, and `--dry-run` to see the plan without writing.
-`init` never stores a key: the MCP entries read `ASSETHUB_API_KEY` from the
-agent's environment. Directories that `init` did not create are left untouched.
-After a CLI upgrade, the next command refreshes the installed skill automatically.
-Set `ASSETHUB_CLI_HOME` to redirect all of these writes, for example in tests.
+To write these settings into each agent for you, run `assethub setup` (see
+Quick setup above).
 
 Explicit `--profile` uses that profile's key and origin, ahead of environment
 variables, including user tokens and workspace MFA proofs. A missing profile fails.
