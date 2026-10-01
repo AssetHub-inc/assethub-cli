@@ -12,6 +12,7 @@ import {
 } from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {dirname, join, resolve} from 'node:path'
+import {fileURLToPath} from 'node:url'
 import {promisify} from 'node:util'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {
@@ -159,7 +160,7 @@ describe('installAgentSkills', () => {
 describe('built entrypoint', () => {
   let home: string
   const cli = (args: string[]) =>
-    promisify(execFile)(process.execPath, [resolve('packages/assethub-cli/dist/index.js'), ...args], {
+    promisify(execFile)(process.execPath, [fileURLToPath(new URL('../../dist/index.js', import.meta.url)), ...args], {
       env: {
         ...process.env,
         ASSETHUB_CLI_HOME: home,
