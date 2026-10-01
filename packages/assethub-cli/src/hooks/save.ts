@@ -51,6 +51,12 @@ export type SaveSessionOptions = {
   startUpload?: (sessionDir: string, profile?: string) => void
   /** Starts the background retry of pending sessions on SessionStart. */
   startSweep?: (profile?: string) => void
+  /**
+   * Starts `assethub hooks upload --session <dir> --auto` for a session that is
+   * still running (Stop, PreCompact). Omitted: no upload while working. The
+   * hooks command passes spawnDetachedSessionUpload; tests pass a stub.
+   */
+  startWorkingUpload?: (sessionDir: string, profile?: string) => void
 }
 
 export type SaveSessionResult = {
@@ -75,6 +81,10 @@ const spawnCli = (args: string[], profile?: string): void => {
 /** SessionEnd: upload this session, then retry up to SWEEP_LIMIT older pending ones. */
 export const spawnDetachedUpload = (sessionDir: string, profile?: string): void =>
   spawnCli(['hooks', 'upload', '--session', sessionDir, '--auto', '--sweep', String(SWEEP_LIMIT)], profile)
+
+/** Stop / PreCompact: upload this running session only; no sweep. */
+export const spawnDetachedSessionUpload = (sessionDir: string, profile?: string): void =>
+  spawnCli(['hooks', 'upload', '--session', sessionDir, '--auto'], profile)
 
 /** SessionStart: retry up to SWEEP_LIMIT pending sessions. */
 export const spawnDetachedSweep = (profile?: string): void =>
@@ -202,6 +212,14 @@ const collectImages = async (
 export const ABANDONED_AFTER_MS = 2 * 60 * 60 * 1000
 /** Sessions retried in the background per SessionStart / SessionEnd. */
 export const SWEEP_LIMIT = 3
+
+/**
+ * A running session is uploaded at most this often. Claude Code app sessions
+ * stay open for days and rarely reach SessionEnd, so without this they would
+ * only be uploaded once abandoned (ABANDONED_AFTER_MS quiet, then a new session).
+ */
+export const WORKING_UPLOAD_INTERVAL_MS = 20 * 60 * 1000
+const WORKING_UPLOAD_EVENTS = new Set(['Stop', 'PreCompact'])
 
 /** Events that copy and redact the transcript now; the rest only mark it changed. */
 const FULL_SAVE_EVENTS = new Set(['SessionEnd', 'Manual'])
@@ -361,6 +379,20 @@ export const saveSession = async (options: SaveSessionOptions = {}): Promise<Sav
     if (full) await materializeSession(sessionDir, {env, transcriptPath})
 
     const result: SaveSessionResult = {sessionDir, event}
+    if (uploadOn && options.startWorkingUpload && WORKING_UPLOAD_EVENTS.has(event)) {
+      const latest = await readMeta(sessionDir)
+      // Counts uploads any path started (an earlier Stop, SessionEnd, a sweep).
+      const lastStart = Math.max(
+        Date.parse(latest?.lastWorkingUploadAt ?? '') || 0,
+        Date.parse(latest?.lastUploadAttemptAt ?? '') || 0,
+      )
+      if (latest && now.getTime() - lastStart >= WORKING_UPLOAD_INTERVAL_MS) {
+        // Stamped before spawning, so the next few turns do not start more.
+        await updateMeta(sessionDir, latest, current => ({...current, lastWorkingUploadAt: now.toISOString()}))
+        options.startWorkingUpload(sessionDir, options.upload?.profile)
+        result.uploadStarted = true
+      }
+    }
     if (event === 'SessionEnd') {
       const days = retentionDays(env)
       if (days != null) result.pruned = await pruneSessions(root, now, days, sessionDir)

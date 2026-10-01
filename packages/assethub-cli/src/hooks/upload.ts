@@ -4,7 +4,7 @@
 // URL prefix and the extra `session` registration fields differ. Sessions are
 // owned by, and readable only by, the key's user.
 
-import {readFile} from 'node:fs/promises'
+import {readFile, utimes} from 'node:fs/promises'
 import {basename, join} from 'node:path'
 
 import {buildRunUploadPlan} from '../runsUpload/buildRunUpload.js'
@@ -29,10 +29,16 @@ const canvasIdOf = (value: string | undefined): number | null => {
 }
 const DAY_MS = 24 * 60 * 60 * 1000
 export const UPLOAD_TIMEOUT_MS = 20_000
+/** A session's upload lock older than this belongs to a crashed upload. */
+export const UPLOAD_LOCK_STALE_MS = 15 * 60_000
+/** How often a running upload refreshes its lock, well inside UPLOAD_LOCK_STALE_MS. */
+export const UPLOAD_LOCK_HEARTBEAT_MS = 60_000
 
 export type UploadAuth = {apiKey: string; baseUrl: string; workspaceId?: string}
 
 export type UploadOptions = {
+  /** How often a running upload refreshes its lock (tests shorten it). */
+  lockHeartbeatMs?: number
   profile?: string
   home?: string
   env?: NodeJS.ProcessEnv
@@ -137,11 +143,21 @@ export const uploadSession = async (
   options: UploadOptions = {},
 ): Promise<UploadOutcome> => {
   if (!(await readMeta(sessionDir))) return {ok: false, reason: 'no-session'}
-  const release = await acquireLock(join(sessionDir, '.upload.lock'), {waitMs: 0, staleMs: 15 * 60_000})
+  const lockPath = join(sessionDir, '.upload.lock')
+  const release = await acquireLock(lockPath, {waitMs: 0, staleMs: UPLOAD_LOCK_STALE_MS})
   if (!release) return {ok: false, reason: 'upload-in-progress', throttled: true}
+  // A lock older than UPLOAD_LOCK_STALE_MS is taken over as a crashed upload's.
+  // Touching it while this upload runs keeps a long upload from looking crashed,
+  // so a later Stop, sweep or SessionEnd cannot start a second one beside it.
+  const heartbeat = setInterval(() => {
+    const now = new Date()
+    void utimes(lockPath, now, now).catch(() => {})
+  }, options.lockHeartbeatMs ?? UPLOAD_LOCK_HEARTBEAT_MS)
+  heartbeat.unref?.()
   try {
     return await uploadSessionUnlocked(sessionDir, options)
   } finally {
+    clearInterval(heartbeat)
     await release()
   }
 }

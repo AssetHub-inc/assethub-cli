@@ -1,6 +1,6 @@
 # Changelog
 
-## CLI 0.1.34
+## CLI 0.1.35
 
 - `assethub setup` is now the one command that connects coding agents. It runs the steps `login`, `workspace`, `mcp`, `skills`, `app-env` and `doctor`, finds Claude Code, Codex and Cursor on the machine, registers the MCP server in each and installs the bundled `assethub` skill. Each step checks the current state first and reports it as unchanged, updated, or what a `--dry-run` would change, so running setup again is safe.
 - New setup options: `--agent claude-code|codex|cursor` (repeatable or comma separated, `claude` accepted), `--project` (MCP config and skill in the current folder, with relative skill links), `--only <step,...>`, `--skip <step,...>` and `--no-skills`. `--client claude|codex|both` still works.
@@ -8,6 +8,11 @@
 - Setup refuses a remote HTTP or credentialed `--base-url` before writing any agent config, and its JSON result keeps what `init` reported: `version`, `detected` agents, the `skill` copy and links, and each step's config `path`.
 - `assethub doctor --setup` reports agents whose MCP entry or skill is missing or out of date, without changing anything.
 - `assethub init` is deprecated. It runs `setup --only mcp,skills`, prints the result as JSON with setup's fields (`agents`, `steps`), and will be removed in a later version.
+
+## CLI 0.1.34
+
+- Saved sessions upload while you work: on `Stop` and `PreCompact` the hooks start a background upload of the running session, at most every 20 minutes. Claude Code app sessions stay open for days and rarely reach `SessionEnd`, so until now they were uploaded only after 2 quiet hours, when a later session started. `SessionEnd` and the `SessionStart` retry sweep are unchanged, and `ASSETHUB_SESSION_UPLOAD=off` still turns uploading off.
+- A running upload keeps its per-session lock fresh, so an upload that takes longer than 15 minutes is no longer mistaken for a crashed one and joined by a second upload of the same session.
 
 ## CLI 0.1.33
 

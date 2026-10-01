@@ -38,6 +38,8 @@ export type SessionMeta = {
   abandoned?: boolean
   /** How far the graph is compacted after uploads failed for size or time (0 = none). */
   compactLevel?: number
+  /** When Stop or PreCompact last started a background upload of this running session. */
+  lastWorkingUploadAt?: string
   /** Failed uploads in a row; spaces out the automatic retries. */
   failedAttempts?: number
   /** Size of the live transcript the local copy was made from (before masking). */
