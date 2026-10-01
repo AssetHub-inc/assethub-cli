@@ -242,10 +242,14 @@ describe('production batch', () => {
       '--wait', '--interval-ms', '1',
     ])
     expect(result.code, result.stderr).toBe(0)
-    const lines = result.stderr.split('\n').filter(line => line.startsWith('[batch] 0#1'))
-    expect(lines.filter(line => line.includes('Planning the parts'))).toHaveLength(1)
+    expect(result.stderr).toContain('Batch ')
+    expect(result.stderr).toContain('  A  harpy\n')
+    const lines = result.stderr.split('\n').filter(line => /^\d\d:\d\d {2}A {2}harpy {2}/.test(line))
+    expect(lines[0]).toContain('started run ')
+    expect(lines.filter(line => line.includes('1/4 Planning the parts'))).toHaveLength(1)
     expect(lines.filter(line => line.includes('Making the parts'))).toHaveLength(1)
-    expect(lines.at(-1)).toContain('completed')
+    expect(lines.at(-1)).toContain('✓ done')
+    expect(result.stderr).toMatch(/── \d\d:\d\d · done ──\n {2}A {2}harpy {2}✓ done/)
   })
 
   it('with --wait, holds an image the agent-run limit refused and starts it on a new key once a run finishes', async () => {
@@ -273,7 +277,7 @@ describe('production batch', () => {
       {key: '0#1', status: 'completed', attempt: 0},
       {key: '1#1', status: 'completed', attempt: 1, operationId: retryKey},
     ])
-    expect(result.stderr).toContain('deferred')
+    expect(result.stderr).toContain('waiting for a free run slot · Your plan allows up to 1 active agent run.')
     const saved = JSON.parse(
       await readFile(join(dir, 'production-batches', `${operationId}.json`), 'utf8'),
     )

@@ -68,6 +68,17 @@ const stem = (path: string) => basename(path, extname(path))
 const safeLabel = (label: string) => label.replace(/[^\w.-]+/g, '_')
 
 /**
+ * A source URL's file name, or its host when the path has none. Never the whole
+ * URL: a signed URL carries its credentials in the query string, and this name
+ * is printed in progress lines and used as a download folder.
+ */
+const urlFileName = (value: string, strip: (name: string) => string = name => name): string => {
+  const url = new URL(value)
+  const file = basename(url.pathname)
+  return file ? strip(file) : url.hostname
+}
+
+/**
  * One distinct label per image: it names the order and the download folder, so
  * two images must never share one. Files that share a name get their folder.
  */
@@ -78,7 +89,7 @@ export const productionBatchLabels = (
     flag === 'file'
       ? stem(value)
       : flag === 'source-url'
-        ? stem(new URL(value).pathname) || value
+        ? urlFileName(value, stem)
         : value,
   )
   const count = (labels: string[], label: string) =>
@@ -97,6 +108,14 @@ export const productionBatchLabels = (
     )
     .map(safeLabel)
 }
+
+/** The image as the user named it, for progress lines: `image (28).png`. */
+export const productionBatchImageName = ({flag, value}: ProductionBatchSource): string =>
+  flag === 'file'
+    ? basename(value)
+    : flag === 'source-url'
+      ? urlFileName(value)
+      : value
 
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

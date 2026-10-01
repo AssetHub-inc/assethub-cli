@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.33
+
+- `production batch --wait` progress is readable: a header names each image by letter and file name, a line (with the local time) prints only when a run really moves on (started, a new step, another mesh ready, a part kept with an issue, a Blender round, the end), and a status table prints every 5 minutes and at the end. Failures read `✗ FAILED · at 1/4 Planning the parts · Planner run failed. (planner_failed)` instead of a Python-style list. `runs watch` and `production analyze --wait` use the same run lines. The stdout JSON is unchanged.
+- A `--source-url` with no file name is named by its host in progress lines and download folders, never by the whole URL, so a signed URL's query string (its credentials) is not printed or written to disk.
+
 ## CLI 0.1.32
 
 - `assethub hooks install --client claude` now installs the session-saving hooks for the current folder only, in `.claude/settings.local.json`, instead of `~/.claude/settings.json`, which saved every Claude Code session on the machine. `--global` keeps the old behaviour. A folder install is refused in the home folder, where it would apply to every project. `hooks uninstall` follows the same scope.
