@@ -47,6 +47,7 @@ const makeDeps = (over: Partial<SetupDeps> = {}) => {
     resolveAuth: async () => ({apiKey: KEY, baseUrl: 'https://x.test', profile: 'default', workspaceId: 'ws-1'}),
     resolveTarget: async () => ({baseUrl: 'https://x.test', workspaceId: 'ws-1'}),
     detectAgents: async () => ['claude-code', 'codex'],
+    version: async () => '9.9.9',
     installSkills: async ({root, agents}) => ({
       path: `${root}/.agents/skills/assethub`,
       status: 'unchanged',
@@ -219,11 +220,32 @@ describe('runSetup', () => {
     expect(step.detail).toContain('removed')
   })
 
-  it('fails the Claude step when claude is missing and it was the only client asked for', async () => {
-    const {deps} = makeDeps({findBinary: async () => undefined})
+  it('writes the Claude Code entry into ~/.claude.json itself when claude is not on PATH', async () => {
+    const {deps, files, runs} = makeDeps({findBinary: async () => undefined})
+    files.set('/Users/u/.claude.json', JSON.stringify({theme: 'dark', mcpServers: {other: {command: 'o'}}}))
     const result = await runSetup(options({agents: ['claude-code']}), deps)
-    expect(result.steps.find(s => s.name === 'claude-mcp')?.status).toBe('fail')
-    expect(result.ok).toBe(false)
+    expect(result.ok).toBe(true)
+    expect(runs).toEqual([])
+    expect(result.steps.find(s => s.name === 'claude-mcp')).toMatchObject({status: 'ok', change: 'updated', path: '/Users/u/.claude.json'})
+    const written = JSON.parse(files.get('/Users/u/.claude.json') ?? '{}')
+    expect(written.theme).toBe('dark')
+    expect(written.mcpServers.other).toEqual({command: 'o'})
+    expect(written.mcpServers.assethub).toEqual({
+      type: 'http',
+      url: 'https://x.test/api/mcp',
+      headers: {Authorization: 'Bearer ${ASSETHUB_API_KEY}', 'X-AssetHub-Workspace': 'ws-1'},
+    })
+    expect(files.get('/Users/u/.claude.json.bak-20260929T100000000Z')).toContain('"theme":"dark"')
+    // The same entry `claude mcp add-json` would write: the next run finds it identical.
+    const again = await runSetup(options({agents: ['claude-code']}), deps)
+    expect(again.steps.find(s => s.name === 'claude-mcp')).toMatchObject({change: 'unchanged'})
+  })
+
+  it('writes .mcp.json in the project when claude is not on PATH', async () => {
+    const {deps, files} = makeDeps({findBinary: async () => undefined})
+    await runSetup(options({agents: ['claude-code'], project: true}), deps)
+    expect(JSON.parse(files.get('/Users/u/work/hero/.mcp.json') ?? '{}').mcpServers.assethub.type).toBe('http')
+    expect(files.has('/Users/u/.claude.json')).toBe(false)
   })
 
   it('fails the Codex step instead of writing a broken config.toml', async () => {
@@ -239,12 +261,13 @@ describe('runSetup', () => {
     expect(files.get(path)).toBe(broken)
   })
 
-  it('prints the command instead of failing when claude is missing, without the key', async () => {
-    const {deps, logs, runs} = makeDeps({findBinary: async name => (name === 'claude' ? undefined : '/bin/x')})
+  it('fails the Claude step on an unreadable ~/.claude.json and prints the command, without the key', async () => {
+    const {deps, files, logs, runs} = makeDeps({findBinary: async name => (name === 'claude' ? undefined : '/bin/x')})
+    files.set('/Users/u/.claude.json', '{not json')
     const result = await runSetup(options({agents: ['claude-code', 'codex']}), deps)
     expect(runs).toHaveLength(0)
-    expect(result.steps.find(s => s.name === 'claude-mcp')?.status).toBe('skip')
-    expect(result.ok).toBe(true)
+    expect(result.steps.find(s => s.name === 'claude-mcp')?.status).toBe('fail')
+    expect(files.get('/Users/u/.claude.json')).toBe('{not json')
     const text = logs.join('\n')
     expect(text).toContain(`claude mcp add-json assethub '{"type":"http","url":"https://x.test/api/mcp","headers":{"Authorization":"Bearer \${ASSETHUB_API_KEY}","X-AssetHub-Workspace":"ws-1"}}' --scope user`)
     expect(text).not.toContain(KEY)
@@ -913,6 +936,7 @@ describe('one setup for every agent', () => {
       status: 'skip',
       detail: 'would install /Users/u/.agents/skills/assethub (9.9.9); would link into Claude Code and Codex',
       change: 'would-update',
+      path: '/Users/u/.agents/skills/assethub',
     })
   })
 
@@ -923,5 +947,31 @@ describe('one setup for every agent', () => {
     expect(result.ok).toBe(false)
     expect(result.steps.find(s => s.name === 'cursor-mcp')?.detail).toContain('is not valid JSON')
     expect(files.get('/Users/u/.cursor/mcp.json')).toBe('{not json')
+  })
+})
+
+describe('what init reported, setup reports too', () => {
+  it('returns the version, the detected agents, the skill report and each config path', async () => {
+    const {deps} = makeDeps({detectAgents: async () => ['codex', 'cursor']})
+    const result = await runSetup(options({agents: ['codex']}), deps)
+    expect(result.version).toBe('9.9.9')
+    expect(result.agents).toEqual(['codex'])
+    expect(result.detected).toEqual(['codex', 'cursor'])
+    expect(result.skill).toMatchObject({path: '/Users/u/.agents/skills/assethub', status: 'unchanged'})
+    expect(result.steps.find(s => s.name === 'codex-mcp')?.path).toBe('/home/u/.codex/config.toml')
+    expect(result.steps.find(s => s.name === 'skills')?.path).toBe('/Users/u/.agents/skills/assethub')
+  })
+
+  it('refuses a remote HTTP or credentialed base URL before writing any agent config', async () => {
+    for (const baseUrl of ['http://evil.test', 'https://user:pw@x.test']) {
+      const {deps, files, runs} = makeDeps({
+        resolveAuth: async () => ({apiKey: KEY, baseUrl, profile: 'default', workspaceId: 'ws-1'}),
+      })
+      const result = await runSetup(options({agents: ['claude-code', 'codex', 'cursor']}), deps)
+      expect(result.ok).toBe(false)
+      expect(result.steps).toEqual([{name: 'mcp', status: 'fail', detail: expect.stringContaining(baseUrl)}])
+      expect([...files.keys()]).toEqual([])
+      expect(runs).toEqual([])
+    }
   })
 })

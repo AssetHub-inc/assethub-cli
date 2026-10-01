@@ -21,7 +21,7 @@ what it would change.
 | `login` | Reuses a saved key, or reads one from `--api-key-stdin`, `ASSETHUB_API_KEY` or a prompt. |
 | `workspace` | Uses `--workspace`, the saved selection, or asks you to pick one. |
 | agents | Finds Claude Code, Codex and Cursor on this machine (their folder or command), or uses `--agent`. |
-| `mcp` | Registers the `assethub` MCP server in each agent: Claude Code through `claude mcp add-json ... --scope user` (Claude Code owns `~/.claude.json`), Codex as an `[mcp_servers.assethub]` section in `$CODEX_HOME/config.toml`, Cursor as `mcpServers.assethub` in `~/.cursor/mcp.json`. A changed file is backed up as `<file>.bak-<timestamp>` first. |
+| `mcp` | Registers the `assethub` MCP server in each agent: Claude Code through `claude mcp add-json ... --scope user` (Claude Code owns `~/.claude.json`; when `claude` is not on PATH, for example with only an IDE extension, setup writes the same entry into that file itself), Codex as an `[mcp_servers.assethub]` section in `$CODEX_HOME/config.toml`, Cursor as `mcpServers.assethub` in `~/.cursor/mcp.json`. A changed file is backed up as `<file>.bak-<timestamp>` first. |
 | `skills` | Installs the bundled `assethub` skill under `~/.agents/skills/assethub` and links it into each agent's skill folder, so the agent knows the command sequence, cost rules and recovery steps. |
 | `app-env` | macOS: makes `ASSETHUB_API_KEY` visible to apps started from the Dock (see below). |
 | `doctor` | Runs `doctor --mcp` and prints a checklist (`--json` for machine output). |

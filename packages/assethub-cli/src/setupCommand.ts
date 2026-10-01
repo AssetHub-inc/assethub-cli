@@ -15,14 +15,21 @@ import {
   type AgentId,
   type SkillsReport,
 } from './agentSetup.js'
-import {mcpConfig} from './setup.js'
+import {cliVersion, mcpConfig, validatedBaseUrl} from './setup.js'
 import type {HookClient} from './hooks/types.js'
 import type {InstallHooks} from './setupHooksBridge.js'
 
 export type StepStatus = 'ok' | 'fail' | 'skip'
 /** What a step did to local state: nothing, a write, or (dry run) a write it would make. */
 export type StepChange = 'unchanged' | 'updated' | 'would-update'
-export type SetupStep = {name: string; status: StepStatus; detail: string; change?: StepChange}
+export type SetupStep = {
+  name: string
+  status: StepStatus
+  detail: string
+  change?: StepChange
+  /** The config file or folder the step reads and writes. */
+  path?: string
+}
 
 // The steps `--only` and `--skip` name, in the order setup runs them. `agents`
 // is not one: the mcp and skills steps need it.
@@ -35,8 +42,14 @@ export type SetupResult = {
   profile: string
   baseUrl: string
   workspaceId?: string
+  /** CLI version, which is also the version of the installed skill. */
+  version: string
   scope: 'global' | 'project'
   agents: AgentId[]
+  /** Agents found on this machine, whether or not they were selected. */
+  detected: AgentId[]
+  /** The skill copy and each agent's link to it, when the skills step ran. */
+  skill?: SkillsReport
   steps: SetupStep[]
   nextStep: string
   exportLine?: string
@@ -92,6 +105,7 @@ export type SetupDeps = {
   resolveTarget: () => Promise<{baseUrl: string; workspaceId?: string}>
   /** Agents installed on this machine. */
   detectAgents: () => Promise<AgentId[]>
+  version: () => Promise<string>
   /** Installs the skill under root and links it into each agent; reports without writing on a dry run. */
   installSkills: (input: {root: string; agents: AgentId[]; dryRun: boolean}) => Promise<SkillsReport>
   discoverWorkspace: (auth: SetupAuth) => Promise<string | undefined>
@@ -247,15 +261,19 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
 
   // 0. Agents: the ones asked for, or every one found on this machine. Nothing
   // else is changed when there is none to configure.
-  const agents = options.agents ?? (needsAgents ? await deps.detectAgents() : [])
+  const version = await deps.version()
+  const detected = needsAgents ? await deps.detectAgents() : []
+  const agents = options.agents ?? detected
   const agentNames = agents.map(agent => agentSpec(agent).name)
   const failEarly = (step: SetupStep, nextStep: string): SetupResult => ({
     ok: false,
     dryRun: options.dryRun,
     profile: '',
     baseUrl: '',
+    version,
     scope,
     agents,
+    detected,
     steps: [step],
     nextStep,
   })
@@ -333,6 +351,17 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   const target = auth ?? (skipped('login') ? await deps.resolveTarget() : undefined)
   const key = auth?.apiKey ?? ''
   const baseUrl = (target?.baseUrl ?? '').replace(/\/+$/, '')
+  // Every agent entry is built from this URL: refuse a bad one before writing any of them.
+  if (baseUrl) {
+    try {
+      validatedBaseUrl(baseUrl)
+    } catch (error) {
+      return failEarly(
+        {name: 'mcp', status: 'fail', detail: `${baseUrl}: ${error instanceof Error ? error.message : String(error)}`},
+        'Pass --base-url with an HTTPS origin (HTTP only for localhost), then re-run setup.',
+      )
+    }
+  }
 
   // 2. Workspace
   let workspaceId = target?.workspaceId
@@ -388,12 +417,12 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     diff: string[],
   ): Promise<void> => {
     if (merged === existing) {
-      steps.push({name, status: 'ok', detail: `${path} already up to date`, change: 'unchanged'})
+      steps.push({name, status: 'ok', detail: `${path} already up to date`, change: 'unchanged', path})
     } else if (options.dryRun) {
       say(`[dry-run] would ${existing === undefined ? 'create' : 'update'} ${path}`)
       if (existing !== undefined) say(`[dry-run] would back up to ${path}.bak-<timestamp>`)
       for (const line of diff) say(`  ${line}`)
-      steps.push({name, status: 'skip', detail: `would write ${what} to ${path} (dry run)`, change: 'would-update'})
+      steps.push({name, status: 'skip', detail: `would write ${what} to ${path} (dry run)`, change: 'would-update', path})
     } else {
       let backup = ''
       if (existing !== undefined) {
@@ -404,37 +433,51 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
         await deps.backupFile(path, backup)
       }
       await deps.writeFileEnsuringDir(path, merged)
-      steps.push({name, status: 'ok', detail: `wrote ${what} to ${path}${backup ? ` (backup: ${backup})` : ''}`, change: 'updated'})
+      steps.push({name, status: 'ok', detail: `wrote ${what} to ${path}${backup ? ` (backup: ${backup})` : ''}`, change: 'updated', path})
     }
   }
 
   // 3. MCP: one writer per agent. Claude Code owns ~/.claude.json, so it is
-  // changed only through `claude mcp`; it is read to skip an identical entry.
+  // changed through `claude mcp` and read only to skip an identical entry. When
+  // `claude` is not on PATH (an IDE extension bundles its own), the same entry is
+  // written into the same file directly, as `claude mcp add-json` would.
   if (!skipped('mcp') && wantClaude) {
     const claudeScope = options.project ? 'project' : 'user'
     const configPath = options.project ? join(deps.cwd, '.mcp.json') : join(deps.home, '.claude.json')
     const desired = claudeServerConfig(baseUrl || '<base-url>', workspaceForConfig)
-    const current = readJsonServer(await deps.readFileIfExists(configPath))
+    const configText = await deps.readFileIfExists(configPath)
+    const current = readJsonServer(configText)
     const claude = await deps.findBinary('claude')
     const args = claudeAddArgs(baseUrl || '<base-url>', workspaceForConfig, claudeScope)
     const shown = `claude ${args.slice(0, 3).join(' ')} ${shellQuoteSingle(args[3])} ${args.slice(4).join(' ')}`
     if (JSON.stringify(current) === JSON.stringify(desired)) {
-      steps.push({name: 'claude-mcp', status: 'ok', detail: `assethub is already registered in Claude Code (${claudeScope} scope)`, change: 'unchanged'})
+      steps.push({name: 'claude-mcp', status: 'ok', detail: `assethub is already registered in Claude Code (${claudeScope} scope)`, change: 'unchanged', path: configPath})
+    } else if (!claude && !baseUrl) {
+      // Nothing real to write yet (a dry run before login): show the command instead.
+      say(`claude not found on PATH. Setup will write ${configPath} directly, or run:\n  ${shown}`)
+      steps.push({name: 'claude-mcp', status: 'skip', detail: `would write mcpServers.assethub to ${configPath} (dry run)`, change: 'would-update', path: configPath})
     } else if (!claude) {
-      say(`claude not found on PATH. Run this later:\n  ${shown}`)
-      // Claude was the only agent asked for, so nothing got configured: say so
-      // in the exit code rather than reporting success.
-      steps.push({
-        name: 'claude-mcp',
-        status: agents.length > 1 ? 'skip' : 'fail',
-        detail: 'claude CLI not found; run the printed command later',
-        change: 'would-update',
-      })
+      let merged: string | undefined
+      try {
+        merged = mergeJsonServer(configPath, configText, desired)
+      } catch (error) {
+        say(`Run this once ${configPath} is fixed:\n  ${shown}`)
+        steps.push({name: 'claude-mcp', status: 'fail', detail: `${configPath} left unchanged: ${error instanceof Error ? error.message : String(error)}`, path: configPath})
+      }
+      if (merged !== undefined)
+        await writeConfig(
+          'claude-mcp',
+          configPath,
+          configText,
+          merged,
+          'mcpServers.assethub directly (claude CLI not on PATH)',
+          sectionDiff(current === undefined ? '' : JSON.stringify(current, null, 2), JSON.stringify(desired, null, 2)),
+        )
     } else if (options.dryRun) {
       say(`[dry-run] ${shown}`)
       if (current !== undefined)
         say(`[dry-run] the existing assethub entry would be replaced: claude mcp remove assethub --scope ${claudeScope}, then add again`)
-      steps.push({name: 'claude-mcp', status: 'skip', detail: 'would register the assethub MCP server (dry run)', change: 'would-update'})
+      steps.push({name: 'claude-mcp', status: 'skip', detail: 'would register the assethub MCP server (dry run)', change: 'would-update', path: configPath})
     } else {
       // Add first, and replace only an entry that already exists, so a failing
       // add never costs the user a working one.
@@ -453,6 +496,7 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
               status: 'ok',
               detail: `registered assethub in Claude Code (${claudeScope} scope; it reads the key from \$${API_KEY_ENV}, the key is not stored in Claude Code)`,
               change: 'updated',
+              path: configPath,
             }
           : {
               name: 'claude-mcp',
@@ -460,6 +504,7 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
               detail: replaced
                 ? `claude mcp add failed after the old assethub entry was removed; run \`${shown}\` to restore it: ${failure}`
                 : `claude mcp add failed: ${failure}`,
+              path: configPath,
             },
       )
     }
@@ -473,7 +518,7 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     try {
       merged = mergeCodexSection(existing ?? '', section)
     } catch (error) {
-      steps.push({name: 'codex-mcp', status: 'fail', detail: `${path} left unchanged: ${error instanceof Error ? error.message : String(error)}`})
+      steps.push({name: 'codex-mcp', status: 'fail', detail: `${path} left unchanged: ${error instanceof Error ? error.message : String(error)}`, path})
     }
     if (merged !== undefined)
       await writeConfig(
@@ -494,7 +539,7 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     try {
       merged = mergeJsonServer(path, existing, entry)
     } catch (error) {
-      steps.push({name: 'cursor-mcp', status: 'fail', detail: `${path} left unchanged: ${error instanceof Error ? error.message : String(error)}`})
+      steps.push({name: 'cursor-mcp', status: 'fail', detail: `${path} left unchanged: ${error instanceof Error ? error.message : String(error)}`, path})
     }
     if (merged !== undefined) {
       const before = readJsonServer(existing)
@@ -516,9 +561,11 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   if (options.printEnv) exportLine = `export ${API_KEY_ENV}=${options.dryRun || !key ? shownKey : key}`
 
   // 4. Skill: one copy under <root>/.agents/skills, linked into each agent.
+  let skill: SkillsReport | undefined
   if (!skipped('skills')) {
     try {
-      steps.push(skillsStep(await deps.installSkills({root, agents, dryRun: options.dryRun}), options.dryRun))
+      skill = await deps.installSkills({root, agents, dryRun: options.dryRun})
+      steps.push(skillsStep(skill, options.dryRun))
     } catch (error) {
       steps.push({name: 'skills', status: 'fail', detail: error instanceof Error ? error.message : String(error)})
     }
@@ -631,8 +678,11 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     profile: auth?.profile ?? '',
     baseUrl,
     workspaceId,
+    version,
     scope,
     agents,
+    detected,
+    ...(skill ? {skill} : {}),
     steps,
     nextStep,
     ...(exportLine ? {exportLine} : {}),
@@ -655,6 +705,7 @@ const skillsStep = (report: SkillsReport, dryRun: boolean): SetupStep => {
   ]
   return {
     name: 'skills',
+    path: report.path,
     status: dryRun && changed ? 'skip' : 'ok',
     detail: changed ? parts.join('; ') : `${parts.join('; ')}; links already in place`,
     change: !changed ? 'unchanged' : dryRun ? 'would-update' : 'updated',
@@ -740,7 +791,9 @@ export const defaultFileDeps = () => ({
   codexHome: process.env.CODEX_HOME?.trim() || join(cliHome(), '.codex'),
   now: () => new Date(),
   findBinary: (name: string) => findOnPath(name),
-  detectAgents: () => detectAgents(cliHome(), name => findOnPath(name)),
+  detectAgents: () =>
+    detectAgents(cliHome(), name => findOnPath(name), process.env.CODEX_HOME?.trim() || undefined),
+  version: cliVersion,
   installSkills: installAgentSkills,
   run: runProcess,
   readFileIfExists: async (path: string) => {

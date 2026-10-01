@@ -84,14 +84,18 @@ export const parseAgentIds = (values: string[]): AgentId[] => {
   return AGENT_IDS.filter(id => ids.includes(id))
 }
 
-/** Agents installed here: their folder exists under home, or their command is on PATH. */
+/** Agents installed here: their folder exists under home (or $CODEX_HOME for Codex), or their command is on PATH. */
 export const detectAgents = async (
   home: string,
   findBinary: (name: string) => Promise<string | undefined>,
+  codexHome?: string,
 ): Promise<AgentId[]> => {
   const found = await Promise.all(
-    AGENT_SPECS.map(async agent =>
-      (await isDirectory(join(home, agent.detectDir))) || (await findBinary(agent.binary)) !== undefined,
+    AGENT_SPECS.map(
+      async agent =>
+        (await isDirectory(join(home, agent.detectDir))) ||
+        (agent.id === 'codex' && codexHome !== undefined && (await isDirectory(codexHome))) ||
+        (await findBinary(agent.binary)) !== undefined,
     ),
   )
   return AGENT_SPECS.filter((_, index) => found[index]).map(agent => agent.id)

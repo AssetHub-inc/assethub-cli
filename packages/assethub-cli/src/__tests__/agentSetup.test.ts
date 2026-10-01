@@ -46,6 +46,9 @@ describe('agent selection', () => {
       const found = await detectAgents(home, async name => (name === 'cursor' ? '/bin/cursor' : undefined))
       expect(found).toEqual(['codex', 'cursor'])
       expect(await detectAgents(home, async () => undefined)).toEqual(['codex'])
+      // Codex is also found by $CODEX_HOME.
+      await rm(join(home, '.codex'), {recursive: true})
+      expect(await detectAgents(home, async () => undefined, home)).toEqual(['codex'])
     } finally {
       await rm(home, {recursive: true, force: true})
     }
@@ -188,6 +191,12 @@ describe('built entrypoint', () => {
     expect(report.dryRun).toBe(true)
     expect(report.agents).toEqual(['cursor'])
     expect(report.steps.map((step: {name: string}) => step.name)).toEqual(['agents', 'cursor-mcp', 'skills'])
+    // The fields init reported are still there.
+    expect(report.version).toBe(await cliVersion())
+    expect(report.scope).toBe('global')
+    expect(report.detected).toEqual(['cursor'])
+    expect(report.skill).toMatchObject({path: canonicalSkillDir(home), status: 'installed'})
+    expect(report.steps.find((step: {name: string}) => step.name === 'cursor-mcp').path).toBe(join(home, '.cursor', 'mcp.json'))
     expect(await exists(join(home, '.cursor', 'mcp.json'))).toBe(false)
   })
 

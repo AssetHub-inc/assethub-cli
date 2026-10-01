@@ -4,7 +4,8 @@
 
 - `assethub setup` is now the one command that connects coding agents. It runs the steps `login`, `workspace`, `mcp`, `skills`, `app-env` and `doctor`, finds Claude Code, Codex and Cursor on the machine, registers the MCP server in each and installs the bundled `assethub` skill. Each step checks the current state first and reports it as unchanged, updated, or what a `--dry-run` would change, so running setup again is safe.
 - New setup options: `--agent claude-code|codex|cursor` (repeatable or comma separated, `claude` accepted), `--project` (MCP config and skill in the current folder, with relative skill links), `--only <step,...>`, `--skip <step,...>` and `--no-skills`. `--client claude|codex|both` still works.
-- Each agent has one MCP writer. Claude Code is changed only through `claude mcp add-json` (it owns `~/.claude.json`), so `init` no longer edits that file. An identical entry is left alone. A changed Codex or Cursor config file is backed up first.
+- Each agent has one MCP writer. Claude Code is changed through `claude mcp add-json` (it owns `~/.claude.json`); only when `claude` is not on PATH, for example with only an IDE extension, does setup write the same entry into that file (or `.mcp.json` with `--project`) itself, after a backup. An identical entry is left alone. A changed Codex or Cursor config file is backed up first.
+- Setup refuses a remote HTTP or credentialed `--base-url` before writing any agent config, and its JSON result keeps what `init` reported: `version`, `detected` agents, the `skill` copy and links, and each step's config `path`.
 - `assethub doctor --setup` reports agents whose MCP entry or skill is missing or out of date, without changing anything.
 - `assethub init` is deprecated. It runs `setup --only mcp,skills`, prints the result as JSON with setup's fields (`agents`, `steps`), and will be removed in a later version.
 
