@@ -12,7 +12,11 @@ export type ParsedTranscript = {
   resultImages: Map<string, string[]>
 }
 
-const IMAGE_PATH_RE = /(?<![\w.~-])(?:\/[^\s"'\\<>|:*?`()[\]{}]+)+\.(?:png|jpe?g|webp)\b/gi
+// One run of path characters (they include `/`), capped at Linux's PATH_MAX
+// (4096) so a long line with no spaces, such as base64, is scanned in linear
+// time. A nested `(?:/…+)+` backtracks exponentially there and hung the save
+// on a Codex rollout.
+const IMAGE_PATH_RE = /(?<![\w.~-])\/[^\s"'\\<>|:*?`()[\]{}]{0,4096}?\.(?:png|jpe?g|webp)\b/gi
 
 export const extractImagePaths = (text: string): string[] => {
   const found = text.match(IMAGE_PATH_RE) ?? []

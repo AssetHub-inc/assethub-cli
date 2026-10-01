@@ -4,8 +4,9 @@ import {access, copyFile, mkdir, readFile, stat, writeFile} from 'node:fs/promis
 import {homedir} from 'node:os'
 import {delimiter, dirname, join} from 'node:path'
 import {API_KEY_ENV, launchAgentPath, launchAgentPlist, loadKeyIntoLaunchd, readLaunchdKey} from './appEnv.js'
-import {SESSION_SAVE_DISCLOSURE} from './hooks/install.js'
+import {hookScopeError, sessionSaveDisclosure} from './hooks/install.js'
 import {mcpConfig} from './setup.js'
+import type {HookClient} from './hooks/types.js'
 import type {InstallHooks} from './setupHooksBridge.js'
 
 export type StepStatus = 'ok' | 'fail' | 'skip'
@@ -54,6 +55,8 @@ type DoctorReport = {ok: boolean; checks: {name: string; status: string; message
 export type SetupDeps = {
   interactive: boolean
   installHooks: InstallHooks
+  /** Session saving is installed for this folder only. */
+  cwd: string
   codexHome: string
   now: () => Date
   hasWorkingKey: () => Promise<boolean>
@@ -197,6 +200,29 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   const say = (line: string) => deps.log(line)
   const wantClaude = options.client !== 'codex'
   const wantCodex = options.client !== 'claude'
+  const hookClients: HookClient[] = [...(wantClaude ? (['claude'] as const) : []), ...(wantCodex ? (['codex'] as const) : [])]
+  const hookNames = hookClients.map(client => (client === 'claude' ? 'Claude Code' : 'Codex')).join(' and ')
+  let hookRefusal: string | undefined
+  for (const client of hookClients) {
+    const refused = await hookScopeError(deps.home, {projectDir: deps.cwd}, client, deps.codexHome)
+    if (refused) {
+      hookRefusal = `${client}: ${refused}`
+      break
+    }
+  }
+
+  // 0. --save-sessions asks for something the home folder cannot have, so stop
+  // before login, MCP or app-env changes rather than half-applying setup.
+  if (hookRefusal && options.saveSessions && !options.noHook) {
+    return {
+      ok: false,
+      dryRun: options.dryRun,
+      profile: '',
+      baseUrl: '',
+      steps: [{name: 'hook', status: 'fail', detail: hookRefusal}],
+      nextStep: 'Run `assethub setup --save-sessions` inside the project folder whose sessions should be saved, or run it without --save-sessions.',
+    }
+  }
 
   // 1. Login (reuses the existing `auth login` path through deps.login)
   const explicitKey = options.apiKeySource === 'flag' ? options.apiKey : undefined
@@ -376,46 +402,57 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
       steps.push({name: 'hook', status: 'skip', detail: 'session saving is not available for this account'})
   } else if (options.noHook) {
     steps.push({name: 'hook', status: 'skip', detail: 'skipped (--no-hook)'})
-  } else if (!wantClaude) {
-    steps.push({name: 'hook', status: 'skip', detail: 'Codex session saving is not supported yet'})
+  } else if (hookRefusal) {
+    // Not offered: the dry run and the question would promise an install the guard refuses.
+    steps.push({name: 'hook', status: 'skip', detail: hookRefusal})
   } else if (options.dryRun) {
     steps.push({
       name: 'hook',
       status: 'skip',
       detail: options.saveSessions
-        ? 'would install the session-saving hooks (dry run)'
+        ? `would install the ${hookNames} session-saving hooks for ${deps.cwd} only (dry run)`
         : 'would leave session saving off (enable with --save-sessions)',
     })
   } else {
+    const hookScope = {projectDir: deps.cwd}
     let consent = options.saveSessions
+    const disclose = () => {
+      for (const client of hookClients) say(sessionSaveDisclosure(hookScope, client))
+    }
     if (!consent && deps.interactive && !options.yes) {
-      say(SESSION_SAVE_DISCLOSURE)
-      consent = await deps.confirmOptIn('Save and upload your Claude Code sessions?')
+      disclose()
+      consent = await deps.confirmOptIn(`Save and upload your ${hookNames} sessions?`)
     }
     if (!consent) {
       steps.push({
         name: 'hook',
         status: 'skip',
-        detail: 'session saving is off; enable it with `assethub setup --save-sessions` or `assethub hooks install --client claude`',
+        detail: `session saving is off; enable it with \`assethub setup --save-sessions\`, or ${hookClients.map(client => `\`assethub hooks install --client ${client}\``).join(' and ')} inside the project folder`,
       })
     } else {
-      if (options.saveSessions) say(SESSION_SAVE_DISCLOSURE)
+      if (options.saveSessions) disclose()
       const pathNote = (await deps.findBinary('assethub'))
         ? ''
         : ' Note: the hooks run `assethub`, which is not on PATH; install the CLI globally.'
-      try {
-        const result = await deps.installHooks({client: 'claude'})
-        steps.push({
-          name: 'hook',
-          status: result.installed ? 'ok' : 'fail',
-          detail: `claude: ${result.detail}${result.installed ? pathNote : ''}`,
-        })
-      } catch (error) {
-        steps.push({
-          name: 'hook',
-          status: 'fail',
-          detail: `claude: ${scrub(error instanceof Error ? error.message : String(error), key)}`,
-        })
+      for (const client of hookClients) {
+        try {
+          const result = await deps.installHooks({
+            client,
+            ...hookScope,
+            ...(client === 'codex' ? {codexHome: deps.codexHome} : {}),
+          })
+          steps.push({
+            name: 'hook',
+            status: result.installed ? 'ok' : 'fail',
+            detail: `${client}: ${result.detail}${result.installed ? pathNote : ''}`,
+          })
+        } catch (error) {
+          steps.push({
+            name: 'hook',
+            status: 'fail',
+            detail: `${client}: ${scrub(error instanceof Error ? error.message : String(error), key)}`,
+          })
+        }
       }
     }
   }
@@ -534,6 +571,7 @@ export const runProcess = (file: string, args: string[]): Promise<{code: number;
 export const defaultFileDeps = () => ({
   platform: process.platform,
   home: homedir(),
+  cwd: process.cwd(),
   codexHome: process.env.CODEX_HOME?.trim() || join(homedir(), '.codex'),
   now: () => new Date(),
   findBinary: (name: string) => findOnPath(name),
