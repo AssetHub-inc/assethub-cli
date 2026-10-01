@@ -1,4 +1,5 @@
-// Keep only the conversation from a Claude Code transcript before it is saved
+// Keep only the conversation from a Claude Code transcript (or a Codex rollout,
+// converted to the same shape) before it is saved
 // or uploaded: the artist's prompts, the agent's replies, its tool calls and
 // their results, and compaction summaries. Everything else Claude Code writes
 // to the file (skill, tool and agent listings, the system prompt, hook
@@ -92,9 +93,119 @@ export const trimTranscriptEntry = (entry: unknown): Json | undefined => {
   }
 }
 
+/** Top-level record types of a Codex rollout (`~/.codex/sessions/.../rollout-*.jsonl`). */
+const CODEX_LINE_TYPES = new Set(['session_meta', 'response_item', 'event_msg', 'turn_context', 'compacted'])
+
+// Codex sends its context as user messages: AGENTS.md, and tagged blocks such
+// as <environment_context> or <user_instructions>. They are not the artist's words.
+const CODEX_CONTEXT_BLOCK = /<([A-Za-z][\w-]*(?:context|instructions|plugins))(?:\s[^>]*)?>[\s\S]*?<\/\1>\s*/g
+const codexUserText = (text: string): string =>
+  /^\s*# AGENTS\.md instructions/.test(text) ? '' : cleanText(text.replace(CODEX_CONTEXT_BLOCK, ''))
+
+const codexText = (content: unknown, blockType: string, clean: (text: string) => string): string =>
+  (Array.isArray(content) ? content : [])
+    .map(block => (isObject(block) && block.type === blockType && typeof block.text === 'string' ? clean(block.text) : ''))
+    .filter(text => text.trim())
+    .join('\n')
+
+// An exec result is JSON text with timing and token bookkeeping around the
+// command's output; only the output is conversation.
+const codexOutputText = (text: string): string => {
+  if (text.trimStart().startsWith('{')) {
+    try {
+      const parsed: unknown = JSON.parse(text)
+      if (isObject(parsed) && typeof parsed.output === 'string') return parsed.output
+    } catch {
+      // plain text that happens to start with a brace
+    }
+  }
+  return text
+}
+
+/** Tool output: a string, `{output}`, or a list of `{type, text}` items (images are dropped). */
+const codexToolOutput = (output: unknown): string => {
+  if (typeof output === 'string') return cleanText(codexOutputText(output))
+  if (Array.isArray(output))
+    return cleanText(
+      output
+        .map(item => (isObject(item) && typeof item.text === 'string' ? codexOutputText(item.text) : ''))
+        .filter(Boolean)
+        .join('\n'),
+    )
+  if (isObject(output)) {
+    for (const key of ['output', 'content']) if (typeof output[key] === 'string') return cleanText(output[key] as string)
+  }
+  return output === undefined ? '' : JSON.stringify(output)
+}
+
+const codexArguments = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value ?? {}
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return {arguments: value}
+  }
+}
+
+const codexMessage = (type: 'user' | 'assistant', timestamp: unknown, content: string | Json[]): Json => ({
+  type,
+  ...(typeof timestamp === 'string' ? {timestamp} : {}),
+  message: {role: type, content},
+})
+
 /**
- * Trim a JSONL transcript. A file that is not a Claude Code transcript (for
- * example a Codex rollout saved by hand) is returned unchanged.
+ * One Codex rollout record as a conversation entry in the same shape as a
+ * trimmed Claude Code transcript, or undefined to drop it. Kept: the artist's
+ * prompts, the agent's replies, its tool calls and their output, and compaction
+ * summaries. Dropped: session metadata (base instructions, git, cwd), developer
+ * and context messages, reasoning, turn settings and the event stream, which
+ * repeats the messages.
+ */
+export const codexEntry = (entry: unknown): Json | undefined => {
+  if (!isObject(entry) || !isObject(entry.payload)) return undefined
+  const {payload, timestamp} = entry
+  if (entry.type === 'compacted')
+    return typeof payload.message === 'string' && payload.message.trim() ? {type: 'summary', summary: payload.message} : undefined
+  if (entry.type !== 'response_item') return undefined
+  switch (payload.type) {
+    case 'message': {
+      if (payload.role === 'user') {
+        const text = codexText(payload.content, 'input_text', codexUserText).trim()
+        return text ? codexMessage('user', timestamp, text) : undefined
+      }
+      if (payload.role !== 'assistant') return undefined
+      const text = codexText(payload.content, 'output_text', cleanText)
+      return text.trim() ? codexMessage('assistant', timestamp, [{type: 'text', text}]) : undefined
+    }
+    case 'function_call':
+    case 'custom_tool_call':
+    case 'local_shell_call': {
+      const id = typeof payload.call_id === 'string' ? payload.call_id : payload.id
+      if (typeof id !== 'string') return undefined
+      const name = typeof payload.name === 'string' ? payload.name : payload.type === 'local_shell_call' ? 'shell' : 'unknown'
+      const input =
+        payload.type === 'function_call'
+          ? codexArguments(payload.arguments)
+          : payload.type === 'custom_tool_call'
+            ? {input: payload.input}
+            : (payload.action ?? {})
+      return codexMessage('assistant', timestamp, [{type: 'tool_use', id, name, input}])
+    }
+    case 'function_call_output':
+    case 'custom_tool_call_output': {
+      if (typeof payload.call_id !== 'string') return undefined
+      return codexMessage('user', timestamp, [{type: 'tool_result', tool_use_id: payload.call_id, content: codexToolOutput(payload.output)}])
+    }
+    default:
+      // reasoning, web search and anything else that is not conversation
+      return undefined
+  }
+}
+
+/**
+ * Trim a JSONL transcript: a Claude Code transcript, or a Codex rollout turned
+ * into the same conversation shape. A file in any other format is returned
+ * unchanged.
  */
 export const trimTranscript = (raw: string): string => {
   const entries = raw
@@ -107,7 +218,9 @@ export const trimTranscript = (raw: string): string => {
         return undefined
       }
     })
-  if (!entries.some(entry => isObject(entry) && CLAUDE_LINE_TYPES.has(String(entry.type)))) return raw
-  const kept = entries.map(trimTranscriptEntry).filter((entry): entry is Json => entry !== undefined)
+  const isClaude = entries.some(entry => isObject(entry) && CLAUDE_LINE_TYPES.has(String(entry.type)))
+  const isCodex = !isClaude && entries.some(entry => isObject(entry) && CODEX_LINE_TYPES.has(String(entry.type)) && isObject(entry.payload))
+  if (!isClaude && !isCodex) return raw
+  const kept = entries.map(isCodex ? codexEntry : trimTranscriptEntry).filter((entry): entry is Json => entry !== undefined)
   return kept.map(entry => `${JSON.stringify(entry)}\n`).join('')
 }

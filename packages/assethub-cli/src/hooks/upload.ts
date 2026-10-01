@@ -216,7 +216,7 @@ const uploadSessionUnlocked = async (
           graphId: sessionGraphId(basename(sessionDir)),
           rev,
           description: `Agent session ${meta.sessionId}`,
-          tags: ['session', 'agent:claude'],
+          tags: ['session', `agent:${meta.client ?? 'claude'}`],
           now: now(),
         })
       } catch (error) {

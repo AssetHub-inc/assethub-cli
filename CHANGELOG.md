@@ -1,10 +1,14 @@
 # Changelog
 
-## Unreleased
+## CLI 0.1.32
 
 - `assethub hooks install --client claude` now installs the session-saving hooks for the current folder only, in `.claude/settings.local.json`, instead of `~/.claude/settings.json`, which saved every Claude Code session on the machine. `--global` keeps the old behaviour. A folder install is refused in the home folder, where it would apply to every project. `hooks uninstall` follows the same scope.
 - `setup --save-sessions` installs for the folder setup runs in, and the disclosure names that folder. In the home folder setup refuses up front, in the dry run as in the real run, and does not offer session saving.
 - Hooks installed globally by 0.1.31 or earlier stay until removed with `assethub hooks uninstall --client claude --global`.
+- `assethub hooks install --client codex` installs the session-saving hooks for Codex, in the current folder's `.codex/hooks.json` (`--global`: `$CODEX_HOME/hooks.json`). The file is added to the repository's `info/exclude`, and a tracked one is refused. Install says when Codex still needs the folder trusted, and that a new hook must be approved in `/hooks`. `setup --save-sessions` installs for Codex too. Needs Codex 0.145 or newer, the first release that runs `SessionEnd` hooks; on older Codex a session is uploaded only when a later session picks it up as abandoned (after 2 quiet hours).
+- Codex sessions are saved as `codex` and trimmed to the conversation, like Claude Code ones: base instructions, `AGENTS.md` and other context messages, developer messages, reasoning, turn settings, the event stream and exec bookkeeping are dropped.
+- Fix a hang when saving a session with long lines without spaces: the image-path search now runs in linear time, and still finds paths up to 4096 characters.
+- `hooks save` refuses an unknown `--client` instead of saving the session as Claude Code, and an uploaded session is tagged with its own client (`agent:codex` for Codex).
 
 ## CLI 0.1.31 / API client 0.1.17
 

@@ -163,6 +163,7 @@ describe('runSetup', () => {
       ['codex-mcp', 'ok'],
       ['app-env', 'skip'],
       ['hook', 'ok'],
+      ['hook', 'ok'],
       ['doctor', 'ok'],
     ])
   })
@@ -257,12 +258,17 @@ describe('runSetup', () => {
     expect([...files.keys()]).toEqual(before)
   })
 
-  it('installs the Claude hook with --save-sessions, and skips it with --no-hook', async () => {
+  it('installs the hooks for each client with --save-sessions, and skips them with --no-hook', async () => {
     const installHooks = vi.fn(async () => ({installed: true, detail: 'ok'}))
     const {deps, logs} = makeDeps({installHooks})
-    await runSetup(options(), deps)
-    expect(installHooks.mock.calls.map(c => (c as unknown[])[0])).toEqual([{client: 'claude', projectDir: '/Users/u/work/hero'}])
+    const both = await runSetup(options(), deps)
+    expect(installHooks.mock.calls.map(c => (c as unknown[])[0])).toEqual([
+      {client: 'claude', projectDir: '/Users/u/work/hero'},
+      {client: 'codex', projectDir: '/Users/u/work/hero', codexHome: '/home/u/.codex'},
+    ])
+    expect(both.steps.filter(s => s.name === 'hook').map(s => s.detail)).toEqual(['claude: ok', 'codex: ok'])
     expect(logs.join('\n')).toContain(sessionSaveDisclosure({projectDir: '/Users/u/work/hero'}))
+    expect(logs.join('\n')).toContain(sessionSaveDisclosure({projectDir: '/Users/u/work/hero'}, 'codex'))
     installHooks.mockClear()
     const result = await runSetup(options({noHook: true}), deps)
     expect(installHooks).not.toHaveBeenCalled()
@@ -278,10 +284,12 @@ describe('runSetup', () => {
     for (const over of [{}, {interactive: true}]) {
       const {deps} = makeDeps({installHooks, confirmOptIn, ...over})
       const result = await runSetup(off, deps)
-      expect(result.steps.find(s => s.name === 'hook')).toMatchObject({
-        status: 'skip',
-        detail: expect.stringContaining('--save-sessions'),
-      })
+      const hint = result.steps.find(s => s.name === 'hook')
+      expect(hint).toMatchObject({status: 'skip', detail: expect.stringContaining('--save-sessions')})
+      // Each command is copyable on its own: no `claude|codex`, which a shell reads as a pipe.
+      expect(hint?.detail).not.toContain('|')
+      expect(hint?.detail).toContain('`assethub hooks install --client claude`')
+      expect(hint?.detail).toContain('`assethub hooks install --client codex`')
     }
     expect(confirmOptIn).not.toHaveBeenCalled()
     expect(installHooks).not.toHaveBeenCalled()
@@ -324,11 +332,28 @@ describe('runSetup', () => {
     expect(installHooks).not.toHaveBeenCalled()
   })
 
-  it('does not install hooks for Codex alone', async () => {
+  it('installs only the Codex hooks for --client codex, in the folder', async () => {
     const installHooks = vi.fn(async () => ({installed: true, detail: 'ok'}))
-    const result = await runSetup(options({client: 'codex'}), makeDeps({installHooks}).deps)
+    const {deps, logs} = makeDeps({installHooks})
+    const result = await runSetup(options({client: 'codex'}), deps)
+    expect(installHooks.mock.calls.map(c => (c as unknown[])[0])).toEqual([
+      {client: 'codex', projectDir: '/Users/u/work/hero', codexHome: '/home/u/.codex'},
+    ])
+    expect(result.steps.filter(s => s.name === 'hook')).toEqual([{name: 'hook', status: 'ok', detail: 'codex: ok'}])
+    expect(logs.join('\n')).toContain(sessionSaveDisclosure({projectDir: '/Users/u/work/hero'}, 'codex'))
+    expect(logs.join('\n')).not.toContain(sessionSaveDisclosure({projectDir: '/Users/u/work/hero'}))
+
+    const dry = await runSetup(options({client: 'codex', dryRun: true}), makeDeps({installHooks}).deps)
+    expect(dry.steps.find(s => s.name === 'hook')?.detail).toBe('would install the Codex session-saving hooks for /Users/u/work/hero only (dry run)')
+  })
+
+  it('refuses Codex session saving in the home folder before changing anything', async () => {
+    const installHooks = vi.fn(async () => ({installed: true, detail: 'ok'}))
+    const {deps, files} = makeDeps({installHooks, cwd: '/Users/u'})
+    const result = await runSetup(options({client: 'codex'}), deps)
+    expect(result.steps).toEqual([{name: 'hook', status: 'fail', detail: expect.stringContaining('inside a project folder')}])
+    expect([...files.keys()]).toEqual([])
     expect(installHooks).not.toHaveBeenCalled()
-    expect(result.steps.find(s => s.name === 'hook')?.status).toBe('skip')
   })
 
   it('needs the CLI on PATH only for the session hooks, never for MCP', async () => {
