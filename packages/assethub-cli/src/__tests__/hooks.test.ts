@@ -716,6 +716,41 @@ describe('uploadSession', () => {
     expect(await metaOf(dir)).toMatchObject({status: 'uploaded', uploadedRev: 1})
   })
 
+  // The server already holds revs 0..`held` of this session that the local
+  // record does not know about (~/.assethub was reset): lower revs are refused.
+  const serverHolding = (held: number, code: 'SNAPSHOT_CONFLICT' | 'STALE_SNAPSHOT') =>
+    fakeServer(call => {
+      if (call.method === 'HEAD') return new Response(null, {status: 404})
+      if (call.url.includes('/snapshot') && JSON.parse(String(call.body)).rev <= held)
+        return new Response(JSON.stringify({success: false, error: {code, message: 'held'}}), {status: 409, headers: {'content-type': 'application/json'}})
+      return new Response(JSON.stringify({success: true, data: {status: 'published'}}), {status: 200, headers: {'content-type': 'application/json'}})
+    })
+  const sentRevs = (calls: Call[]) => calls.filter(c => c.url.includes('/snapshot')).map(c => JSON.parse(String(c.body)).rev)
+
+  it('jumps past revisions the server holds with other content', async () => {
+    const dir = await setup()
+    const {fetchImpl, calls} = serverHolding(1, 'SNAPSHOT_CONFLICT')
+    expect((await uploadSession(dir, {fetchImpl, auth})).ok).toBe(true)
+    expect(sentRevs(calls)).toEqual([0, 1, 3])
+    expect(await metaOf(dir)).toMatchObject({status: 'uploaded', uploadedRev: 3, failedAttempts: 0})
+  })
+
+  it('never counts a snapshot the server turned away as stale as uploaded', async () => {
+    const dir = await setup()
+    const {fetchImpl, calls} = serverHolding(5, 'STALE_SNAPSHOT')
+    expect((await uploadSession(dir, {fetchImpl, auth})).ok).toBe(true)
+    expect(sentRevs(calls)).toEqual([0, 1, 3, 7])
+    expect(await metaOf(dir)).toMatchObject({status: 'uploaded', uploadedRev: 7})
+  })
+
+  it('gives up after a bounded number of jumps and retries later from the highest rev tried', async () => {
+    const dir = await setup()
+    const {fetchImpl, calls} = serverHolding(10_000, 'SNAPSHOT_CONFLICT')
+    expect((await uploadSession(dir, {fetchImpl, auth})).ok).toBe(false)
+    expect(sentRevs(calls)).toHaveLength(9)
+    expect(await metaOf(dir)).toMatchObject({status: 'pending-upload', attemptedRev: 255, failedAttempts: 1})
+  })
+
   it('a timeout compacts the next attempt, which waits before retrying on its own', async () => {
     const dir = await setup()
     const at = (minutes: number) => () => new Date(now().getTime() + minutes * 60_000)
