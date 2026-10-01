@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.37
+
+- A running session is uploaded while you work every 8 minutes instead of every 20, so work shows up in AssetHub sooner.
+- `ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN` sets that interval in minutes (at least 1). Set it where the hooks run, for example in your shell profile or the `env` block of Claude Code settings: `ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN=2`. Each upload sends a new snapshot of the whole transcript; images the server already holds are skipped. A value that is not a positive number keeps the default.
+
 ## CLI 0.1.36
 
 - The CLI keeps itself current. Auto-update is on by default: at most once a day a detached background process checks the registry and installs a newer release with the package manager that installed the CLI, as `assethub update --yes` would, keeping the saved login. No command waits for it. The next command prints one stderr line, `@assethub/cli updated itself from <old> to <new>`; a failed install prints `could not update itself …` and the `is available` notice continues. stdout JSON is unchanged. Two commands started together never install twice (lock file).

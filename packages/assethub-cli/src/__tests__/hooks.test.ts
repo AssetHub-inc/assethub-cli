@@ -21,7 +21,7 @@ import {
 import {chunkTranscript, compactLimits} from '../hooks/graph.js'
 import {MAX_SETTINGS_BACKUPS, isOurCommand, sessionSaveDisclosure} from '../hooks/install.js'
 import {readMeta, updateMeta} from '../hooks/paths.js'
-import {materializeSession} from '../hooks/save.js'
+import {materializeSession, workingUploadIntervalMs} from '../hooks/save.js'
 import {extractImagePaths} from '../hooks/transcript.js'
 import {redactText} from '../hooks/redact.js'
 import {buildRunUploadPlan} from '../runsUpload/buildRunUpload.js'
@@ -1414,7 +1414,7 @@ describe('uploads while a session is still running', () => {
   const at = (iso: string) => () => new Date(iso)
   const metaOf = async (dir: string) => JSON.parse(await readFile(join(dir, 'meta.json'), 'utf8'))
 
-  it('Stop starts a background upload of this session, at most every 20 minutes', async () => {
+  it('Stop starts a background upload of this session, at most every 8 minutes', async () => {
     const transcript = await writeTranscript()
     const startWorkingUpload = vi.fn()
     const first = await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:00:00Z'), startWorkingUpload})
@@ -1423,10 +1423,10 @@ describe('uploads while a session is still running', () => {
     expect(first.uploadStarted).toBe(true)
     expect((await metaOf(first.sessionDir)).lastWorkingUploadAt).toBe('2026-09-29T02:00:00.000Z')
 
-    await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:15:00Z'), startWorkingUpload})
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:07:00Z'), startWorkingUpload})
     expect(startWorkingUpload).toHaveBeenCalledTimes(1)
 
-    await saveSession({stdin: hook(transcript, 'PreCompact'), home, env: {}, now: at('2026-09-29T02:21:00Z'), startWorkingUpload})
+    await saveSession({stdin: hook(transcript, 'PreCompact'), home, env: {}, now: at('2026-09-29T02:09:00Z'), startWorkingUpload})
     expect(startWorkingUpload).toHaveBeenCalledTimes(2)
   })
 
@@ -1436,10 +1436,30 @@ describe('uploads while a session is still running', () => {
     const meta = await metaOf(sessionDir)
     writeFileSync(join(sessionDir, 'meta.json'), JSON.stringify({...meta, lastUploadAttemptAt: '2026-09-29T02:10:00.000Z'}))
     const startWorkingUpload = vi.fn()
-    await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:25:00Z'), startWorkingUpload})
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:17:00Z'), startWorkingUpload})
     expect(startWorkingUpload).not.toHaveBeenCalled()
-    await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:31:00Z'), startWorkingUpload})
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:19:00Z'), startWorkingUpload})
     expect(startWorkingUpload).toHaveBeenCalledTimes(1)
+  })
+
+  it('ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN sets the interval', async () => {
+    const transcript = await writeTranscript()
+    const env = {ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN: '3'}
+    const startWorkingUpload = vi.fn()
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env, now: at('2026-09-29T02:00:00Z'), startWorkingUpload})
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env, now: at('2026-09-29T02:02:00Z'), startWorkingUpload})
+    expect(startWorkingUpload).toHaveBeenCalledTimes(1)
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env, now: at('2026-09-29T02:03:00Z'), startWorkingUpload})
+    expect(startWorkingUpload).toHaveBeenCalledTimes(2)
+  })
+
+  it('reads the interval in minutes, at least one, and ignores a value that is not a positive number', () => {
+    expect(workingUploadIntervalMs({})).toBe(8 * 60_000)
+    expect(workingUploadIntervalMs({ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN: ' 5 '})).toBe(5 * 60_000)
+    expect(workingUploadIntervalMs({ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN: '2.5'})).toBe(150_000)
+    expect(workingUploadIntervalMs({ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN: '0.1'})).toBe(60_000)
+    for (const raw of ['', '0', '-3', 'soon', 'Infinity', '1e306'])
+      expect(workingUploadIntervalMs({ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN: raw})).toBe(8 * 60_000)
   })
 
   it('never with uploads off, and not on SessionEnd, which uploads and sweeps on its own', async () => {
