@@ -115,7 +115,7 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> \
 
 - `production run` defaults to `full_auto`, which never pauses for a human. **Always pass `--max-cost-credits <n>`.** The server caps `--max-iterations` at 5.
 - Over MCP the same rule applies: always set `maxCostCredits` on `production_run`.
-- `assethub account get` shows the balance. Check it before a batch.
+- Before a batch, run `production run --image <file> --estimate` to see the cost. The CLI has no balance command; find the credit routes with `assethub api search credit`.
 - Prefer a dedicated, scoped API key for agent work rather than a full-access one.
 
 ## Rules learned the hard way
@@ -124,7 +124,7 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> \
 - Part extractor names are the public product names: `V1.5`, `V2.0 alpha`, `V2.1 alpha`. Internal IDs are not accepted.
 - `parts split` and `parts compare` with `--preprocess-prompt` create a second production order; use `--all-ready`, not `--task-id`.
 - Every generation should land on a canvas. Pass `--canvas <id>` to keep a job's steps together; without it the CLI makes one canvas per working directory. `assethub canvas open <id>` shows the user what happened.
-- A complaint like "the mesh has extra limbs" is usually an input problem: stray lines, shadows, or inconsistent views. Clean the image (`image edit`) before switching models.
+- A complaint like "the mesh has extra limbs" is usually an input problem: stray lines, shadows, or inconsistent views. Clean the image before switching models: `image generate --file <image> --prompt "remove stray lines and shadows, plain background"`, or `parts compare --preprocess-prompt <text>`.
 - Input can come from a file, a URL, stdin bytes, base64, a data URI, an OpenAI- or Anthropic-style JSON attachment (`--stdin-json`), or the clipboard. You never need to write a temporary file first.
 - Large or complex requests: `--input-json @request.json` with the schema from `api describe`.
 

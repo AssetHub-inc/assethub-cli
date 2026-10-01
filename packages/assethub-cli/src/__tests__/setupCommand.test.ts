@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process'
-import {chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises'
+import {chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile} from 'node:fs/promises'
 import {createServer} from 'node:http'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url'
 import {describe, expect, it, vi} from 'vitest'
 import {
   claudeAddArgs,
+  defaultFileDeps,
   findOnPath,
   mergeCodexSection,
   redactKey,
@@ -972,6 +973,98 @@ describe('what init reported, setup reports too', () => {
       expect(result.steps).toEqual([{name: 'mcp', status: 'fail', detail: expect.stringContaining(baseUrl)}])
       expect([...files.keys()]).toEqual([])
       expect(runs).toEqual([])
+    }
+  })
+})
+
+describe('review fixes: safe re-runs', () => {
+  const oldEntry = {type: 'http', url: 'https://old.test/api/mcp', headers: {Authorization: 'Bearer ${ASSETHUB_API_KEY}'}}
+
+  it('puts the previous Claude Code entry back when the replacement add fails', async () => {
+    const runs: string[][] = []
+    let adds = 0
+    const {deps, files} = makeDeps({
+      run: async (_file, args) => {
+        runs.push(args)
+        if (args[1] !== 'add-json') return {code: 0, output: ''}
+        adds++
+        return adds === 1 ? {code: 1, output: 'MCP server assethub already exists'} : adds === 2 ? {code: 1, output: 'boom'} : {code: 0, output: ''}
+      },
+    })
+    files.set('/Users/u/.claude.json', JSON.stringify({mcpServers: {assethub: oldEntry}}))
+    const step = (await runSetup(options({agents: ['claude-code']}), deps)).steps.find(s => s.name === 'claude-mcp')!
+    expect(step.status).toBe('fail')
+    expect(step.detail).toContain('previous assethub entry was put back')
+    expect(runs.map(args => args[1])).toEqual(['add-json', 'remove', 'add-json', 'add-json'])
+    expect(JSON.parse(runs[3][3])).toEqual(oldEntry)
+  })
+
+  it('leaves the existing Claude Code entry alone when remove fails', async () => {
+    const runs: string[][] = []
+    const {deps} = makeDeps({
+      run: async (_file, args) => {
+        runs.push(args)
+        return args[1] === 'add-json'
+          ? {code: 1, output: 'MCP server assethub already exists'}
+          : {code: 1, output: 'remove refused'}
+      },
+    })
+    const step = (await runSetup(options({agents: ['claude-code']}), deps)).steps.find(s => s.name === 'claude-mcp')!
+    expect(step.status).toBe('fail')
+    expect(step.detail).toContain('left as it is: claude mcp remove failed: remove refused')
+    expect(runs.map(args => args[1])).toEqual(['add-json', 'remove'])
+  })
+
+  it('takes the next backup name when another run claims it first', async () => {
+    const {deps, files} = makeDeps()
+    const path = '/home/u/.codex/config.toml'
+    files.set(path, 'model = "gpt-5"\n')
+    let first = true
+    deps.backupFile = async (from, to) => {
+      if (first) {
+        first = false
+        throw Object.assign(new Error('exists'), {code: 'EEXIST'})
+      }
+      files.set(to, files.get(from) ?? '')
+    }
+    const step = (await runSetup(options({agents: ['codex']}), deps)).steps.find(s => s.name === 'codex-mcp')!
+    expect(step.detail).toContain('(backup: /home/u/.codex/config.toml.bak-20260929T100000000Z-1)')
+  })
+
+  it('installs the skill copy with --only skills when no agent is found', async () => {
+    const installSkills = vi.fn(makeDeps().deps.installSkills)
+    const {deps} = makeDeps({detectAgents: async () => [], installSkills})
+    const result = await runSetup(
+      options({agents: undefined, project: true, skip: ['login', 'workspace', 'mcp', 'app-env', 'hook', 'doctor']}),
+      deps,
+    )
+    expect(result.ok).toBe(true)
+    expect(result.steps.map(s => [s.name, s.status])).toEqual([['agents', 'skip'], ['skills', 'ok']])
+    expect(installSkills).toHaveBeenCalledWith({root: '/Users/u/work/hero', agents: [], dryRun: false})
+  })
+
+  it('replaces a config in one rename, keeps its mode and a symlink, and leaves no temporary file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'assethub-write-'))
+    try {
+      const {writeFileEnsuringDir, backupFile} = defaultFileDeps()
+      const real = join(dir, 'dotfiles', 'claude.json')
+      await mkdir(join(dir, 'dotfiles'))
+      await writeFile(real, '{}', {mode: 0o600})
+      const link = join(dir, '.claude.json')
+      await symlink(real, link)
+      await writeFileEnsuringDir(link, '{"a":1}')
+      expect((await lstat(link)).isSymbolicLink()).toBe(true)
+      expect(await readFile(real, 'utf8')).toBe('{"a":1}')
+      expect((await lstat(real)).mode & 0o777).toBe(0o600)
+      expect(await readdir(join(dir, 'dotfiles'))).toEqual(['claude.json'])
+      await writeFileEnsuringDir(join(dir, 'new', 'mcp.json'), '{}')
+      expect(await readFile(join(dir, 'new', 'mcp.json'), 'utf8')).toBe('{}')
+      // A backup never replaces an existing file.
+      await writeFile(join(dir, 'b'), 'first')
+      await expect(backupFile(real, join(dir, 'b'))).rejects.toMatchObject({code: 'EEXIST'})
+      expect(await readFile(join(dir, 'b'), 'utf8')).toBe('first')
+    } finally {
+      await rm(dir, {recursive: true, force: true})
     }
   })
 })

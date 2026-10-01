@@ -1,6 +1,6 @@
 import {execFile} from 'node:child_process'
 import {constants} from 'node:fs'
-import {access, copyFile, mkdir, readFile, stat, writeFile} from 'node:fs/promises'
+import {access, copyFile, mkdir, readFile, realpath, rename, rm, stat, writeFile} from 'node:fs/promises'
 import {delimiter, dirname, join} from 'node:path'
 import {API_KEY_ENV, launchAgentPath, launchAgentPlist, loadKeyIntoLaunchd, readLaunchdKey} from './appEnv.js'
 import {hookScopeError, sessionSaveDisclosure} from './hooks/install.js'
@@ -277,12 +277,15 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     steps: [step],
     nextStep,
   })
-  if (needsAgents && agents.length === 0)
+  // MCP needs an agent to configure; the skill copy alone does not.
+  if (!skipped('mcp') && agents.length === 0)
     return failEarly(
       {name: 'agents', status: 'fail', detail: `no Claude Code, Codex or Cursor found under ${deps.home} or on PATH`},
       'Install a coding agent, or pass --agent claude-code|codex|cursor to configure one anyway.',
     )
-  if (needsAgents)
+  if (needsAgents && agents.length === 0)
+    steps.push({name: 'agents', status: 'skip', detail: 'no coding agent found; the skill is installed without agent links'})
+  else if (needsAgents)
     steps.push({name: 'agents', status: 'ok', detail: `${listJoin(agentNames)}${options.agents ? '' : ' (detected)'}`})
 
   const wantClaude = agents.includes('claude-code')
@@ -426,11 +429,19 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     } else {
       let backup = ''
       if (existing !== undefined) {
-        // Never overwrite an earlier backup made in the same instant.
+        // Never overwrite an earlier backup made in the same instant, even by
+        // another setup running at the same time: the copy refuses an existing name.
         const base = `${path}.bak-${timestamp(deps.now())}`
-        backup = base
-        for (let n = 1; (await deps.readFileIfExists(backup)) !== undefined; n++) backup = `${base}-${n}`
-        await deps.backupFile(path, backup)
+        for (let n = 0; ; n++) {
+          backup = n === 0 ? base : `${base}-${n}`
+          if ((await deps.readFileIfExists(backup)) !== undefined) continue
+          try {
+            await deps.backupFile(path, backup)
+            break
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+          }
+        }
       }
       await deps.writeFileEnsuringDir(path, merged)
       steps.push({name, status: 'ok', detail: `wrote ${what} to ${path}${backup ? ` (backup: ${backup})` : ''}`, change: 'updated', path})
@@ -483,14 +494,32 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
       // add never costs the user a working one.
       let added = await deps.run(claude, args)
       let replaced = false
+      let restored: boolean | undefined
+      let removeFailure: string | undefined
       if (added.code !== 0 && /already exists/i.test(added.output)) {
-        await deps.run(claude, ['mcp', 'remove', 'assethub', '--scope', claudeScope])
-        replaced = true
-        added = await deps.run(claude, args)
+        const removed = await deps.run(claude, ['mcp', 'remove', 'assethub', '--scope', claudeScope])
+        if (removed.code !== 0) {
+          removeFailure = scrub(removed.output, key).trim().slice(0, 300)
+        } else {
+          replaced = true
+          added = await deps.run(claude, args)
+          // Put the previous entry back rather than leave Claude Code without one.
+          if (added.code !== 0 && current !== undefined)
+            restored =
+              (await deps.run(claude, ['mcp', 'add-json', 'assethub', JSON.stringify(current), '--scope', claudeScope]))
+                .code === 0
+        }
       }
       const failure = scrub(added.output, key).trim().slice(0, 300)
       steps.push(
-        added.code === 0
+        removeFailure !== undefined
+          ? {
+              name: 'claude-mcp',
+              status: 'fail',
+              detail: `the existing assethub entry was left as it is: claude mcp remove failed: ${removeFailure}`,
+              path: configPath,
+            }
+          : added.code === 0
           ? {
               name: 'claude-mcp',
               status: 'ok',
@@ -501,9 +530,11 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
           : {
               name: 'claude-mcp',
               status: 'fail',
-              detail: replaced
-                ? `claude mcp add failed after the old assethub entry was removed; run \`${shown}\` to restore it: ${failure}`
-                : `claude mcp add failed: ${failure}`,
+              detail: !replaced
+                ? `claude mcp add failed: ${failure}`
+                : restored
+                  ? `claude mcp add failed, so the previous assethub entry was put back: ${failure}`
+                  : `claude mcp add failed after the old assethub entry was removed; run \`${shown}\` to add it again: ${failure}`,
               path: configPath,
             },
       )
@@ -707,7 +738,7 @@ const skillsStep = (report: SkillsReport, dryRun: boolean): SetupStep => {
     name: 'skills',
     path: report.path,
     status: dryRun && changed ? 'skip' : 'ok',
-    detail: changed ? parts.join('; ') : `${parts.join('; ')}; links already in place`,
+    detail: changed || report.links.length === 0 ? parts.join('; ') : `${parts.join('; ')}; links already in place`,
     change: !changed ? 'unchanged' : dryRun ? 'would-update' : 'updated',
   }
 }
@@ -804,11 +835,21 @@ export const defaultFileDeps = () => ({
       throw error
     }
   },
+  // Written beside the target and renamed over it, so an interrupted setup never
+  // leaves a truncated config. A symlinked config (dotfiles) is replaced at its target.
   writeFileEnsuringDir: async (path: string, content: string) => {
-    await mkdir(dirname(path), {recursive: true})
-    await writeFile(path, content)
+    const target = await realpath(path).catch(() => path)
+    await mkdir(dirname(target), {recursive: true})
+    const temporary = `${target}.assethub-${process.pid}-${Date.now()}.tmp`
+    try {
+      await writeFile(temporary, content, {mode: await stat(target).then(info => info.mode & 0o777, () => 0o644)})
+      await rename(temporary, target)
+    } catch (error) {
+      await rm(temporary, {force: true})
+      throw error
+    }
   },
-  backupFile: (from: string, to: string) => copyFile(from, to),
+  backupFile: (from: string, to: string) => copyFile(from, to, constants.COPYFILE_EXCL),
 })
 
 // ---- interactive prompts (TTY only; prompts go to stderr so stdout stays clean) ----
