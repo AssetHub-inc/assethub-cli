@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.38
+
+- A session upload no longer gets stuck when the server already holds revisions this machine has no record of, for example after `~/.assethub` was deleted and set up again. Before, the upload failed with `already holds a different snapshot at this revision` and waited an hour to retry; now it skips past the revisions the server holds and uploads right away.
+- When the server already held a newer revision, the session was marked uploaded although the new snapshot was not stored. It is now sent as a higher revision.
+- The setup notice says sessions upload every 8 minutes while you work, not only when they end.
+
 ## CLI 0.1.37
 
 - A running session is uploaded while you work every 8 minutes instead of every 20, so work shows up in AssetHub sooner.

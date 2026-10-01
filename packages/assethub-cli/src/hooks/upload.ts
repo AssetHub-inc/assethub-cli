@@ -8,7 +8,7 @@ import {readFile, utimes} from 'node:fs/promises'
 import {basename, join} from 'node:path'
 
 import {buildRunUploadPlan} from '../runsUpload/buildRunUpload.js'
-import {controlRunUploadUrls} from '../runsUpload/controlEndpoints.js'
+import {CONTROL_ERROR_CODES, controlRunUploadUrls} from '../runsUpload/controlEndpoints.js'
 import {readGraphFolder} from '../runsUpload/graphFolder.js'
 import {uploadRun} from '../runsUpload/uploadRun.js'
 import {RunUploadError} from '../runsUpload/runUploadError.js'
@@ -28,6 +28,12 @@ const canvasIdOf = (value: string | undefined): number | null => {
   return Number.isSafeInteger(id) && id > 0 ? id : null
 }
 const DAY_MS = 24 * 60 * 60 * 1000
+/**
+ * Tries per upload to get past revisions the server already holds that this
+ * machine has no record of (its ~/.assethub was reset, or another copy of the
+ * session uploaded). Each try jumps twice as far, so 8 cover 255 revisions.
+ */
+const MAX_REV_RECOVERIES = 8
 export const UPLOAD_TIMEOUT_MS = 20_000
 /** A session's upload lock older than this belongs to a crashed upload. */
 export const UPLOAD_LOCK_STALE_MS = 15 * 60_000
@@ -210,6 +216,9 @@ const uploadSessionUnlocked = async (
     meta = (await materializeSession(sessionDir, {env: options.env})) ?? meta
 
   let level = meta.compactLevel ?? 0
+  // The next rev is above this too: revs the server turned away in this upload.
+  let revFloor = -1
+  let recoveries = 0
   try {
     const baseFetch = options.fetchImpl ?? globalThis.fetch.bind(globalThis)
     const timeoutMs = options.timeoutMs ?? UPLOAD_TIMEOUT_MS
@@ -223,7 +232,7 @@ const uploadSessionUnlocked = async (
       // been published, and re-sending its rev with new content is a permanent
       // conflict. The server accepts gaps, so skipping an unsent rev is harmless.
       const latest = (await readMeta(sessionDir)) ?? meta
-      const rev = Math.max(latest.uploadedRev ?? -1, latest.attemptedRev ?? -1) + 1
+      const rev = Math.max(latest.uploadedRev ?? -1, latest.attemptedRev ?? -1, revFloor) + 1
       let plan
       try {
         const folder = await readGraphFolder(await buildSessionGraphFolder(sessionDir, {compactLevel: level}))
@@ -244,17 +253,31 @@ const uploadSessionUnlocked = async (
         throw error
       }
       await record({attemptedRev: rev, compactLevel: level})
-      const result = await uploadRun({
-        plan,
-        baseUrl: auth.baseUrl,
-        apiKey: auth.apiKey,
-        workspaceId: auth.workspaceId,
-        fetchImpl,
-        urls: controlRunUploadUrls(auth.baseUrl, CODING_AGENT_SESSION_API_PREFIX),
-        registrationExtra: {
-          session: {client: meta.client, sessionId: meta.sessionId, canvasId: canvasIdOf(meta.canvasId)},
-        },
-      })
+      let result
+      try {
+        result = await uploadRun({
+          plan,
+          baseUrl: auth.baseUrl,
+          apiKey: auth.apiKey,
+          workspaceId: auth.workspaceId,
+          fetchImpl,
+          urls: controlRunUploadUrls(auth.baseUrl, CODING_AGENT_SESSION_API_PREFIX),
+          registrationExtra: {
+            session: {client: meta.client, sessionId: meta.sessionId, canvasId: canvasIdOf(meta.canvasId)},
+          },
+        })
+      } catch (error) {
+        if (!(error instanceof RunUploadError && error.code === CONTROL_ERROR_CODES.snapshotConflict)) throw error
+        result = null
+      }
+      // The server holds this rev with other content (conflict) or a newer one
+      // (stale), so this snapshot was not stored: jump past it and send again.
+      if (!result || result.status === 'stale') {
+        if (recoveries >= MAX_REV_RECOVERIES) throw new Error(`The server already holds revision ${rev} or later of this session.`)
+        revFloor = rev + 2 ** recoveries - 1
+        recoveries += 1
+        continue
+      }
       await record({
         status: 'uploaded',
         graphId: result.graphId,
