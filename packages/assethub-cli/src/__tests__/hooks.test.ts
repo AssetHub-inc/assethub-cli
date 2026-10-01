@@ -1342,6 +1342,30 @@ describe('Codex session hooks', () => {
     expect(folder.graph.nodes.some(node => node.artifactKind === 'run' && (node.payload as {toolName?: string})?.toolName === 'exec_command')).toBe(true)
   })
 
+  it('uploads a Codex session tagged agent:codex, never agent:claude', async () => {
+    const path = join(root, 'rollout.jsonl')
+    await writeFile(path, rollout())
+    const {sessionDir} = await saveSession({stdin: hook(path, 'SessionEnd'), client: 'codex', home, now, env: UPLOAD_OFF})
+    const {fetchImpl, calls} = fakeServer()
+    const env = {ASSETHUB_API_KEY: 'test-env-key-not-secret', ASSETHUB_API_BASE_URL: 'https://x.test'}
+    expect((await uploadSession(sessionDir, {home, env, fetchImpl, now})).ok).toBe(true)
+    const sent = calls.map(call => (typeof call.body === 'string' ? call.body : '')).join('\n')
+    expect(sent).toContain('agent:codex')
+    expect(sent).not.toContain('agent:claude')
+  })
+
+  it('hooks save refuses an unknown --client instead of saving it as Claude', async () => {
+    const path = join(root, 'rollout.jsonl')
+    await writeFile(path, rollout())
+    let out = ''
+    const code = await runHooksCommand(['save', '--client', 'cursor'], {
+      home, env: UPLOAD_OFF, now, write: t => { out += t }, readStdin: async () => hook(path, 'SessionEnd'),
+    })
+    expect(code).toBe(1)
+    expect(out).toContain('--client claude or --client codex')
+    await expect(readdir(join(home, '.assethub', 'sessions'))).rejects.toThrow()
+  })
+
   it('hooks save --client codex records the session as codex', async () => {
     const path = join(root, 'rollout.jsonl')
     await writeFile(path, rollout())
@@ -1376,5 +1400,8 @@ describe('extractImagePaths', () => {
     expect(extractImagePaths(`${slashes} and /work/hero.png, ${'x/'.repeat(50_000)}y`)).toEqual(['/work/hero.png'])
     expect(Date.now() - started).toBeLessThan(1000)
     expect(extractImagePaths('saved "/tmp/out/hero.jpeg" and /tmp/out/hero.jpeg.bak')).toEqual(['/tmp/out/hero.jpeg'])
+    // Linux allows paths up to 4096 characters.
+    const deep = `/${'d'.repeat(200)}`.repeat(15) + '/hero.png'
+    expect(extractImagePaths(`wrote ${deep}`)).toEqual([deep])
   })
 })

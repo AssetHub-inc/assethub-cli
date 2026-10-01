@@ -427,7 +427,7 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
       steps.push({
         name: 'hook',
         status: 'skip',
-        detail: `session saving is off; enable it with \`assethub setup --save-sessions\`, or \`assethub hooks install --client ${hookClients.join('|')}\` inside the project folder`,
+        detail: `session saving is off; enable it with \`assethub setup --save-sessions\`, or ${hookClients.map(client => `\`assethub hooks install --client ${client}\``).join(' and ')} inside the project folder`,
       })
     } else {
       if (options.saveSessions) disclose()

@@ -111,6 +111,12 @@ export const runHooksCommand = async (
         return 0
       }
       case 'save': {
+        // A misspelt client must not be saved as Claude. Exit 1, not 2: a
+        // hook's exit 2 can block the agent.
+        if (flags.client !== undefined && flags.client !== 'claude' && flags.client !== 'codex') {
+          write('Nothing saved: use --client claude or --client codex.\n')
+          return 1
+        }
         let stdin: string | undefined
         let input
         if (typeof flags.transcript === 'string') {

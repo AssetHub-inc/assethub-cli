@@ -284,10 +284,12 @@ describe('runSetup', () => {
     for (const over of [{}, {interactive: true}]) {
       const {deps} = makeDeps({installHooks, confirmOptIn, ...over})
       const result = await runSetup(off, deps)
-      expect(result.steps.find(s => s.name === 'hook')).toMatchObject({
-        status: 'skip',
-        detail: expect.stringContaining('--save-sessions'),
-      })
+      const hint = result.steps.find(s => s.name === 'hook')
+      expect(hint).toMatchObject({status: 'skip', detail: expect.stringContaining('--save-sessions')})
+      // Each command is copyable on its own: no `claude|codex`, which a shell reads as a pipe.
+      expect(hint?.detail).not.toContain('|')
+      expect(hint?.detail).toContain('`assethub hooks install --client claude`')
+      expect(hint?.detail).toContain('`assethub hooks install --client codex`')
     }
     expect(confirmOptIn).not.toHaveBeenCalled()
     expect(installHooks).not.toHaveBeenCalled()
