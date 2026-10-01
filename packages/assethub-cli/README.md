@@ -62,6 +62,20 @@ print the `export ASSETHUB_API_KEY=...` line, and export it in the shell that
 starts Claude Code or Codex. The key is redacted
 (`ah_…last4`) everywhere else.
 
+## Staying up to date
+
+```sh
+assethub update --check   # JSON: up_to_date or update_available
+assethub update           # upgrade a global install; the saved login is kept
+```
+
+Once a day the CLI checks for a newer release in the background and, when there
+is one, prints a single line on stderr; stdout stays one JSON object. It never
+installs anything by itself. The check applies only to an installed package (not
+`npx` or a source checkout) and is off in CI or with `ASSETHUB_NO_UPDATE_CHECK=1`.
+The bundled agent skill asks agents to run `assethub update --check` at the start
+of each session and to update when a newer version is available.
+
 ## API discovery and Workspace Skills
 
 Use `api search [query]` to discover the authenticated server catalog and

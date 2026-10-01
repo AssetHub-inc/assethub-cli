@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.36
+
+- The CLI says when a newer version is published: at most once a day it checks the registry in a detached background process (no command waits for it), and later commands print one line on stderr, `@assethub/cli <latest> is available (you have <current>). Run \`assethub update\` …`. stdout JSON is unchanged. It only applies to an installed package, never to `npx` or a source checkout, and is off in CI or with `ASSETHUB_NO_UPDATE_CHECK=1`. Nothing is installed automatically.
+- `assethub update` and `update --check` refresh that daily check, so the notice stops as soon as you upgrade.
+- The bundled agent skill starts every session with `assethub update --check`: when an update is available the agent runs `assethub update --yes`, tells you the versions, and re-reads the refreshed skill; when the update cannot run it continues on the current version and says so once.
+
 ## CLI 0.1.35
 
 - `assethub setup` is now the one command that connects coding agents. It runs the steps `login`, `workspace`, `mcp`, `skills`, `app-env` and `doctor`, finds Claude Code, Codex and Cursor on the machine, registers the MCP server in each and installs the bundled `assethub` skill. Each step checks the current state first and reports it as unchanged, updated, or what a `--dry-run` would change, so running setup again is safe.

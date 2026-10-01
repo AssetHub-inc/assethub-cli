@@ -9,7 +9,7 @@ Usage:
   assethub --version
   assethub setup [--agent claude-code|codex|cursor...] [--project] [--only <step,...>] [--skip <step,...>] [--no-skills] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
   assethub env load [--profile <name>]
-  assethub update [--check] [--dry-run] [--yes]
+  assethub update [--check] [--dry-run] [--yes]   (a newer version is announced once a day on stderr; ASSETHUB_NO_UPDATE_CHECK=1 turns that off)
   assethub doctor [--mcp] [--setup [--agent <name>...] [--project]] [--profile <name>] [--timeout-ms <n>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--account] [--base-url <url>]

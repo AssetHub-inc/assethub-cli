@@ -32,6 +32,15 @@ import {launchAgentProgram, loadKeyIntoLaunchd} from './appEnv.js'
 import {defaultInstallHooks, type InstallHooks} from './setupHooksBridge.js'
 import {canUploadSessions, installHooks as installSessionHooks, runHooksCommand} from './hooks/index.js'
 import {createNodeUpdateDeps, runUpdate} from './update.js'
+import {
+  decideUpdateNotice,
+  isInstalledPackage,
+  readUpdateCheck,
+  refreshInBackground,
+  updateCheckDisabled,
+  updateCheckPath,
+  writeUpdateCheck,
+} from './updateNotice.js'
 import {ingestProjectSources} from './projectSources.js'
 import {downloadCanvas} from './canvasDownload.js'
 import {downloadCanvasGraphZip} from './canvasGraphDownload.js'
@@ -418,7 +427,7 @@ Usage:
   assethub --version
   assethub setup [--agent claude-code|codex|cursor...] [--project] [--only <step,...>] [--skip <step,...>] [--no-skills] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
   assethub env load [--profile <name>]
-  assethub update [--check] [--dry-run] [--yes]
+  assethub update [--check] [--dry-run] [--yes]   (a newer version is announced once a day on stderr; ASSETHUB_NO_UPDATE_CHECK=1 turns that off)
   assethub doctor [--mcp] [--setup [--agent <name>...] [--project]] [--profile <name>] [--timeout-ms <n>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--account] [--base-url <url>]
@@ -7685,6 +7694,21 @@ const resolveMcpTarget = async (
   return {baseUrl, workspaceId}
 }
 
+// One stderr line when a newer CLI is known, from a cache refreshed at most once a day in the background.
+const noticeUpdate = async (flags: Flags): Promise<void> => {
+  if (updateCheckDisabled(env)) return
+  try {
+    const cli = realpathSync(argv[1] ?? fileURLToPath(import.meta.url))
+    if (!isInstalledPackage(cli)) return
+    const cachePath = updateCheckPath(getConfigPath(flags))
+    const decision = decideUpdateNotice(await cliVersion(), await readUpdateCheck(cachePath), new Date())
+    if (decision.notice) stderr.write(`${decision.notice}\n`)
+    if (decision.refresh) refreshInBackground(process.execPath, cli, getConfigPath(flags))
+  } catch {
+    // best effort
+  }
+}
+
 const run = async (): Promise<void> => {
   const parsed = parseArgs(argv.slice(2))
   if (hasFlag(parsed.flags, 'version')) {
@@ -7698,6 +7722,7 @@ const run = async (): Promise<void> => {
 
   const [command, subcommand] = parsed.positionals
   if (command !== 'init') await syncInstalledSkill()
+  if (!['update', 'hooks', 'env'].includes(command ?? '')) await noticeUpdate(parsed.flags)
   if (command === 'init') {
     if (subcommand)
       throw new Error(`Use init [--agent ${AGENT_IDS.join('|')}] [--project] [--dry-run]`)
@@ -7779,18 +7804,26 @@ const run = async (): Promise<void> => {
     return
   }
   if (command === 'update') {
+    const cachePath = updateCheckPath(getConfigPath(parsed.flags))
+    if (hasFlag(parsed.flags, 'refresh-check')) {
+      // The detached daily check started by noticeUpdate: record the latest version, print nothing.
+      const latest = await createNodeUpdateDeps([]).latestVersion()
+      await writeUpdateCheck(cachePath, latest)
+      return
+    }
     // The verifying doctor checks the same login this command was given.
     const forwardFlags = (['profile', 'config', 'base-url', 'workspace'] as const).flatMap(name => {
       const value = getFlag(parsed.flags, name)
       return value ? [`--${name}`, value] : []
     })
     const apiKey = getFlag(parsed.flags, 'api-key')
-    print(
-      await runUpdate(
-        {check: hasFlag(parsed.flags, 'check'), dryRun: hasFlag(parsed.flags, 'dry-run'), yes: hasFlag(parsed.flags, 'yes')},
-        createNodeUpdateDeps(forwardFlags, apiKey ? {ASSETHUB_API_KEY: apiKey} : {}),
-      ),
+    const report = await runUpdate(
+      {check: hasFlag(parsed.flags, 'check'), dryRun: hasFlag(parsed.flags, 'dry-run'), yes: hasFlag(parsed.flags, 'yes')},
+      createNodeUpdateDeps(forwardFlags, apiKey ? {ASSETHUB_API_KEY: apiKey} : {}),
     )
+    // Every answer from the registry refreshes the daily hint, so it never nags about an installed version.
+    await writeUpdateCheck(cachePath, report.status === 'updated' ? report.to : report.latest).catch(() => undefined)
+    print(report)
     return
   }
   if (command === 'doctor') {

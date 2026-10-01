@@ -31,6 +31,21 @@ description: |
 
 Always in this order. Skipping a step is how credits get wasted.
 
+### 0. Make sure the CLI is current (once per session)
+
+```bash
+assethub update --check
+```
+
+Operations, models and these rules change between releases, and an old CLI can reject flags the server now expects or miss a safety fix. Run this once at the start of a session, before the first paid call. It is free.
+
+- `"status": "up_to_date"`: carry on.
+- `"status": "update_available"`: run `assethub update --yes`. It upgrades the global install with the package manager that installed it and keeps the saved login. Tell the user which version you moved from and to (`from`, `to`). The next `assethub` command refreshes this skill automatically, so re-read it after that command; its rules may have changed.
+- `update` refuses (an `npx` or project-local install, or a source checkout) or fails (no network): continue on the current version and tell the user once. Do not retry it in a loop.
+- Do not update while another `assethub` command is still running (a `--wait` in another terminal). Runs on the server are not affected by an update; resume them afterwards with their `runId`.
+
+The CLI also prints a one-line `is available` notice on stderr, at most once a day. Treat it the same way.
+
 ### 1. Check what this key can do
 
 ```bash
