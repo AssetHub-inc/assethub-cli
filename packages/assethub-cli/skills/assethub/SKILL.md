@@ -12,7 +12,7 @@ description: |
   - Recording whether a generated asset is acceptable
 
   DO NOT TRIGGER for:
-  - Installing or configuring the CLI (use `assethub init`, `assethub auth login`)
+  - Installing or configuring the CLI (use `assethub setup`, `assethub doctor --setup`)
   - Managing workspace members (use `assethub workspace ...`)
 ---
 

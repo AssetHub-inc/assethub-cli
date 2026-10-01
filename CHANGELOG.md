@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `assethub setup` is now the one command that connects coding agents. It runs the steps `login`, `workspace`, `mcp`, `skills`, `app-env` and `doctor`, finds Claude Code, Codex and Cursor on the machine, registers the MCP server in each and installs the bundled `assethub` skill. Each step checks the current state first and reports it as unchanged, updated, or what a `--dry-run` would change, so running setup again is safe.
+- New setup options: `--agent claude-code|codex|cursor` (repeatable or comma separated, `claude` accepted), `--project` (MCP config and skill in the current folder, with relative skill links), `--only <step,...>`, `--skip <step,...>` and `--no-skills`. `--client claude|codex|both` still works.
+- Each agent has one MCP writer. Claude Code is changed only through `claude mcp add-json` (it owns `~/.claude.json`), so `init` no longer edits that file. An identical entry is left alone. A changed Codex or Cursor config file is backed up first.
+- `assethub doctor --setup` reports agents whose MCP entry or skill is missing or out of date, without changing anything.
+- `assethub init` is deprecated. It runs `setup --only mcp,skills`, prints the result as JSON with setup's fields (`agents`, `steps`), and will be removed in a later version.
+
 ## CLI 0.1.33
 
 - `production batch --wait` progress is readable: a header names each image by letter and file name, a line (with the local time) prints only when a run really moves on (started, a new step, another mesh ready, a part kept with an issue, a Blender round, the end), and a status table prints every 5 minutes and at the end. Failures read `✗ FAILED · at 1/4 Planning the parts · Planner run failed. (planner_failed)` instead of a Python-style list. `runs watch` and `production analyze --wait` use the same run lines. The stdout JSON is unchanged.

@@ -22,7 +22,7 @@ const KEY = 'test-fake-key-aaaa-bbbb'
 const section = '[mcp_servers.assethub]\nurl = "https://x.test/api/mcp"\nbearer_token_env_var = "ASSETHUB_API_KEY"\n'
 
 const options = (over: Partial<SetupOptions> = {}): SetupOptions => ({
-  client: 'both',
+  agents: ['claude-code', 'codex'],
   apiKeyStdin: false,
   noHook: false,
   saveSessions: true,
@@ -45,6 +45,14 @@ const makeDeps = (over: Partial<SetupDeps> = {}) => {
     login: async () => {},
     promptApiKey: async () => KEY,
     resolveAuth: async () => ({apiKey: KEY, baseUrl: 'https://x.test', profile: 'default', workspaceId: 'ws-1'}),
+    resolveTarget: async () => ({baseUrl: 'https://x.test', workspaceId: 'ws-1'}),
+    detectAgents: async () => ['claude-code', 'codex'],
+    installSkills: async ({root, agents}) => ({
+      path: `${root}/.agents/skills/assethub`,
+      status: 'unchanged',
+      version: '0.0.0',
+      links: agents.map(agent => ({agent, path: `${root}/.${agent === 'claude-code' ? 'claude' : agent}/skills/assethub`, status: 'unchanged' as const})),
+    }),
     discoverWorkspace: async () => undefined,
     useWorkspace: async () => {},
     listWorkspaces: async () => [{id: 'ws-1', name: 'One'}, {id: 'ws-2', name: 'Two'}],
@@ -157,10 +165,12 @@ describe('runSetup', () => {
     expect(files.get(path)).toContain('[mcp_servers.assethub]')
     expect(files.get(path)).toContain('"X-AssetHub-Workspace" = "ws-1"')
     expect(result.steps.map(s => [s.name, s.status])).toEqual([
+      ['agents', 'ok'],
       ['login', 'ok'],
       ['workspace', 'ok'],
       ['claude-mcp', 'ok'],
       ['codex-mcp', 'ok'],
+      ['skills', 'ok'],
       ['app-env', 'skip'],
       ['hook', 'ok'],
       ['hook', 'ok'],
@@ -180,7 +190,7 @@ describe('runSetup', () => {
           : {code: 0, output: ''}
       },
     })
-    const result = await runSetup(options({client: 'claude'}), deps)
+    const result = await runSetup(options({agents: ['claude-code']}), deps)
     expect(runs.map(r => r.args[1])).toEqual(['add-json', 'remove', 'add-json'])
     expect(result.steps.find(s => s.name === 'claude-mcp')?.status).toBe('ok')
   })
@@ -192,7 +202,7 @@ describe('runSetup', () => {
         return args[1] === 'add-json' ? {code: 1, output: 'unknown command add-json'} : {code: 0, output: ''}
       },
     })
-    const result = await runSetup(options({client: 'claude'}), deps)
+    const result = await runSetup(options({agents: ['claude-code']}), deps)
     expect(runs.map(r => r.args[1])).toEqual(['add-json'])
     expect(result.steps.find(s => s.name === 'claude-mcp')?.status).toBe('fail')
   })
@@ -204,14 +214,14 @@ describe('runSetup', () => {
           ? {code: 1, output: 'MCP server assethub already exists'}
           : {code: 0, output: ''},
     })
-    const step = (await runSetup(options({client: 'claude'}), deps)).steps.find(s => s.name === 'claude-mcp')!
+    const step = (await runSetup(options({agents: ['claude-code']}), deps)).steps.find(s => s.name === 'claude-mcp')!
     expect(step.status).toBe('fail')
     expect(step.detail).toContain('removed')
   })
 
   it('fails the Claude step when claude is missing and it was the only client asked for', async () => {
     const {deps} = makeDeps({findBinary: async () => undefined})
-    const result = await runSetup(options({client: 'claude'}), deps)
+    const result = await runSetup(options({agents: ['claude-code']}), deps)
     expect(result.steps.find(s => s.name === 'claude-mcp')?.status).toBe('fail')
     expect(result.ok).toBe(false)
   })
@@ -221,7 +231,7 @@ describe('runSetup', () => {
     const path = '/home/u/.codex/config.toml'
     const broken = '[mcp_servers]\nassethub.url = "https://old.test"\n'
     files.set(path, broken)
-    const result = await runSetup(options({client: 'codex'}), deps)
+    const result = await runSetup(options({agents: ['codex']}), deps)
     expect(result.steps.find(s => s.name === 'codex-mcp')).toMatchObject({
       status: 'fail',
       detail: expect.stringContaining('assethub'),
@@ -231,7 +241,7 @@ describe('runSetup', () => {
 
   it('prints the command instead of failing when claude is missing, without the key', async () => {
     const {deps, logs, runs} = makeDeps({findBinary: async name => (name === 'claude' ? undefined : '/bin/x')})
-    const result = await runSetup(options({client: 'both'}), deps)
+    const result = await runSetup(options({agents: ['claude-code', 'codex']}), deps)
     expect(runs).toHaveLength(0)
     expect(result.steps.find(s => s.name === 'claude-mcp')?.status).toBe('skip')
     expect(result.ok).toBe(true)
@@ -242,7 +252,7 @@ describe('runSetup', () => {
 
   it('reports a failing claude add with the key redacted', async () => {
     const {deps} = makeDeps({run: async (_f, args) => (args[1] === 'add-json' ? {code: 1, output: `bad ${KEY}`} : {code: 0, output: ''})})
-    const result = await runSetup(options({client: 'claude'}), deps)
+    const result = await runSetup(options({agents: ['claude-code']}), deps)
     const step = result.steps.find(s => s.name === 'claude-mcp')!
     expect(step.status).toBe('fail')
     expect(step.detail).not.toContain(KEY)
@@ -252,9 +262,9 @@ describe('runSetup', () => {
 
   it('does not touch the Codex file when it is already up to date', async () => {
     const {deps, files} = makeDeps()
-    await runSetup(options({client: 'codex'}), deps)
+    await runSetup(options({agents: ['codex']}), deps)
     const before = [...files.keys()]
-    await runSetup(options({client: 'codex'}), deps)
+    await runSetup(options({agents: ['codex']}), deps)
     expect([...files.keys()]).toEqual(before)
   })
 
@@ -335,7 +345,7 @@ describe('runSetup', () => {
   it('installs only the Codex hooks for --client codex, in the folder', async () => {
     const installHooks = vi.fn(async () => ({installed: true, detail: 'ok'}))
     const {deps, logs} = makeDeps({installHooks})
-    const result = await runSetup(options({client: 'codex'}), deps)
+    const result = await runSetup(options({agents: ['codex']}), deps)
     expect(installHooks.mock.calls.map(c => (c as unknown[])[0])).toEqual([
       {client: 'codex', projectDir: '/Users/u/work/hero', codexHome: '/home/u/.codex'},
     ])
@@ -343,14 +353,14 @@ describe('runSetup', () => {
     expect(logs.join('\n')).toContain(sessionSaveDisclosure({projectDir: '/Users/u/work/hero'}, 'codex'))
     expect(logs.join('\n')).not.toContain(sessionSaveDisclosure({projectDir: '/Users/u/work/hero'}))
 
-    const dry = await runSetup(options({client: 'codex', dryRun: true}), makeDeps({installHooks}).deps)
+    const dry = await runSetup(options({agents: ['codex'], dryRun: true}), makeDeps({installHooks}).deps)
     expect(dry.steps.find(s => s.name === 'hook')?.detail).toBe('would install the Codex session-saving hooks for /Users/u/work/hero only (dry run)')
   })
 
   it('refuses Codex session saving in the home folder before changing anything', async () => {
     const installHooks = vi.fn(async () => ({installed: true, detail: 'ok'}))
     const {deps, files} = makeDeps({installHooks, cwd: '/Users/u'})
-    const result = await runSetup(options({client: 'codex'}), deps)
+    const result = await runSetup(options({agents: ['codex']}), deps)
     expect(result.steps).toEqual([{name: 'hook', status: 'fail', detail: expect.stringContaining('inside a project folder')}])
     expect([...files.keys()]).toEqual([])
     expect(installHooks).not.toHaveBeenCalled()
@@ -358,7 +368,7 @@ describe('runSetup', () => {
 
   it('needs the CLI on PATH only for the session hooks, never for MCP', async () => {
     const {deps} = makeDeps({findBinary: async name => (name === 'claude' ? '/bin/claude' : undefined)})
-    const result = await runSetup(options({client: 'claude'}), deps)
+    const result = await runSetup(options({agents: ['claude-code']}), deps)
     expect(result.steps.find(s => s.name === 'claude-mcp')).toMatchObject({status: 'ok'})
     expect(result.steps.find(s => s.name === 'claude-mcp')?.detail).not.toContain('PATH')
     expect(result.steps.find(s => s.name === 'hook')?.detail).toContain('not on PATH')
@@ -366,7 +376,7 @@ describe('runSetup', () => {
 
   it('tells a Claude-only user to export the key too', async () => {
     const {deps, logs} = makeDeps()
-    const result = await runSetup(options({client: 'claude'}), deps)
+    const result = await runSetup(options({agents: ['claude-code']}), deps)
     expect(logs.join('\n')).toContain('Claude Code reads the key from the ASSETHUB_API_KEY')
     expect(result.nextStep).toContain('Export ASSETHUB_API_KEY')
   })
@@ -658,19 +668,25 @@ describe('assethub setup (spawned CLI)', () => {
         child.stdin.end(input)
       })
     try {
-      const dry = await invoke(['setup', '--dry-run', '--no-app-env', '--base-url', origin, '--workspace', 'ws-e2e'])
+      const dry = await invoke(['setup', '--agent', 'claude-code', '--agent', 'codex', '--dry-run', '--no-app-env', '--base-url', origin, '--workspace', 'ws-e2e'])
       expect(dry.code, dry.stderr).toBe(0)
       expect(await readFile(join(codexHome, 'config.toml'), 'utf8')).toBe('model = "gpt-5"\n')
       expect(dry.stderr).toContain('[dry-run]')
+      await expect(readdir(join(dir, '.agents'))).rejects.toThrow()
 
-      const first = await invoke(['setup', '--api-key-stdin', '--no-app-env', '--base-url', origin, '--json'], 'fake-e2e-key-cccc\n')
+      const first = await invoke(['setup', '--agent', 'claude,codex', '--api-key-stdin', '--no-app-env', '--base-url', origin, '--json'], 'fake-e2e-key-cccc\n')
       expect(first.code, first.stderr).toBe(0)
       expect(first.stdout + first.stderr).not.toContain('fake-e2e-key-cccc')
       const report = JSON.parse(first.stdout)
       expect(report.ok).toBe(true)
       expect(report.workspaceId).toBe('ws-e2e')
       // The fake server does not grant session uploads, like a non-internal account: no session step at all.
-      expect(report.steps.map((s: {name: string}) => s.name)).toEqual(['login', 'workspace', 'claude-mcp', 'codex-mcp', 'app-env', 'doctor'])
+      expect(report.steps.map((s: {name: string}) => s.name)).toEqual(['agents', 'login', 'workspace', 'claude-mcp', 'codex-mcp', 'skills', 'app-env', 'doctor'])
+      expect(report.agents).toEqual(['claude-code', 'codex'])
+      // The skill is copied once and linked into each agent.
+      expect(await readFile(join(dir, '.agents', 'skills', 'assethub', 'SKILL.md'), 'utf8')).toContain('name: assethub')
+      for (const skills of ['.claude/skills', '.codex/skills'])
+        expect(await readFile(join(dir, skills, 'assethub', 'SKILL.md'), 'utf8')).toContain('name: assethub')
       expect(first.stdout + first.stderr).not.toMatch(/session/i)
       expect(requests).toContain('POST /api/v2/coding-agent-sessions/graphs')
       const argv = (await readFile(argvLog, 'utf8')).trim().split('\n')
@@ -690,7 +706,7 @@ describe('assethub setup (spawned CLI)', () => {
       expect((await readdir(codexHome)).some(name => name.startsWith('config.toml.bak-'))).toBe(true)
 
       // Re-running reuses the saved key (no stdin) and stays idempotent.
-      const second = await invoke(['setup', '--print-env', '--no-app-env'])
+      const second = await invoke(['setup', '--agent', 'claude-code,codex', '--print-env', '--no-app-env'])
       expect(second.code, second.stderr).toBe(0)
       expect(second.stdout).toContain('export ASSETHUB_API_KEY=fake-e2e-key-cccc')
       expect(second.stdout).toContain('✓ login')
@@ -717,7 +733,7 @@ describe('setup review fixes', () => {
     const path = '/home/u/.codex/config.toml'
     files.set(path, 'model = "gpt-5"\n')
     files.set(`${path}.bak-20260929T100000000Z`, 'the first backup\n')
-    await runSetup(options({client: 'codex', saveSessions: false}), deps)
+    await runSetup(options({agents: ['codex'], saveSessions: false}), deps)
     expect(files.get(`${path}.bak-20260929T100000000Z`)).toBe('the first backup\n')
     expect(files.get(`${path}.bak-20260929T100000000Z-1`)).toBe('model = "gpt-5"\n')
   })
@@ -769,3 +785,143 @@ describe('session saving is offered only to accounts that may upload sessions', 
   })
 })
 
+describe('one setup for every agent', () => {
+  const claudeJson = (workspace = 'ws-1') =>
+    JSON.stringify({
+      theme: 'dark',
+      mcpServers: {
+        assethub: {
+          type: 'http',
+          url: 'https://x.test/api/mcp',
+          headers: {Authorization: 'Bearer ${ASSETHUB_API_KEY}', 'X-AssetHub-Workspace': workspace},
+        },
+      },
+    })
+
+  it('configures the detected agents when none is named', async () => {
+    const {deps, files, runs} = makeDeps({detectAgents: async () => ['cursor']})
+    const result = await runSetup(options({agents: undefined}), deps)
+    expect(result.ok).toBe(true)
+    expect(result.agents).toEqual(['cursor'])
+    expect(result.steps[0]).toEqual({name: 'agents', status: 'ok', detail: 'Cursor (detected)'})
+    expect(runs.filter(r => r.file === '/bin/claude')).toEqual([])
+    const cursor = JSON.parse(files.get('/Users/u/.cursor/mcp.json') ?? '{}')
+    expect(cursor.mcpServers.assethub).toEqual({
+      url: 'https://x.test/api/mcp',
+      headers: {Authorization: 'Bearer ${env:ASSETHUB_API_KEY}', 'X-AssetHub-Workspace': 'ws-1'},
+    })
+    expect(result.nextStep).toContain('Cursor')
+  })
+
+  it('changes nothing, not even the login, when no agent is found', async () => {
+    const login = vi.fn(async () => {})
+    const {deps, files, runs} = makeDeps({detectAgents: async () => [], hasWorkingKey: async () => false, login})
+    const result = await runSetup(options({agents: undefined}), deps)
+    expect(result.ok).toBe(false)
+    expect(result.steps).toEqual([{name: 'agents', status: 'fail', detail: expect.stringContaining('no Claude Code, Codex or Cursor')}])
+    expect(result.nextStep).toContain('--agent')
+    expect(login).not.toHaveBeenCalled()
+    expect([...files.keys()]).toEqual([])
+    expect(runs).toEqual([])
+  })
+
+  it('leaves an identical Claude Code entry alone, and says so in the dry run', async () => {
+    const {deps, files, runs} = makeDeps()
+    files.set('/Users/u/.claude.json', claudeJson())
+    const result = await runSetup(options({agents: ['claude-code']}), deps)
+    expect(runs).toEqual([])
+    expect(result.steps.find(s => s.name === 'claude-mcp')).toMatchObject({status: 'ok', change: 'unchanged'})
+    const dry = await runSetup(options({agents: ['claude-code'], dryRun: true}), deps)
+    expect(dry.steps.find(s => s.name === 'claude-mcp')).toMatchObject({change: 'unchanged'})
+  })
+
+  it('replaces an outdated Claude Code entry through the claude CLI, never by editing ~/.claude.json', async () => {
+    const {deps, files, runs} = makeDeps()
+    files.set('/Users/u/.claude.json', claudeJson('ws-old'))
+    const result = await runSetup(options({agents: ['claude-code']}), deps)
+    expect(result.steps.find(s => s.name === 'claude-mcp')).toMatchObject({status: 'ok', change: 'updated'})
+    expect(runs.map(r => r.args.slice(0, 2))).toEqual([['mcp', 'add-json']])
+    expect(files.get('/Users/u/.claude.json')).toBe(claudeJson('ws-old'))
+  })
+
+  it('writes everything into the project folder with --project', async () => {
+    const installSkills = vi.fn(makeDeps().deps.installSkills)
+    const {deps, files, runs} = makeDeps({installSkills})
+    const result = await runSetup(options({agents: ['claude-code', 'codex', 'cursor'], project: true}), deps)
+    expect(result.ok).toBe(true)
+    expect(result.scope).toBe('project')
+    expect(runs[0].args).toEqual(claudeAddArgs('https://x.test', 'ws-1', 'project'))
+    expect(files.has('/Users/u/work/hero/.codex/config.toml')).toBe(true)
+    expect(files.has('/Users/u/work/hero/.cursor/mcp.json')).toBe(true)
+    expect(files.has('/home/u/.codex/config.toml')).toBe(false)
+    expect(installSkills).toHaveBeenCalledWith({root: '/Users/u/work/hero', agents: ['claude-code', 'codex', 'cursor'], dryRun: false})
+  })
+
+  it('skips login and the workspace without touching the network (the init path)', async () => {
+    const hasWorkingKey = vi.fn(async () => true)
+    const listWorkspaces = vi.fn(async () => [])
+    const diagnose = vi.fn(async () => ({ok: true, checks: []}))
+    const {deps, files} = makeDeps({
+      hasWorkingKey,
+      listWorkspaces,
+      diagnose,
+      resolveAuth: async () => {
+        throw new Error('no saved key')
+      },
+      resolveTarget: async () => ({baseUrl: 'https://saved.test'}),
+    })
+    const result = await runSetup(
+      options({agents: ['codex'], skip: ['login', 'workspace', 'app-env', 'hook', 'doctor']}),
+      deps,
+    )
+    expect(result.ok).toBe(true)
+    expect(result.steps.map(s => s.name)).toEqual(['agents', 'codex-mcp', 'skills'])
+    expect(hasWorkingKey).not.toHaveBeenCalled()
+    expect(listWorkspaces).not.toHaveBeenCalled()
+    expect(diagnose).not.toHaveBeenCalled()
+    const codex = files.get('/home/u/.codex/config.toml') ?? ''
+    expect(codex).toContain('url = "https://saved.test/api/mcp"')
+    // No workspace is known, so no header rather than a placeholder.
+    expect(codex).not.toContain('X-AssetHub-Workspace')
+  })
+
+  it('installs only the skill with --only skills', async () => {
+    const {deps, files, runs} = makeDeps()
+    const result = await runSetup(
+      options({skip: ['login', 'workspace', 'mcp', 'app-env', 'hook', 'doctor']}),
+      deps,
+    )
+    expect(result.steps.map(s => s.name)).toEqual(['agents', 'skills'])
+    expect(result.steps[1]).toMatchObject({status: 'ok', change: 'unchanged'})
+    expect(result.nextStep).toBe('Restart Claude Code and Codex so they reload their skills.')
+    expect([...files.keys()]).toEqual([])
+    expect(runs).toEqual([])
+  })
+
+  it('reports a skill install the dry run would make', async () => {
+    const {deps} = makeDeps({
+      installSkills: async ({root, agents}) => ({
+        path: `${root}/.agents/skills/assethub`,
+        status: 'installed',
+        version: '9.9.9',
+        links: agents.map(agent => ({agent, path: `${root}/x/${agent}`, status: 'linked' as const})),
+      }),
+    })
+    const result = await runSetup(options({dryRun: true, skip: ['mcp']}), deps)
+    expect(result.steps.find(s => s.name === 'skills')).toEqual({
+      name: 'skills',
+      status: 'skip',
+      detail: 'would install /Users/u/.agents/skills/assethub (9.9.9); would link into Claude Code and Codex',
+      change: 'would-update',
+    })
+  })
+
+  it('fails the Cursor step on unreadable JSON and keeps the file', async () => {
+    const {deps, files} = makeDeps()
+    files.set('/Users/u/.cursor/mcp.json', '{not json')
+    const result = await runSetup(options({agents: ['cursor']}), deps)
+    expect(result.ok).toBe(false)
+    expect(result.steps.find(s => s.name === 'cursor-mcp')?.detail).toContain('is not valid JSON')
+    expect(files.get('/Users/u/.cursor/mcp.json')).toBe('{not json')
+  })
+})

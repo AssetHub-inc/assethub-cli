@@ -1,29 +1,54 @@
 import {execFile} from 'node:child_process'
 import {constants} from 'node:fs'
 import {access, copyFile, mkdir, readFile, stat, writeFile} from 'node:fs/promises'
-import {homedir} from 'node:os'
 import {delimiter, dirname, join} from 'node:path'
 import {API_KEY_ENV, launchAgentPath, launchAgentPlist, loadKeyIntoLaunchd, readLaunchdKey} from './appEnv.js'
 import {hookScopeError, sessionSaveDisclosure} from './hooks/install.js'
+import {
+  agentSpec,
+  cliHome,
+  detectAgents,
+  installAgentSkills,
+  mcpServerEntry,
+  mergeJsonServer,
+  readJsonServer,
+  type AgentId,
+  type SkillsReport,
+} from './agentSetup.js'
 import {mcpConfig} from './setup.js'
 import type {HookClient} from './hooks/types.js'
 import type {InstallHooks} from './setupHooksBridge.js'
 
 export type StepStatus = 'ok' | 'fail' | 'skip'
-export type SetupStep = {name: string; status: StepStatus; detail: string}
+/** What a step did to local state: nothing, a write, or (dry run) a write it would make. */
+export type StepChange = 'unchanged' | 'updated' | 'would-update'
+export type SetupStep = {name: string; status: StepStatus; detail: string; change?: StepChange}
+
+// The steps `--only` and `--skip` name, in the order setup runs them. `agents`
+// is not one: the mcp and skills steps need it.
+export const SETUP_STEPS = ['login', 'workspace', 'mcp', 'skills', 'app-env', 'hook', 'doctor'] as const
+export type SetupStepName = (typeof SETUP_STEPS)[number]
+
 export type SetupResult = {
   ok: boolean
   dryRun: boolean
   profile: string
   baseUrl: string
   workspaceId?: string
+  scope: 'global' | 'project'
+  agents: AgentId[]
   steps: SetupStep[]
   nextStep: string
   exportLine?: string
 }
 
 export type SetupOptions = {
-  client: 'claude' | 'codex' | 'both'
+  /** Agents to configure; undefined means every agent detected on this machine. */
+  agents?: AgentId[]
+  /** Write MCP config and the skill into the current folder instead of the home folder. */
+  project?: boolean
+  /** Steps to leave out (`--skip`, `--only`, `--no-skills`). */
+  skip?: SetupStepName[]
   workspace?: string
   apiKeyStdin: boolean
   /** An API key given as --api-key (always wins) or found in ASSETHUB_API_KEY (used when no saved key works). */
@@ -63,6 +88,12 @@ export type SetupDeps = {
   login: (input: {apiKey?: string}) => Promise<void>
   promptApiKey: () => Promise<string>
   resolveAuth: () => Promise<SetupAuth>
+  /** Base URL and workspace from flags and the saved profile, without a key or the network (login skipped). */
+  resolveTarget: () => Promise<{baseUrl: string; workspaceId?: string}>
+  /** Agents installed on this machine. */
+  detectAgents: () => Promise<AgentId[]>
+  /** Installs the skill under root and links it into each agent; reports without writing on a dry run. */
+  installSkills: (input: {root: string; agents: AgentId[]; dryRun: boolean}) => Promise<SkillsReport>
   discoverWorkspace: (auth: SetupAuth) => Promise<string | undefined>
   useWorkspace: (id: string) => Promise<void>
   listWorkspaces: () => Promise<SetupWorkspace[]>
@@ -189,17 +220,55 @@ export const claudeServerConfig = (baseUrl: string, workspaceId?: string) => ({
   },
 })
 
-export const claudeAddArgs = (baseUrl: string, workspaceId?: string): string[] => [
-  'mcp', 'add-json', 'assethub', JSON.stringify(claudeServerConfig(baseUrl, workspaceId)), '--scope', 'user',
+export const claudeAddArgs = (
+  baseUrl: string,
+  workspaceId?: string,
+  scope: 'user' | 'project' = 'user',
+): string[] => [
+  'mcp', 'add-json', 'assethub', JSON.stringify(claudeServerConfig(baseUrl, workspaceId)), '--scope', scope,
 ]
 
 const shellQuoteSingle = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
 
+/** "A", "A and B", "A, B and C". */
+const listJoin = (items: string[]): string =>
+  items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+
+// How each agent's desktop app is named in restart instructions.
+const APP_NAMES: Record<AgentId, string> = {'claude-code': 'Claude (Cmd+Q)', codex: 'Codex', cursor: 'Cursor'}
+
 export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<SetupResult> => {
   const steps: SetupStep[] = []
   const say = (line: string) => deps.log(line)
-  const wantClaude = options.client !== 'codex'
-  const wantCodex = options.client !== 'claude'
+  const skipped = (step: SetupStepName) => options.skip?.includes(step) ?? false
+  const scope = options.project ? 'project' : 'global'
+  const root = options.project ? deps.cwd : deps.home
+  const needsAgents = !skipped('mcp') || !skipped('skills') || !skipped('hook')
+
+  // 0. Agents: the ones asked for, or every one found on this machine. Nothing
+  // else is changed when there is none to configure.
+  const agents = options.agents ?? (needsAgents ? await deps.detectAgents() : [])
+  const agentNames = agents.map(agent => agentSpec(agent).name)
+  const failEarly = (step: SetupStep, nextStep: string): SetupResult => ({
+    ok: false,
+    dryRun: options.dryRun,
+    profile: '',
+    baseUrl: '',
+    scope,
+    agents,
+    steps: [step],
+    nextStep,
+  })
+  if (needsAgents && agents.length === 0)
+    return failEarly(
+      {name: 'agents', status: 'fail', detail: `no Claude Code, Codex or Cursor found under ${deps.home} or on PATH`},
+      'Install a coding agent, or pass --agent claude-code|codex|cursor to configure one anyway.',
+    )
+  if (needsAgents)
+    steps.push({name: 'agents', status: 'ok', detail: `${listJoin(agentNames)}${options.agents ? '' : ' (detected)'}`})
+
+  const wantClaude = agents.includes('claude-code')
+  const wantCodex = agents.includes('codex')
   const hookClients: HookClient[] = [...(wantClaude ? (['claude'] as const) : []), ...(wantCodex ? (['codex'] as const) : [])]
   const hookNames = hookClients.map(client => (client === 'claude' ? 'Claude Code' : 'Codex')).join(' and ')
   let hookRefusal: string | undefined
@@ -211,61 +280,65 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     }
   }
 
-  // 0. --save-sessions asks for something the home folder cannot have, so stop
+  // --save-sessions asks for something the home folder cannot have, so stop
   // before login, MCP or app-env changes rather than half-applying setup.
-  if (hookRefusal && options.saveSessions && !options.noHook) {
-    return {
-      ok: false,
-      dryRun: options.dryRun,
-      profile: '',
-      baseUrl: '',
-      steps: [{name: 'hook', status: 'fail', detail: hookRefusal}],
-      nextStep: 'Run `assethub setup --save-sessions` inside the project folder whose sessions should be saved, or run it without --save-sessions.',
-    }
-  }
+  if (hookRefusal && options.saveSessions && !options.noHook && !skipped('hook'))
+    return failEarly(
+      {name: 'hook', status: 'fail', detail: hookRefusal},
+      'Run `assethub setup --save-sessions` inside the project folder whose sessions should be saved, or run it without --save-sessions.',
+    )
 
-  // 1. Login (reuses the existing `auth login` path through deps.login)
-  const explicitKey = options.apiKeySource === 'flag' ? options.apiKey : undefined
-  const hadKey = explicitKey ? false : await deps.hasWorkingKey()
-  const givenKey = explicitKey ?? (options.apiKeySource === 'env' ? options.apiKey : undefined)
-  const givenFrom = explicitKey ? '--api-key' : 'ASSETHUB_API_KEY'
-  if (hadKey) {
-    steps.push({name: 'login', status: 'ok', detail: 'reusing the saved API key'})
-  } else if (options.dryRun) {
-    steps.push({
-      name: 'login',
-      status: 'skip',
-      detail: givenKey
-        ? `would verify and save the API key from ${givenFrom}`
-        : options.apiKeyStdin
-          ? 'would read the API key from stdin'
-          : 'would prompt for an API key',
-    })
-  } else {
-    let apiKey = givenKey
-    if (!apiKey && !options.apiKeyStdin) {
-      if (!deps.interactive)
-        throw new Error(
-          'No saved API key. Re-run with --api-key-stdin, set ASSETHUB_API_KEY, or run interactively to be prompted.',
-        )
-      apiKey = await deps.promptApiKey()
-    }
-    await deps.login({apiKey})
-    steps.push({
-      name: 'login',
-      status: 'ok',
-      detail: givenKey ? `API key from ${givenFrom} verified and saved` : 'API key verified and saved',
-    })
-  }
-
+  // 1. Login (reuses the existing `auth login` path through deps.login). With
+  // login skipped, a saved key is still used for app-env and doctor if there is one.
   let auth: SetupAuth | undefined
-  if (!options.dryRun || hadKey) auth = await deps.resolveAuth()
+  let hadKey = false
+  if (skipped('login')) {
+    auth = await deps.resolveAuth().catch(() => undefined)
+  } else {
+    const explicitKey = options.apiKeySource === 'flag' ? options.apiKey : undefined
+    hadKey = explicitKey ? false : await deps.hasWorkingKey()
+    const givenKey = explicitKey ?? (options.apiKeySource === 'env' ? options.apiKey : undefined)
+    const givenFrom = explicitKey ? '--api-key' : 'ASSETHUB_API_KEY'
+    if (hadKey) {
+      steps.push({name: 'login', status: 'ok', detail: 'reusing the saved API key'})
+    } else if (options.dryRun) {
+      steps.push({
+        name: 'login',
+        status: 'skip',
+        detail: givenKey
+          ? `would verify and save the API key from ${givenFrom}`
+          : options.apiKeyStdin
+            ? 'would read the API key from stdin'
+            : 'would prompt for an API key',
+      })
+    } else {
+      let apiKey = givenKey
+      if (!apiKey && !options.apiKeyStdin) {
+        if (!deps.interactive)
+          throw new Error(
+            'No saved API key. Re-run with --api-key-stdin, set ASSETHUB_API_KEY, or run interactively to be prompted.',
+          )
+        apiKey = await deps.promptApiKey()
+      }
+      await deps.login({apiKey})
+      steps.push({
+        name: 'login',
+        status: 'ok',
+        detail: givenKey ? `API key from ${givenFrom} verified and saved` : 'API key verified and saved',
+      })
+    }
+    if (!options.dryRun || hadKey) auth = await deps.resolveAuth()
+  }
+  // Without a login, the saved profile still names the server and workspace.
+  const target = auth ?? (skipped('login') ? await deps.resolveTarget() : undefined)
   const key = auth?.apiKey ?? ''
-  const baseUrl = (auth?.baseUrl ?? '').replace(/\/+$/, '')
+  const baseUrl = (target?.baseUrl ?? '').replace(/\/+$/, '')
 
   // 2. Workspace
-  let workspaceId = auth?.workspaceId
-  if (options.workspace) {
+  let workspaceId = target?.workspaceId
+  if (skipped('workspace')) {
+    workspaceId = options.workspace ?? workspaceId
+  } else if (options.workspace) {
     workspaceId = options.workspace
     if (options.dryRun) {
       steps.push({name: 'workspace', status: 'skip', detail: `would select workspace ${workspaceId}`})
@@ -291,45 +364,86 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     steps.push({name: 'workspace', status: 'ok', detail: `selected ${workspaceId}`})
   }
 
-  const workspaceForConfig = workspaceId ?? '<workspace-id>'
+  // A placeholder is shown only in a dry run that would still ask for the workspace.
+  const workspaceForConfig = workspaceId ?? (options.dryRun && !skipped('workspace') ? '<workspace-id>' : undefined)
   const shownKey = key ? redactKey(key) : 'ah_…<key>'
 
+  const writesConfig = !skipped('mcp') || !skipped('skills')
   if (
+    writesConfig &&
     !options.dryRun &&
     deps.interactive &&
     !options.yes &&
-    !(await deps.confirm('Write MCP configuration for the selected client(s)?'))
+    !(await deps.confirm(`Write AssetHub configuration for ${listJoin(agentNames)}${options.project ? ` in ${deps.cwd}` : ''}?`))
   )
-    throw new Error('Cancelled before changing any client configuration.')
+    throw new Error('Cancelled before changing any agent configuration.')
 
-  // 3. Claude Code
-  if (wantClaude) {
+  // Writes a merged config file, backing up the previous one; reports "unchanged" when nothing differs.
+  const writeConfig = async (
+    name: string,
+    path: string,
+    existing: string | undefined,
+    merged: string,
+    what: string,
+    diff: string[],
+  ): Promise<void> => {
+    if (merged === existing) {
+      steps.push({name, status: 'ok', detail: `${path} already up to date`, change: 'unchanged'})
+    } else if (options.dryRun) {
+      say(`[dry-run] would ${existing === undefined ? 'create' : 'update'} ${path}`)
+      if (existing !== undefined) say(`[dry-run] would back up to ${path}.bak-<timestamp>`)
+      for (const line of diff) say(`  ${line}`)
+      steps.push({name, status: 'skip', detail: `would write ${what} to ${path} (dry run)`, change: 'would-update'})
+    } else {
+      let backup = ''
+      if (existing !== undefined) {
+        // Never overwrite an earlier backup made in the same instant.
+        const base = `${path}.bak-${timestamp(deps.now())}`
+        backup = base
+        for (let n = 1; (await deps.readFileIfExists(backup)) !== undefined; n++) backup = `${base}-${n}`
+        await deps.backupFile(path, backup)
+      }
+      await deps.writeFileEnsuringDir(path, merged)
+      steps.push({name, status: 'ok', detail: `wrote ${what} to ${path}${backup ? ` (backup: ${backup})` : ''}`, change: 'updated'})
+    }
+  }
+
+  // 3. MCP: one writer per agent. Claude Code owns ~/.claude.json, so it is
+  // changed only through `claude mcp`; it is read to skip an identical entry.
+  if (!skipped('mcp') && wantClaude) {
+    const claudeScope = options.project ? 'project' : 'user'
+    const configPath = options.project ? join(deps.cwd, '.mcp.json') : join(deps.home, '.claude.json')
+    const desired = claudeServerConfig(baseUrl || '<base-url>', workspaceForConfig)
+    const current = readJsonServer(await deps.readFileIfExists(configPath))
     const claude = await deps.findBinary('claude')
-    const args = claudeAddArgs(baseUrl || '<base-url>', workspaceForConfig)
+    const args = claudeAddArgs(baseUrl || '<base-url>', workspaceForConfig, claudeScope)
     const shown = `claude ${args.slice(0, 3).join(' ')} ${shellQuoteSingle(args[3])} ${args.slice(4).join(' ')}`
-    if (!claude) {
+    if (JSON.stringify(current) === JSON.stringify(desired)) {
+      steps.push({name: 'claude-mcp', status: 'ok', detail: `assethub is already registered in Claude Code (${claudeScope} scope)`, change: 'unchanged'})
+    } else if (!claude) {
       say(`claude not found on PATH. Run this later:\n  ${shown}`)
-      // Claude was the only client asked for, so nothing got configured: say so
+      // Claude was the only agent asked for, so nothing got configured: say so
       // in the exit code rather than reporting success.
       steps.push({
         name: 'claude-mcp',
-        status: wantCodex ? 'skip' : 'fail',
+        status: agents.length > 1 ? 'skip' : 'fail',
         detail: 'claude CLI not found; run the printed command later',
+        change: 'would-update',
       })
     } else if (options.dryRun) {
       say(`[dry-run] ${shown}`)
-      say('[dry-run] if an assethub entry already exists: claude mcp remove assethub --scope user, then add again')
-      steps.push({name: 'claude-mcp', status: 'skip', detail: 'would register the assethub MCP server (dry run)'})
+      if (current !== undefined)
+        say(`[dry-run] the existing assethub entry would be replaced: claude mcp remove assethub --scope ${claudeScope}, then add again`)
+      steps.push({name: 'claude-mcp', status: 'skip', detail: 'would register the assethub MCP server (dry run)', change: 'would-update'})
     } else {
       // Add first, and replace only an entry that already exists, so a failing
       // add never costs the user a working one.
-      const addArgs = claudeAddArgs(baseUrl, workspaceForConfig)
-      let added = await deps.run(claude, addArgs)
+      let added = await deps.run(claude, args)
       let replaced = false
       if (added.code !== 0 && /already exists/i.test(added.output)) {
-        await deps.run(claude, ['mcp', 'remove', 'assethub', '--scope', 'user'])
+        await deps.run(claude, ['mcp', 'remove', 'assethub', '--scope', claudeScope])
         replaced = true
-        added = await deps.run(claude, addArgs)
+        added = await deps.run(claude, args)
       }
       const failure = scrub(added.output, key).trim().slice(0, 300)
       steps.push(
@@ -337,7 +451,8 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
           ? {
               name: 'claude-mcp',
               status: 'ok',
-              detail: `registered assethub in Claude Code (user scope; it reads the key from \$${API_KEY_ENV}, the key is not stored in Claude Code)`,
+              detail: `registered assethub in Claude Code (${claudeScope} scope; it reads the key from \$${API_KEY_ENV}, the key is not stored in Claude Code)`,
+              change: 'updated',
             }
           : {
               name: 'claude-mcp',
@@ -350,55 +465,74 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     }
   }
 
-  // 4. Codex
-  let exportLine: string | undefined
-  if (wantCodex) {
-    const path = join(deps.codexHome, 'config.toml')
+  if (!skipped('mcp') && wantCodex) {
+    const path = options.project ? join(deps.cwd, '.codex', 'config.toml') : join(deps.codexHome, 'config.toml')
     const section = mcpConfig('codex', baseUrl || 'https://app.assethub.io', false, workspaceId)
     const existing = await deps.readFileIfExists(path)
     let merged: string | undefined
-    let mergeError: string | undefined
     try {
       merged = mergeCodexSection(existing ?? '', section)
     } catch (error) {
-      mergeError = error instanceof Error ? error.message : String(error)
+      steps.push({name: 'codex-mcp', status: 'fail', detail: `${path} left unchanged: ${error instanceof Error ? error.message : String(error)}`})
     }
-    if (merged === undefined) {
-      steps.push({name: 'codex-mcp', status: 'fail', detail: `${path} left unchanged: ${mergeError}`})
-    } else if (options.dryRun) {
-      say(`[dry-run] would ${existing === undefined ? 'create' : 'update'} ${path}`)
-      if (existing !== undefined) say(`[dry-run] would back up to ${path}.bak-<timestamp>`)
-      for (const line of sectionDiff(extractCodexSection(existing ?? ''), extractCodexSection(merged))) say(`  ${line}`)
-      steps.push({name: 'codex-mcp', status: 'skip', detail: `would write [mcp_servers.assethub] to ${path} (dry run)`})
-    } else if (merged === existing) {
-      steps.push({name: 'codex-mcp', status: 'ok', detail: `${path} already up to date`})
-    } else {
-      let backup = ''
-      if (existing !== undefined) {
-        // Never overwrite an earlier backup made in the same instant.
-        const base = `${path}.bak-${timestamp(deps.now())}`
-        backup = base
-        for (let n = 1; (await deps.readFileIfExists(backup)) !== undefined; n++) backup = `${base}-${n}`
-        await deps.backupFile(path, backup)
-      }
-      await deps.writeFileEnsuringDir(path, merged)
-      steps.push({name: 'codex-mcp', status: 'ok', detail: `wrote [mcp_servers.assethub] to ${path}${backup ? ` (backup: ${backup})` : ''}`})
+    if (merged !== undefined)
+      await writeConfig(
+        'codex-mcp',
+        path,
+        existing,
+        merged,
+        '[mcp_servers.assethub]',
+        sectionDiff(extractCodexSection(existing ?? ''), extractCodexSection(merged)),
+      )
+  }
+
+  if (!skipped('mcp') && agents.includes('cursor')) {
+    const path = join(root, '.cursor', 'mcp.json')
+    const existing = await deps.readFileIfExists(path)
+    const entry = mcpServerEntry('cursor', baseUrl || 'https://app.assethub.io', workspaceId)
+    let merged: string | undefined
+    try {
+      merged = mergeJsonServer(path, existing, entry)
+    } catch (error) {
+      steps.push({name: 'cursor-mcp', status: 'fail', detail: `${path} left unchanged: ${error instanceof Error ? error.message : String(error)}`})
+    }
+    if (merged !== undefined) {
+      const before = readJsonServer(existing)
+      await writeConfig(
+        'cursor-mcp',
+        path,
+        existing,
+        merged,
+        'mcpServers.assethub',
+        sectionDiff(before === undefined ? '' : JSON.stringify(before, null, 2), JSON.stringify(entry, null, 2)),
+      )
     }
   }
 
-  // Both clients read the key from the environment; the MCP server needs nothing else.
-  say(`${wantClaude && wantCodex ? 'Claude Code and Codex read' : wantClaude ? 'Claude Code reads' : 'Codex reads'} the key from the ${API_KEY_ENV} environment variable: export it in your shell (run \`assethub setup --print-env\` to print the line). Setup never writes it to a shell profile.`)
+  // Every agent reads the key from the environment; the MCP server needs nothing else.
+  if (!skipped('mcp'))
+    say(`${listJoin(agentNames)} ${agents.length > 1 ? 'read' : 'reads'} the key from the ${API_KEY_ENV} environment variable: export it in your shell (run \`assethub setup --print-env\` to print the line). Setup never writes it to a shell profile.`)
+  let exportLine: string | undefined
   if (options.printEnv) exportLine = `export ${API_KEY_ENV}=${options.dryRun || !key ? shownKey : key}`
 
+  // 4. Skill: one copy under <root>/.agents/skills, linked into each agent.
+  if (!skipped('skills')) {
+    try {
+      steps.push(skillsStep(await deps.installSkills({root, agents, dryRun: options.dryRun}), options.dryRun))
+    } catch (error) {
+      steps.push({name: 'skills', status: 'fail', detail: error instanceof Error ? error.message : String(error)})
+    }
+  }
+
   // 5. Make the key visible to apps started outside a shell (macOS).
-  const appEnv = await ensureAppEnv(options, deps, key)
-  steps.push(appEnv)
+  const appEnv = skipped('app-env') ? undefined : await ensureAppEnv(options, deps, key)
+  if (appEnv) steps.push(appEnv)
 
   // 6. Session saving: opt-in, and offered only to accounts that may upload
   // sessions (internal for now). Anyone else gets no question and no step.
-  const sessionsAvailable = auth != null && (await deps.canSaveSessions(auth))
+  const sessionsAvailable = !skipped('hook') && hookClients.length > 0 && auth != null && (await deps.canSaveSessions(auth))
   if (!sessionsAvailable) {
-    if (options.saveSessions)
+    if (options.saveSessions && !skipped('hook'))
       steps.push({name: 'hook', status: 'skip', detail: 'session saving is not available for this account'})
   } else if (options.noHook) {
     steps.push({name: 'hook', status: 'skip', detail: 'skipped (--no-hook)'})
@@ -458,7 +592,9 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   }
 
   // 7. Doctor
-  if (options.dryRun) {
+  if (skipped('doctor')) {
+    // left out on request
+  } else if (options.dryRun) {
     steps.push({name: 'doctor', status: 'skip', detail: 'skipped (dry run)'})
   } else {
     try {
@@ -477,22 +613,51 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   }
 
   const ok = steps.every(step => step.status !== 'fail')
+  const apps = listJoin(agents.map(agent => APP_NAMES[agent]))
   const nextStep = options.dryRun
     ? 'Re-run without --dry-run to apply these changes.'
     : !ok
       ? 'Fix the failed steps above, then re-run `assethub setup` (it is safe to repeat).'
-      : appEnv.status === 'ok'
-        ? `Quit and reopen ${wantClaude && wantCodex ? 'Claude (Cmd+Q) and Codex' : wantClaude ? 'Claude (Cmd+Q)' : 'Codex'} so it reads ${API_KEY_ENV}, then ask it to use the AssetHub tools. Terminal tabs opened before setup still need \`export ${API_KEY_ENV}=…\`.`
-        : `Export ${API_KEY_ENV} in the shell that starts ${wantClaude && wantCodex ? 'Claude Code / Codex' : wantClaude ? 'Claude Code' : 'Codex'}, restart it, then ask it to use the AssetHub tools.`
+      : skipped('mcp')
+        ? agents.length > 0
+          ? `Restart ${listJoin(agentNames)} so ${agents.length > 1 ? 'they reload their' : 'it reloads its'} skills.`
+          : 'Done.'
+        : appEnv?.status === 'ok'
+          ? `Quit and reopen ${apps} so it reads ${API_KEY_ENV}, then ask it to use the AssetHub tools. Terminal tabs opened before setup still need \`export ${API_KEY_ENV}=…\`.`
+          : `Export ${API_KEY_ENV} in the shell that starts ${agentNames.join(' / ')}, restart it, then ask it to use the AssetHub tools.`
   return {
     ok,
     dryRun: options.dryRun,
     profile: auth?.profile ?? '',
     baseUrl,
     workspaceId,
+    scope,
+    agents,
     steps,
     nextStep,
     ...(exportLine ? {exportLine} : {}),
+  }
+}
+
+const skillsStep = (report: SkillsReport, dryRun: boolean): SetupStep => {
+  const changedLinks = report.links.filter(link => link.status === 'linked' || link.status === 'relinked')
+  const keptLinks = report.links.filter(link => link.status === 'kept-existing')
+  const copyChanged = report.status === 'installed' || report.status === 'updated'
+  const changed = copyChanged || changedLinks.length > 0
+  const parts = [
+    report.status === 'kept-existing'
+      ? `kept ${report.path} (not created by AssetHub)`
+      : `${dryRun && copyChanged ? `would ${report.status === 'installed' ? 'install' : 'update'}` : report.status} ${report.path}${report.version ? ` (${report.version})` : ''}`,
+    ...(changedLinks.length > 0
+      ? [`${dryRun ? 'would link' : 'linked'} into ${listJoin(changedLinks.map(link => agentSpec(link.agent).name))}`]
+      : []),
+    ...keptLinks.map(link => `kept ${link.path} (not created by AssetHub)`),
+  ]
+  return {
+    name: 'skills',
+    status: dryRun && changed ? 'skip' : 'ok',
+    detail: changed ? parts.join('; ') : `${parts.join('; ')}; links already in place`,
+    change: !changed ? 'unchanged' : dryRun ? 'would-update' : 'updated',
   }
 }
 
@@ -570,11 +735,13 @@ export const runProcess = (file: string, args: string[]): Promise<{code: number;
 
 export const defaultFileDeps = () => ({
   platform: process.platform,
-  home: homedir(),
+  home: cliHome(),
   cwd: process.cwd(),
-  codexHome: process.env.CODEX_HOME?.trim() || join(homedir(), '.codex'),
+  codexHome: process.env.CODEX_HOME?.trim() || join(cliHome(), '.codex'),
   now: () => new Date(),
   findBinary: (name: string) => findOnPath(name),
+  detectAgents: () => detectAgents(cliHome(), name => findOnPath(name)),
+  installSkills: installAgentSkills,
   run: runProcess,
   readFileIfExists: async (path: string) => {
     try {
