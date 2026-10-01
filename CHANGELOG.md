@@ -3,6 +3,7 @@
 ## CLI 0.1.33
 
 - `production batch --wait` progress is readable: a header names each image by letter and file name, a line (with the local time) prints only when a run really moves on (started, a new step, another mesh ready, a part kept with an issue, a Blender round, the end), and a status table prints every 5 minutes and at the end. Failures read `✗ FAILED · at 1/4 Planning the parts · Planner run failed. (planner_failed)` instead of a Python-style list. `runs watch` and `production analyze --wait` use the same run lines. The stdout JSON is unchanged.
+- A `--source-url` with no file name is named by its host in progress lines and download folders, never by the whole URL, so a signed URL's query string (its credentials) is not printed or written to disk.
 
 ## CLI 0.1.32
 

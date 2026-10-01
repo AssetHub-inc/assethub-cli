@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 
-import {productionBatchLabels} from '../productionBatch.js'
+import {productionBatchImageName, productionBatchLabels} from '../productionBatch.js'
 
 describe('productionBatchLabels', () => {
   it('names each image by its file, asset ID or URL', () => {
@@ -30,5 +30,29 @@ describe('productionBatchLabels', () => {
         {flag: 'source-id', value: 'same'},
       ]),
     ).toEqual(['same-1', 'same-2'])
+  })
+})
+
+describe('source URLs without a file name', () => {
+  // A signed URL can carry its credentials in the query string; a URL with no
+  // file name must not fall back to printing or filing it whole.
+  const signed = 'https://cdn.example.test/?X-Amz-Signature=secret-sig&X-Amz-Credential=secret-cred'
+
+  it('names the image by its host, never by the query string', () => {
+    const name = productionBatchImageName({flag: 'source-url', value: signed})
+    expect(name).toBe('cdn.example.test')
+    expect(name).not.toContain('secret')
+  })
+
+  it('labels the download folder by its host, never by the query string', () => {
+    const [label] = productionBatchLabels([{flag: 'source-url', value: signed}])
+    expect(label).toBe('cdn.example.test')
+    expect(label).not.toContain('secret')
+  })
+
+  it('still uses the file name when the URL has one', () => {
+    const value = 'https://cdn.example.test/heroes/knight.png?X-Amz-Signature=secret-sig'
+    expect(productionBatchImageName({flag: 'source-url', value})).toBe('knight.png')
+    expect(productionBatchLabels([{flag: 'source-url', value}])).toEqual(['knight'])
   })
 })
