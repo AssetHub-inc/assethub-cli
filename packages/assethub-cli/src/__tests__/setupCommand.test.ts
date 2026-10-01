@@ -16,7 +16,7 @@ import {
 } from '../setupCommand.js'
 import {launchAgentPlist} from '../appEnv.js'
 import {defaultInstallHooks} from '../setupHooksBridge.js'
-import {SESSION_SAVE_DISCLOSURE} from '../hooks/install.js'
+import {sessionSaveDisclosure} from '../hooks/install.js'
 
 const KEY = 'test-fake-key-aaaa-bbbb'
 const section = '[mcp_servers.assethub]\nurl = "https://x.test/api/mcp"\nbearer_token_env_var = "ASSETHUB_API_KEY"\n'
@@ -64,6 +64,7 @@ const makeDeps = (over: Partial<SetupDeps> = {}) => {
     log: line => void logs.push(line),
     platform: 'linux',
     home: '/Users/u',
+    cwd: '/Users/u/work/hero',
     launchAgentProgram: ['/opt/node', '/opt/cli.js', 'env', 'load', '--profile', 'default'],
     ...over,
   }
@@ -260,8 +261,8 @@ describe('runSetup', () => {
     const installHooks = vi.fn(async () => ({installed: true, detail: 'ok'}))
     const {deps, logs} = makeDeps({installHooks})
     await runSetup(options(), deps)
-    expect(installHooks.mock.calls.map(c => (c as unknown[])[0])).toEqual([{client: 'claude'}])
-    expect(logs.join('\n')).toContain(SESSION_SAVE_DISCLOSURE)
+    expect(installHooks.mock.calls.map(c => (c as unknown[])[0])).toEqual([{client: 'claude', projectDir: '/Users/u/work/hero'}])
+    expect(logs.join('\n')).toContain(sessionSaveDisclosure({projectDir: '/Users/u/work/hero'}))
     installHooks.mockClear()
     const result = await runSetup(options({noHook: true}), deps)
     expect(installHooks).not.toHaveBeenCalled()
@@ -288,13 +289,33 @@ describe('runSetup', () => {
     // Interactive without --yes: disclosed, asked, default no.
     const asked = makeDeps({installHooks, confirmOptIn, interactive: true})
     await runSetup({...off, yes: false}, asked.deps)
-    expect(asked.logs.join('\n')).toContain(SESSION_SAVE_DISCLOSURE)
+    expect(asked.logs.join('\n')).toContain(sessionSaveDisclosure({projectDir: '/Users/u/work/hero'}))
     expect(confirmOptIn).toHaveBeenCalledTimes(1)
     expect(installHooks).not.toHaveBeenCalled()
 
     confirmOptIn.mockResolvedValueOnce(true)
     await runSetup({...off, yes: false}, makeDeps({installHooks, confirmOptIn, interactive: true}).deps)
-    expect(installHooks).toHaveBeenCalledWith({client: 'claude'})
+    expect(installHooks).toHaveBeenCalledWith({client: 'claude', projectDir: '/Users/u/work/hero'})
+  })
+
+  it('refuses session saving in the home folder, in the dry run as in the real run, without asking', async () => {
+    const installHooks = vi.fn(async () => ({installed: true, detail: 'ok'}))
+    const confirmOptIn = vi.fn(async () => true)
+    const refused = {name: 'hook', status: 'fail', detail: expect.stringContaining('inside a project folder')}
+
+    for (const dryRun of [true, false]) {
+      const {deps, logs} = makeDeps({installHooks, cwd: '/Users/u'})
+      const result = await runSetup(options({dryRun}), deps)
+      expect(result.steps.find(s => s.name === 'hook')).toEqual(refused)
+      expect(logs.join('\n')).not.toContain(sessionSaveDisclosure({projectDir: '/Users/u'}))
+    }
+
+    // Without --save-sessions it is not offered at all.
+    const asked = makeDeps({installHooks, confirmOptIn, interactive: true, cwd: '/Users/u'})
+    const result = await runSetup(options({saveSessions: false, yes: false}), asked.deps)
+    expect(result.steps.find(s => s.name === 'hook')).toMatchObject({status: 'skip', detail: expect.stringContaining('inside a project folder')})
+    expect(confirmOptIn).not.toHaveBeenCalled()
+    expect(installHooks).not.toHaveBeenCalled()
   })
 
   it('does not install hooks for Codex alone', async () => {

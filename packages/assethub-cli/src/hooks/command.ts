@@ -1,7 +1,7 @@
 // `assethub hooks <subcommand>` — the registration in src/index.ts just calls
 // runHooksCommand(argv).
 
-import {installHooks, SESSION_SAVE_DISCLOSURE, uninstallHooks} from './install.js'
+import {installHooks, sessionSaveDisclosure, uninstallHooks, type HookScope} from './install.js'
 import {listSessionDirs, readMeta} from './paths.js'
 import {saveSession} from './save.js'
 import type {HookClient} from './types.js'
@@ -22,6 +22,7 @@ export type HooksCommandDeps = {
 
 const USAGE =
   'Usage: assethub hooks <install|uninstall|save|upload|list|status> [--client claude|codex] [--json]\n' +
+  '  install|uninstall [--global]   (the current folder by default; --global for every project)\n' +
   '  save [--transcript <path> --session-id <id>]   (reads hook JSON from stdin without flags)\n' +
   '  upload [--session <dir> [--auto] [--sweep <n>]|--pending [--force] [--limit <n>]]\n' +
   '         --auto and --pending wait out earlier failures (1h, 2h, 4h … up to a day); --force retries now'
@@ -91,6 +92,8 @@ export const runHooksCommand = async (
           write('--client claude|codex is required\n')
           return 2
         }
+        // Sessions are saved only where the hooks are: this folder, unless --global.
+        const scope: HookScope = flags.global === true ? {} : {projectDir: deps.cwd ?? process.cwd()}
         if (sub === 'install') {
           // Only accounts that may upload sessions (internal for now) can turn
           // session saving on; for anyone else the hooks would only pile up.
@@ -102,19 +105,20 @@ export const runHooksCommand = async (
             }
           }
           const result = await installHooks({
+            ...scope,
             client: client as HookClient,
             home: deps.home,
             cliPath: deps.cliPath,
           })
           out(
             result.installed && client === 'claude'
-              ? `${result.detail}\n${SESSION_SAVE_DISCLOSURE}`
+              ? `${result.detail}\n${sessionSaveDisclosure(scope)}`
               : result.detail,
             result,
           )
           return result.installed || client === 'codex' ? 0 : 1
         }
-        const result = await uninstallHooks({client: client as HookClient, home: deps.home})
+        const result = await uninstallHooks({...scope, client: client as HookClient, home: deps.home})
         out(result.detail, result)
         return 0
       }
