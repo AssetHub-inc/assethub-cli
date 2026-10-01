@@ -6,7 +6,7 @@
 // command string (`<assethub> hooks save`), never duplicate it, and back the
 // original file up before any change.
 
-import {copyFile, mkdir, readFile, readdir, rename, rm, writeFile} from 'node:fs/promises'
+import {copyFile, mkdir, readFile, readdir, realpath, rename, rm, writeFile} from 'node:fs/promises'
 import {basename, dirname, join, resolve} from 'node:path'
 
 import {resolveHome} from './paths.js'
@@ -70,14 +70,27 @@ export const hookCommand = (cliPath?: string): string =>
 const settingsPath = (home: string | undefined, scope: HookScope): string =>
   scope.projectDir ? projectSettingsPath(scope.projectDir) : join(resolveHome(home), '.claude', 'settings.json')
 
+// Symlinks are followed: a project path or a .claude folder that leads to the
+// home folder is the home folder. A path that does not exist yet is taken as is.
+const realOrResolved = async (path: string): Promise<string> => realpath(path).catch(() => resolve(path))
+
 /**
  * A project install in the home folder would land in ~/.claude, which Claude
  * Code also reads for every project, so it is refused rather than silently global.
  */
-export const hookScopeError = (home: string | undefined, scope: HookScope): string | undefined =>
-  scope.projectDir && resolve(scope.projectDir) === resolve(resolveHome(home))
+export const hookScopeError = async (home: string | undefined, scope: HookScope): Promise<string | undefined> => {
+  if (!scope.projectDir) return undefined
+  const homeDir = resolveHome(home)
+  const [project, projectClaude, realHome, homeClaude] = await Promise.all([
+    realOrResolved(scope.projectDir),
+    realOrResolved(join(scope.projectDir, '.claude')),
+    realOrResolved(homeDir),
+    realOrResolved(join(homeDir, '.claude')),
+  ])
+  return project === realHome || projectClaude === homeClaude
     ? 'Run this inside a project folder: in your home folder the hooks would apply to every project. Use --global if that is what you want.'
     : undefined
+}
 
 type Loaded = {path: string; exists: boolean; settings: Json; raw: string}
 
@@ -144,7 +157,7 @@ export const installHooks = async (options: HookScope & {
   cliPath?: string
 }): Promise<{installed: boolean; detail: string}> => {
   if (options.client === 'codex') return {installed: false, detail: CODEX_DETAIL}
-  const refused = hookScopeError(options.home, options)
+  const refused = await hookScopeError(options.home, options)
   if (refused) return {installed: false, detail: refused}
 
   const loaded = await load(options.home, options)

@@ -298,15 +298,21 @@ describe('runSetup', () => {
     expect(installHooks).toHaveBeenCalledWith({client: 'claude', projectDir: '/Users/u/work/hero'})
   })
 
-  it('refuses session saving in the home folder, in the dry run as in the real run, without asking', async () => {
+  it('refuses --save-sessions in the home folder before changing anything, in the dry run as in the real run', async () => {
     const installHooks = vi.fn(async () => ({installed: true, detail: 'ok'}))
     const confirmOptIn = vi.fn(async () => true)
+    const login = vi.fn(async () => {})
     const refused = {name: 'hook', status: 'fail', detail: expect.stringContaining('inside a project folder')}
 
     for (const dryRun of [true, false]) {
-      const {deps, logs} = makeDeps({installHooks, cwd: '/Users/u'})
+      const {deps, logs, files, runs} = makeDeps({installHooks, login, platform: 'darwin', cwd: '/Users/u'})
       const result = await runSetup(options({dryRun}), deps)
-      expect(result.steps.find(s => s.name === 'hook')).toEqual(refused)
+      expect(result.ok).toBe(false)
+      expect(result.steps).toEqual([refused])
+      expect(result.nextStep).toContain('--save-sessions')
+      expect([...files.keys()]).toEqual([])
+      expect(runs).toEqual([])
+      expect(login).not.toHaveBeenCalled()
       expect(logs.join('\n')).not.toContain(sessionSaveDisclosure({projectDir: '/Users/u'}))
     }
 

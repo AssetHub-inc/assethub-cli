@@ -199,6 +199,20 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   const say = (line: string) => deps.log(line)
   const wantClaude = options.client !== 'codex'
   const wantCodex = options.client !== 'claude'
+  const hookRefusal = wantClaude ? await hookScopeError(deps.home, {projectDir: deps.cwd}) : undefined
+
+  // 0. --save-sessions asks for something the home folder cannot have, so stop
+  // before login, MCP or app-env changes rather than half-applying setup.
+  if (hookRefusal && options.saveSessions && !options.noHook) {
+    return {
+      ok: false,
+      dryRun: options.dryRun,
+      profile: '',
+      baseUrl: '',
+      steps: [{name: 'hook', status: 'fail', detail: `claude: ${hookRefusal}`}],
+      nextStep: 'Run `assethub setup --save-sessions` inside the project folder whose sessions should be saved, or run it without --save-sessions.',
+    }
+  }
 
   // 1. Login (reuses the existing `auth login` path through deps.login)
   const explicitKey = options.apiKeySource === 'flag' ? options.apiKey : undefined
@@ -373,9 +387,6 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   // 6. Session saving: opt-in, and offered only to accounts that may upload
   // sessions (internal for now). Anyone else gets no question and no step.
   const sessionsAvailable = auth != null && (await deps.canSaveSessions(auth))
-  // Checked before the dry run and the question, so neither promises an install
-  // the home-folder guard in installHooks would then refuse.
-  const hookRefusal = hookScopeError(deps.home, {projectDir: deps.cwd})
   if (!sessionsAvailable) {
     if (options.saveSessions)
       steps.push({name: 'hook', status: 'skip', detail: 'session saving is not available for this account'})
@@ -384,7 +395,8 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   } else if (!wantClaude) {
     steps.push({name: 'hook', status: 'skip', detail: 'Codex session saving is not supported yet'})
   } else if (hookRefusal) {
-    steps.push({name: 'hook', status: options.saveSessions ? 'fail' : 'skip', detail: `claude: ${hookRefusal}`})
+    // Not offered: the dry run and the question would promise an install the guard refuses.
+    steps.push({name: 'hook', status: 'skip', detail: `claude: ${hookRefusal}`})
   } else if (options.dryRun) {
     steps.push({
       name: 'hook',

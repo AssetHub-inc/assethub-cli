@@ -1,4 +1,4 @@
-import {mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile} from 'node:fs/promises'
 import {readFileSync, writeFileSync} from 'node:fs'
 import {execFile} from 'node:child_process'
 import {createServer} from 'node:http'
@@ -296,6 +296,24 @@ describe('installHooks / uninstallHooks', () => {
     const result = await installHooks({client: 'claude', home, projectDir: home})
     expect(result).toMatchObject({installed: false, detail: expect.stringContaining('--global')})
     await expect(stat(join(home, '.claude'))).rejects.toThrow()
+  })
+
+  it('refuses the home folder reached through a symlink, either way round', async () => {
+    const linkedHome = join(root, 'linked-home')
+    await symlink(home, linkedHome)
+    for (const [asHome, asProject] of [[linkedHome, home], [home, linkedHome]]) {
+      const result = await installHooks({client: 'claude', home: asHome, projectDir: asProject})
+      expect(result).toMatchObject({installed: false, detail: expect.stringContaining('--global')})
+    }
+    await expect(stat(join(home, '.claude'))).rejects.toThrow()
+  })
+
+  it('refuses a project whose .claude folder is a symlink to ~/.claude', async () => {
+    await mkdir(join(home, '.claude'), {recursive: true})
+    await symlink(join(home, '.claude'), join(cwd, '.claude'))
+    const result = await installHooks({client: 'claude', home, projectDir: cwd})
+    expect(result).toMatchObject({installed: false, detail: expect.stringContaining('--global')})
+    expect(await readdir(join(home, '.claude'))).toEqual([])
   })
 
   it('keeps settings.local.json backups separate from settings.json ones', async () => {
