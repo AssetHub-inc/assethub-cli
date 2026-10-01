@@ -70,14 +70,29 @@ describe('installed package (spawned)', () => {
     const root = await mkdtemp(join(tmpdir(), 'assethub-installed-'))
     try {
       const pkg = fileURLToPath(new URL('../../', import.meta.url))
-      const repoModules = fileURLToPath(new URL('../../../../node_modules/', import.meta.url))
       const modules = join(root, 'node_modules')
       const installed = join(modules, '@assethub', 'cli')
       await mkdir(join(modules, '@assethub'), {recursive: true})
       for (const part of ['dist', 'skills', 'package.json']) await cp(join(pkg, part), join(installed, part), {recursive: true})
-      for (const entry of await readdir(repoModules))
-        if (entry !== '@assethub' && !entry.startsWith('.')) await symlink(join(repoModules, entry), join(modules, entry))
-      await symlink(fileURLToPath(new URL('../../../assethub-api-client/', import.meta.url)), join(modules, '@assethub', 'api-client'))
+      // Link the dependencies from wherever this checkout keeps them: the package's
+      // own node_modules (pnpm) first, then the hoisted root (npm workspaces).
+      const linked = new Set(['@assethub/cli'])
+      for (const source of [join(pkg, 'node_modules'), fileURLToPath(new URL('../../../../node_modules/', import.meta.url))]) {
+        const entries = await readdir(source).catch(() => [] as string[])
+        for (const entry of entries.filter(name => !name.startsWith('.'))) {
+          const names = entry.startsWith('@')
+            ? (await readdir(join(source, entry))).map(name => `${entry}/${name}`)
+            : [entry]
+          for (const name of names) {
+            if (linked.has(name)) continue
+            linked.add(name)
+            await mkdir(join(modules, name, '..'), {recursive: true})
+            await symlink(join(source, name), join(modules, name))
+          }
+        }
+      }
+      if (!linked.has('@assethub/api-client'))
+        await symlink(fileURLToPath(new URL('../../../assethub-api-client/', import.meta.url)), join(modules, '@assethub', 'api-client'))
 
       const config = join(root, 'home', 'config.json')
       await writeUpdateCheck(updateCheckPath(config), '99.0.0')
