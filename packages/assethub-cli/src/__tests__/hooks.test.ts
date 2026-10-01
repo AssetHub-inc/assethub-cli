@@ -1470,3 +1470,43 @@ describe('uploads while a session is still running', () => {
     expect(startWorkingUpload).toHaveBeenCalledWith(expect.stringContaining('sess-1'), 'personal')
   })
 })
+
+describe('one upload per session, even a long one', () => {
+  const setupDir = async () => {
+    const transcript = await writeTranscript()
+    return (await saveSession({stdin: hook(transcript, 'Stop'), home, now, env: UPLOAD_OFF})).sessionDir
+  }
+  const auth = {apiKey: 'ah_live_secretsecret', baseUrl: 'https://x.test'}
+
+  it('refuses a second upload while one holds the lock, and sends nothing', async () => {
+    const dir = await setupDir()
+    await mkdir(join(dir, '.upload.lock'))
+    const {fetchImpl, calls} = fakeServer()
+    expect(await uploadSession(dir, {fetchImpl, auth, force: true})).toEqual({ok: false, reason: 'upload-in-progress', throttled: true})
+    expect(calls).toEqual([])
+  })
+
+  it('keeps its lock fresh while it runs, so a long upload never looks abandoned', async () => {
+    const dir = await setupDir()
+    const lock = join(dir, '.upload.lock')
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const slow = (async (input: string | URL | Request, init?: RequestInit) => {
+      await gate
+      return fakeServer().fetchImpl(input, init)
+    }) as unknown as typeof fetch
+    const first = uploadSession(dir, {fetchImpl: slow, auth, force: true, lockHeartbeatMs: 20})
+    for (let i = 0; i < 50 && !(await stat(lock).then(() => true, () => false)); i++) await new Promise(r => setTimeout(r, 10))
+    // Age the lock past the stale limit, as if the upload had run for an hour.
+    const hourAgo = new Date(Date.now() - 60 * 60_000)
+    await utimes(lock, hourAgo, hourAgo)
+    await new Promise(r => setTimeout(r, 120))
+    expect(Date.now() - (await stat(lock)).mtimeMs).toBeLessThan(5_000)
+    const {fetchImpl, calls} = fakeServer()
+    expect(await uploadSession(dir, {fetchImpl, auth, force: true})).toMatchObject({reason: 'upload-in-progress'})
+    expect(calls).toEqual([])
+    release()
+    expect((await first).ok).toBe(true)
+    await expect(stat(lock)).rejects.toThrow()
+  })
+})

@@ -3,6 +3,7 @@
 ## CLI 0.1.34
 
 - Saved sessions upload while you work: on `Stop` and `PreCompact` the hooks start a background upload of the running session, at most every 20 minutes. Claude Code app sessions stay open for days and rarely reach `SessionEnd`, so until now they were uploaded only after 2 quiet hours, when a later session started. `SessionEnd` and the `SessionStart` retry sweep are unchanged, and `ASSETHUB_SESSION_UPLOAD=off` still turns uploading off.
+- A running upload keeps its per-session lock fresh, so an upload that takes longer than 15 minutes is no longer mistaken for a crashed one and joined by a second upload of the same session.
 
 ## CLI 0.1.33
 
