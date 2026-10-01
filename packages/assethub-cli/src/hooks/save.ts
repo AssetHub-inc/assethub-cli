@@ -218,7 +218,22 @@ export const SWEEP_LIMIT = 3
  * stay open for days and rarely reach SessionEnd, so without this they would
  * only be uploaded once abandoned (ABANDONED_AFTER_MS quiet, then a new session).
  */
-export const WORKING_UPLOAD_INTERVAL_MS = 20 * 60 * 1000
+export const WORKING_UPLOAD_INTERVAL_MS = 8 * 60 * 1000
+/** The shortest interval ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN may set. */
+export const MIN_WORKING_UPLOAD_INTERVAL_MS = 60 * 1000
+
+/**
+ * ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN, in minutes, else WORKING_UPLOAD_INTERVAL_MS.
+ * Each upload sends a new snapshot of the whole transcript, so it is never
+ * shorter than a minute; a value that is not a positive number is ignored.
+ */
+export const workingUploadIntervalMs = (env: NodeJS.ProcessEnv): number => {
+  const raw = env.ASSETHUB_SESSION_UPLOAD_INTERVAL_MIN?.trim()
+  if (!raw) return WORKING_UPLOAD_INTERVAL_MS
+  const minutes = Number(raw)
+  if (!Number.isFinite(minutes) || minutes <= 0) return WORKING_UPLOAD_INTERVAL_MS
+  return Math.max(minutes * 60 * 1000, MIN_WORKING_UPLOAD_INTERVAL_MS)
+}
 const WORKING_UPLOAD_EVENTS = new Set(['Stop', 'PreCompact'])
 
 /** Events that copy and redact the transcript now; the rest only mark it changed. */
@@ -386,7 +401,7 @@ export const saveSession = async (options: SaveSessionOptions = {}): Promise<Sav
         Date.parse(latest?.lastWorkingUploadAt ?? '') || 0,
         Date.parse(latest?.lastUploadAttemptAt ?? '') || 0,
       )
-      if (latest && now.getTime() - lastStart >= WORKING_UPLOAD_INTERVAL_MS) {
+      if (latest && now.getTime() - lastStart >= workingUploadIntervalMs(env)) {
         // Stamped before spawning, so the next few turns do not start more.
         await updateMeta(sessionDir, latest, current => ({...current, lastWorkingUploadAt: now.toISOString()}))
         options.startWorkingUpload(sessionDir, options.upload?.profile)
