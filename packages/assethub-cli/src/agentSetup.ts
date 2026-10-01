@@ -30,6 +30,7 @@ import {dirname, join, relative, resolve} from 'node:path'
 import {env, pid} from 'node:process'
 import {fileURLToPath} from 'node:url'
 import {cliVersion, validatedBaseUrl} from './setup.js'
+import {compareVersions} from './update.js'
 
 export const AGENT_IDS = ['claude-code', 'codex', 'cursor'] as const
 export type AgentId = (typeof AGENT_IDS)[number]
@@ -207,7 +208,7 @@ export const mergeJsonServer = (
 
 // ── Skill install and sync ───────────────────────────────────────────
 
-export type SkillStatus = 'installed' | 'updated' | 'unchanged' | 'kept-existing'
+export type SkillStatus = 'installed' | 'updated' | 'unchanged' | 'kept-existing' | 'kept-newer'
 
 const readMarker = async (dir: string): Promise<string | undefined> =>
   (await readText(join(dir, VERSION_MARKER)))?.trim()
@@ -267,13 +268,16 @@ export const installSkill = async ({
         : 'installed'
       : marker === version
         ? 'unchanged'
-        : 'updated'
+        : // An older CLI (or a stale monorepo build) never replaces a newer skill.
+          compareVersions(version, marker) < 0
+          ? 'kept-newer'
+          : 'updated'
   if (!dryRun && (status === 'installed' || status === 'updated'))
     await replaceSkillDir(source, target, version)
   return {
     path: target,
     status,
-    ...(status === 'kept-existing' ? {} : {version}),
+    ...(status === 'kept-existing' ? {} : {version: status === 'kept-newer' ? (marker as string) : version}),
   }
 }
 
@@ -324,7 +328,8 @@ export const syncInstalledSkill = async (): Promise<void> => {
     const installed = await readMarker(target)
     if (installed === undefined) return
     const version = await cliVersion()
-    if (installed === version) return
+    // Only an upgrade refreshes it: an older CLI never overwrites a newer skill.
+    if (installed === version || compareVersions(version, installed) < 0) return
     const source = packagedSkillDir()
     if (!(await isDirectory(source))) return
     await replaceSkillDir(source, target, version)

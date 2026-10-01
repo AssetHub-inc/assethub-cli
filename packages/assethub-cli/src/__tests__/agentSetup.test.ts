@@ -141,6 +141,16 @@ describe('installAgentSkills', () => {
     expect(await readFile(join(canonicalSkillDir(home), 'SKILL.md'), 'utf8')).toBe('also mine')
   })
 
+  it('never replaces a newer skill with an older CLI', async () => {
+    await installAgentSkills({root: home, agents: ['claude-code'], dryRun: false})
+    const canonical = canonicalSkillDir(home)
+    await writeFile(join(canonical, '.assethub-cli-version'), '99.0.0\n')
+    await writeFile(join(canonical, 'SKILL.md'), 'from the future')
+    const report = await installAgentSkills({root: home, agents: ['claude-code'], dryRun: false})
+    expect(report).toMatchObject({status: 'kept-newer', version: '99.0.0'})
+    expect(await readFile(join(canonical, 'SKILL.md'), 'utf8')).toBe('from the future')
+  })
+
   it('refreshes an installed skill after a CLI upgrade and stays quiet otherwise', async () => {
     await installAgentSkills({root: home, agents: ['claude-code'], dryRun: false})
     const canonical = canonicalSkillDir(home)

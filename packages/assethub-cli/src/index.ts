@@ -33,12 +33,21 @@ import {defaultInstallHooks, type InstallHooks} from './setupHooksBridge.js'
 import {canUploadSessions, installHooks as installSessionHooks, runHooksCommand} from './hooks/index.js'
 import {createNodeUpdateDeps, runUpdate} from './update.js'
 import {
+  autoUpdateEnabled,
+  claimRefreshAttempt,
   decideUpdateNotice,
   isInstalledPackage,
+  patchUpdateCheck,
+  readAutoUpdateSetting,
   readUpdateCheck,
+  REFRESH_CHILD_ENV,
   refreshInBackground,
+  refreshUpdateCheck,
+  settingsPath,
+  takeLock,
   updateCheckDisabled,
   updateCheckPath,
+  writeAutoUpdateSetting,
   writeUpdateCheck,
 } from './updateNotice.js'
 import {ingestProjectSources} from './projectSources.js'
@@ -69,6 +78,7 @@ import {
   readdir,
   readFile,
   rename,
+  rm,
   unlink,
   writeFile,
 } from 'node:fs/promises'
@@ -425,9 +435,9 @@ CLI and MCP are available to all AssetHub users. Workspace permissions and featu
 
 Usage:
   assethub --version
-  assethub setup [--agent claude-code|codex|cursor...] [--project] [--only <step,...>] [--skip <step,...>] [--no-skills] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
+  assethub setup [--agent claude-code|codex|cursor...] [--project] [--only <step,...>] [--skip <step,...>] [--no-skills] [--no-auto-update | --auto-update] [--profile <name>] [--workspace <id>] [--api-key-stdin] [--base-url <url>] [--no-app-env] [--dry-run] [--yes] [--print-env] [--json]
   assethub env load [--profile <name>]
-  assethub update [--check] [--dry-run] [--yes]   (a newer version is announced once a day on stderr; ASSETHUB_NO_UPDATE_CHECK=1 turns that off)
+  assethub update [--check] [--dry-run] [--yes]   (once a day a newer version installs itself in the background; turn off: setup --no-auto-update or ASSETHUB_NO_AUTO_UPDATE=1)
   assethub doctor [--mcp] [--setup [--agent <name>...] [--project]] [--profile <name>] [--timeout-ms <n>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--account] [--base-url <url>]
@@ -2571,7 +2581,7 @@ const parseSetupSelection = (flags: Flags): {agents?: AgentId[]; skip: SetupStep
   const known = (name: string, values: string[]) => {
     const unknown = values.filter(value => !(SETUP_STEPS as readonly string[]).includes(value))
     if (unknown.length > 0)
-      throw new Error(`Unknown setup step for --${name}: ${unknown.join(', ')}. Steps: login, workspace, mcp, skills, app-env, doctor.`)
+      throw new Error(`Unknown setup step for --${name}: ${unknown.join(', ')}. Steps: login, workspace, mcp, skills, auto-update, app-env, doctor.`)
     return values as SetupStepName[]
   }
   const only = known('only', stepValues('only'))
@@ -2617,6 +2627,7 @@ const setupRun = async (
     apiKeySource: flagKey ? 'flag' : envKey ? 'env' : undefined,
     noHook: hasFlag(flags, 'no-hook'),
     noAppEnv: hasFlag(flags, 'no-app-env'),
+    ...(hasFlag(flags, 'no-auto-update') ? {autoUpdate: false} : hasFlag(flags, 'auto-update') ? {autoUpdate: true} : {}),
     saveSessions: hasFlag(flags, 'save-sessions'),
     dryRun: overrides.dryRun ?? hasFlag(flags, 'dry-run'),
     yes: hasFlag(flags, 'yes'),
@@ -2658,6 +2669,10 @@ const setupRun = async (
         return commandAuth('login', loginFlags)
       }),
     resolveTarget: () => resolveMcpTarget(flags),
+    readAutoUpdate: () => readAutoUpdateSetting(settingsPath(getConfigPath(flags))),
+    writeAutoUpdate: on => writeAutoUpdateSetting(settingsPath(getConfigPath(flags)), on),
+    canSelfUpdate: async () => isInstalledPackage(realpathSync(argv[1] ?? fileURLToPath(import.meta.url))),
+    autoUpdateBlockedByEnv: !autoUpdateEnabled(undefined, env),
     resolveAuth: async () => {
       const auth = await resolveAuth(base)
       return {apiKey: auth.apiKey, baseUrl: auth.baseUrl, profile: auth.profile, workspaceId: auth.workspaceId}
@@ -2715,7 +2730,7 @@ export const commandSetup = async (
  */
 const setupCheck = async (flags: Flags) => {
   const {options, deps} = await setupRun(flags, installSessionHooks, {
-    skip: ['login', 'workspace', 'app-env', 'hook', 'doctor'],
+    skip: ['login', 'workspace', 'auto-update', 'app-env', 'hook', 'doctor'],
     dryRun: true,
     quietLog: true,
   })
@@ -7694,16 +7709,25 @@ const resolveMcpTarget = async (
   return {baseUrl, workspaceId}
 }
 
-// One stderr line when a newer CLI is known, from a cache refreshed at most once a day in the background.
+// A stderr line when a newer CLI is known or was just installed, from a cache
+// refreshed (and, with auto-update on, acted on) at most once a day in the background.
 const noticeUpdate = async (flags: Flags): Promise<void> => {
-  if (updateCheckDisabled(env)) return
+  if (updateCheckDisabled(env) || env[REFRESH_CHILD_ENV]) return
   try {
     const cli = realpathSync(argv[1] ?? fileURLToPath(import.meta.url))
     if (!isInstalledPackage(cli)) return
     const cachePath = updateCheckPath(getConfigPath(flags))
-    const decision = decideUpdateNotice(await cliVersion(), await readUpdateCheck(cachePath), new Date())
-    if (decision.notice) stderr.write(`${decision.notice}\n`)
-    if (decision.refresh) refreshInBackground(process.execPath, cli, getConfigPath(flags))
+    const cache = await readUpdateCheck(cachePath)
+    const now = new Date()
+    const decision = decideUpdateNotice(await cliVersion(), cache, now)
+    for (const notice of decision.notices) stderr.write(`${notice}\n`)
+    if (cache && (decision.markAnnounced || decision.markNoticed))
+      await patchUpdateCheck(cachePath, cache, {
+        ...(decision.markAnnounced && cache.autoUpdate ? {autoUpdate: {...cache.autoUpdate, announced: true}} : {}),
+        ...(decision.markNoticed ? {noticedAt: now.toISOString()} : {}),
+      })
+    if (decision.refresh && (await claimRefreshAttempt(cachePath, now)))
+      refreshInBackground(process.execPath, cli, getConfigPath(flags))
   } catch {
     // best effort
   }
@@ -7731,7 +7755,7 @@ const run = async (): Promise<void> => {
       '`assethub init` is deprecated and will be removed in a later version; use `assethub setup` (or `assethub setup --only mcp,skills` for agent wiring only).\n',
     )
     await commandSetup({...parsed.flags, json: true, yes: true}, installSessionHooks, {
-      skip: ['login', 'workspace', 'app-env', 'hook', 'doctor'],
+      skip: ['login', 'workspace', 'auto-update', 'app-env', 'hook', 'doctor'],
     })
     return
   }
@@ -7806,9 +7830,15 @@ const run = async (): Promise<void> => {
   if (command === 'update') {
     const cachePath = updateCheckPath(getConfigPath(parsed.flags))
     if (hasFlag(parsed.flags, 'refresh-check')) {
-      // The detached daily check started by noticeUpdate: record the latest version, print nothing.
-      const latest = await createNodeUpdateDeps([]).latestVersion()
-      await writeUpdateCheck(cachePath, latest)
+      // The detached daily check started by noticeUpdate: record the latest
+      // version and, with auto-update on, install it. Prints nothing.
+      const configPath = getConfigPath(parsed.flags)
+      await refreshUpdateCheck({
+        cachePath,
+        lockPath: `${cachePath}.lock`,
+        autoUpdate: autoUpdateEnabled(await readAutoUpdateSetting(settingsPath(configPath)), env),
+        deps: createNodeUpdateDeps(['--config', configPath]),
+      })
       return
     }
     // The verifying doctor checks the same login this command was given.
@@ -7817,10 +7847,16 @@ const run = async (): Promise<void> => {
       return value ? [`--${name}`, value] : []
     })
     const apiKey = getFlag(parsed.flags, 'api-key')
+    const installs = !hasFlag(parsed.flags, 'check') && !hasFlag(parsed.flags, 'dry-run')
+    // Never install alongside a background auto-update.
+    if (installs && !(await takeLock(`${cachePath}.lock`)))
+      throw new Error('A background update of the CLI is running; try again in a minute.')
     const report = await runUpdate(
       {check: hasFlag(parsed.flags, 'check'), dryRun: hasFlag(parsed.flags, 'dry-run'), yes: hasFlag(parsed.flags, 'yes')},
       createNodeUpdateDeps(forwardFlags, apiKey ? {ASSETHUB_API_KEY: apiKey} : {}),
-    )
+    ).finally(async () => {
+      if (installs) await rm(`${cachePath}.lock`, {force: true})
+    })
     // Every answer from the registry refreshes the daily hint, so it never nags about an installed version.
     await writeUpdateCheck(cachePath, report.status === 'updated' ? report.to : report.latest).catch(() => undefined)
     print(report)

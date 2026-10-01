@@ -33,7 +33,7 @@ export type SetupStep = {
 
 // The steps `--only` and `--skip` name, in the order setup runs them. `agents`
 // is not one: the mcp and skills steps need it.
-export const SETUP_STEPS = ['login', 'workspace', 'mcp', 'skills', 'app-env', 'hook', 'doctor'] as const
+export const SETUP_STEPS = ['login', 'workspace', 'mcp', 'skills', 'auto-update', 'app-env', 'hook', 'doctor'] as const
 export type SetupStepName = (typeof SETUP_STEPS)[number]
 
 export type SetupResult = {
@@ -70,6 +70,8 @@ export type SetupOptions = {
   noHook: boolean
   /** `--no-app-env`: leave launchd alone even on macOS. */
   noAppEnv?: boolean
+  /** `--auto-update` / `--no-auto-update`: save that choice; undefined keeps the saved one (default on). */
+  autoUpdate?: boolean
   /** Explicit consent to record and upload agent sessions (`--save-sessions`). */
   saveSessions: boolean
   dryRun: boolean
@@ -128,6 +130,13 @@ export type SetupDeps = {
   home: string
   /** argv the macOS LaunchAgent runs at login: node, this CLI, `env load --profile <name>`. */
   launchAgentProgram: string[]
+  /** The saved auto-update choice (undefined: never set, which means on). */
+  readAutoUpdate: () => Promise<boolean | undefined>
+  writeAutoUpdate: (on: boolean) => Promise<void>
+  /** Whether this CLI is an installed package `assethub update` can upgrade (not npx or a source checkout). */
+  canSelfUpdate: () => Promise<boolean>
+  /** ASSETHUB_NO_AUTO_UPDATE, ASSETHUB_NO_UPDATE_CHECK or CI turn it off for this environment. */
+  autoUpdateBlockedByEnv: boolean
 }
 
 export const redactKey = (key: string): string => `ah_…${key.slice(-4)}`
@@ -602,6 +611,15 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     }
   }
 
+  // 4b. Auto-update: on by default; shown so nobody is surprised by it.
+  if (!skipped('auto-update')) {
+    try {
+      steps.push(await autoUpdateStep(options, deps))
+    } catch (error) {
+      steps.push({name: 'auto-update', status: 'fail', detail: error instanceof Error ? error.message : String(error)})
+    }
+  }
+
   // 5. Make the key visible to apps started outside a shell (macOS).
   const appEnv = skipped('app-env') ? undefined : await ensureAppEnv(options, deps, key)
   if (appEnv) steps.push(appEnv)
@@ -720,6 +738,25 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   }
 }
 
+const autoUpdateStep = async (options: SetupOptions, deps: SetupDeps): Promise<SetupStep> => {
+  const name = 'auto-update'
+  const saved = await deps.readAutoUpdate()
+  const wanted = options.autoUpdate ?? saved ?? true
+  const changes = options.autoUpdate !== undefined && options.autoUpdate !== (saved ?? true)
+  const onText = 'on: once a day a newer CLI installs itself in the background, keeping your login (turn off: `assethub setup --no-auto-update`)'
+  const offText = 'off: run `assethub update` yourself (turn on: `assethub setup --auto-update`)'
+  if (changes && options.dryRun)
+    return {name, status: 'skip', detail: `would turn auto-update ${wanted ? 'on' : 'off'} (dry run)`, change: 'would-update'}
+  if (options.autoUpdate !== undefined && options.autoUpdate !== saved) await deps.writeAutoUpdate(options.autoUpdate)
+  const change = changes ? ('updated' as const) : ('unchanged' as const)
+  if (!wanted) return {name, status: 'ok', detail: offText, change}
+  if (!(await deps.canSelfUpdate()))
+    return {name, status: 'skip', detail: 'this CLI is not a global install (npx or a source checkout), so it cannot update itself', change}
+  if (deps.autoUpdateBlockedByEnv)
+    return {name, status: 'skip', detail: 'on, but ASSETHUB_NO_AUTO_UPDATE, ASSETHUB_NO_UPDATE_CHECK or CI turns it off in this environment', change}
+  return {name, status: 'ok', detail: onText, change}
+}
+
 const skillsStep = (report: SkillsReport, dryRun: boolean): SetupStep => {
   const changedLinks = report.links.filter(link => link.status === 'linked' || link.status === 'relinked')
   const keptLinks = report.links.filter(link => link.status === 'kept-existing')
@@ -728,6 +765,8 @@ const skillsStep = (report: SkillsReport, dryRun: boolean): SetupStep => {
   const parts = [
     report.status === 'kept-existing'
       ? `kept ${report.path} (not created by AssetHub)`
+      : report.status === 'kept-newer'
+        ? `kept ${report.path} (${report.version}, newer than this CLI)`
       : `${dryRun && copyChanged ? `would ${report.status === 'installed' ? 'install' : 'update'}` : report.status} ${report.path}${report.version ? ` (${report.version})` : ''}`,
     ...(changedLinks.length > 0
       ? [`${dryRun ? 'would link' : 'linked'} into ${listJoin(changedLinks.map(link => agentSpec(link.agent).name))}`]
