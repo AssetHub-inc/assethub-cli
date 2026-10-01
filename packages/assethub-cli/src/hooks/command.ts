@@ -3,7 +3,7 @@
 
 import {installHooks, sessionSaveDisclosure, uninstallHooks, type HookScope} from './install.js'
 import {listSessionDirs, readMeta} from './paths.js'
-import {saveSession} from './save.js'
+import {saveSession, spawnDetachedSessionUpload} from './save.js'
 import {canUploadSessions, resolveUploadAuth, uploadPending, uploadSession, type UploadOptions} from './upload.js'
 
 export type HooksCommandDeps = {
@@ -17,6 +17,7 @@ export type HooksCommandDeps = {
   now?: () => Date
   startUpload?: (sessionDir: string, profile?: string) => void
   startSweep?: (profile?: string) => void
+  startWorkingUpload?: (sessionDir: string, profile?: string) => void
 }
 
 const USAGE =
@@ -139,6 +140,7 @@ export const runHooksCommand = async (
           upload: {profile: uploadOptions.profile},
           startUpload: deps.startUpload,
           startSweep: deps.startSweep,
+          startWorkingUpload: deps.startWorkingUpload ?? spawnDetachedSessionUpload,
         })
         // A hook must never fail the agent, so save always exits 0.
         // Claude Code adds SessionStart hook output to the model's context, so

@@ -863,7 +863,8 @@ describe('uploadSession', () => {
 describe('runHooksCommand', () => {
   const run = async (argv: string[], deps = {}) => {
     let out = ''
-    const code = await runHooksCommand(argv, {home, env: {}, write: t => { out += t }, ...deps})
+    // A no-op working-upload starter: the real one spawns the CLI, which under vitest is vitest.
+    const code = await runHooksCommand(argv, {home, env: {}, write: t => { out += t }, startWorkingUpload: () => {}, ...deps})
     return {code, out}
   }
 
@@ -1403,5 +1404,109 @@ describe('extractImagePaths', () => {
     // Linux allows paths up to 4096 characters.
     const deep = `/${'d'.repeat(200)}`.repeat(15) + '/hero.png'
     expect(extractImagePaths(`wrote ${deep}`)).toEqual([deep])
+  })
+})
+
+describe('uploads while a session is still running', () => {
+  // A Claude Code app session can stay open for days and rarely reaches
+  // SessionEnd, so Stop and PreCompact upload it in the background, at most
+  // every WORKING_UPLOAD_INTERVAL_MS.
+  const at = (iso: string) => () => new Date(iso)
+  const metaOf = async (dir: string) => JSON.parse(await readFile(join(dir, 'meta.json'), 'utf8'))
+
+  it('Stop starts a background upload of this session, at most every 20 minutes', async () => {
+    const transcript = await writeTranscript()
+    const startWorkingUpload = vi.fn()
+    const first = await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:00:00Z'), startWorkingUpload})
+    expect(startWorkingUpload).toHaveBeenCalledTimes(1)
+    expect(startWorkingUpload).toHaveBeenCalledWith(first.sessionDir, undefined)
+    expect(first.uploadStarted).toBe(true)
+    expect((await metaOf(first.sessionDir)).lastWorkingUploadAt).toBe('2026-09-29T02:00:00.000Z')
+
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:15:00Z'), startWorkingUpload})
+    expect(startWorkingUpload).toHaveBeenCalledTimes(1)
+
+    await saveSession({stdin: hook(transcript, 'PreCompact'), home, env: {}, now: at('2026-09-29T02:21:00Z'), startWorkingUpload})
+    expect(startWorkingUpload).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits as long after a real upload attempt, whoever started it', async () => {
+    const transcript = await writeTranscript()
+    const {sessionDir} = await saveSession({stdin: hook(transcript, 'Stop'), home, env: UPLOAD_OFF, now: at('2026-09-29T02:00:00Z')})
+    const meta = await metaOf(sessionDir)
+    writeFileSync(join(sessionDir, 'meta.json'), JSON.stringify({...meta, lastUploadAttemptAt: '2026-09-29T02:10:00.000Z'}))
+    const startWorkingUpload = vi.fn()
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:25:00Z'), startWorkingUpload})
+    expect(startWorkingUpload).not.toHaveBeenCalled()
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now: at('2026-09-29T02:31:00Z'), startWorkingUpload})
+    expect(startWorkingUpload).toHaveBeenCalledTimes(1)
+  })
+
+  it('never with uploads off, and not on SessionEnd, which uploads and sweeps on its own', async () => {
+    const transcript = await writeTranscript()
+    const startWorkingUpload = vi.fn()
+    const startUpload = vi.fn()
+    await saveSession({stdin: hook(transcript, 'Stop'), home, env: UPLOAD_OFF, now, startWorkingUpload})
+    await saveSession({stdin: hook(transcript, 'SessionEnd'), home, env: {}, now, startWorkingUpload, startUpload})
+    expect(startWorkingUpload).not.toHaveBeenCalled()
+    expect(startUpload).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts nothing unless the caller supplies a starter (the hooks command does)', async () => {
+    const transcript = await writeTranscript()
+    const result = await saveSession({stdin: hook(transcript, 'Stop'), home, env: {}, now})
+    expect(result.uploadStarted).toBeUndefined()
+    expect((await metaOf(result.sessionDir)).lastWorkingUploadAt).toBeUndefined()
+  })
+
+  it('hooks save on Stop starts the working upload with the profile', async () => {
+    const transcript = await writeTranscript()
+    const startWorkingUpload = vi.fn()
+    let out = ''
+    const code = await runHooksCommand(['save', '--profile', 'personal'], {
+      home, env: {}, now, write: t => { out += t }, readStdin: async () => hook(transcript, 'Stop'), startWorkingUpload,
+    })
+    expect(code).toBe(0)
+    expect(startWorkingUpload).toHaveBeenCalledWith(expect.stringContaining('sess-1'), 'personal')
+  })
+})
+
+describe('one upload per session, even a long one', () => {
+  const setupDir = async () => {
+    const transcript = await writeTranscript()
+    return (await saveSession({stdin: hook(transcript, 'Stop'), home, now, env: UPLOAD_OFF})).sessionDir
+  }
+  const auth = {apiKey: 'ah_live_secretsecret', baseUrl: 'https://x.test'}
+
+  it('refuses a second upload while one holds the lock, and sends nothing', async () => {
+    const dir = await setupDir()
+    await mkdir(join(dir, '.upload.lock'))
+    const {fetchImpl, calls} = fakeServer()
+    expect(await uploadSession(dir, {fetchImpl, auth, force: true})).toEqual({ok: false, reason: 'upload-in-progress', throttled: true})
+    expect(calls).toEqual([])
+  })
+
+  it('keeps its lock fresh while it runs, so a long upload never looks abandoned', async () => {
+    const dir = await setupDir()
+    const lock = join(dir, '.upload.lock')
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const slow = (async (input: string | URL | Request, init?: RequestInit) => {
+      await gate
+      return fakeServer().fetchImpl(input, init)
+    }) as unknown as typeof fetch
+    const first = uploadSession(dir, {fetchImpl: slow, auth, force: true, lockHeartbeatMs: 20})
+    for (let i = 0; i < 50 && !(await stat(lock).then(() => true, () => false)); i++) await new Promise(r => setTimeout(r, 10))
+    // Age the lock past the stale limit, as if the upload had run for an hour.
+    const hourAgo = new Date(Date.now() - 60 * 60_000)
+    await utimes(lock, hourAgo, hourAgo)
+    await new Promise(r => setTimeout(r, 120))
+    expect(Date.now() - (await stat(lock)).mtimeMs).toBeLessThan(5_000)
+    const {fetchImpl, calls} = fakeServer()
+    expect(await uploadSession(dir, {fetchImpl, auth, force: true})).toMatchObject({reason: 'upload-in-progress'})
+    expect(calls).toEqual([])
+    release()
+    expect((await first).ok).toBe(true)
+    await expect(stat(lock)).rejects.toThrow()
   })
 })
