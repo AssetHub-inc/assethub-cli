@@ -395,10 +395,10 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   } else if (options.dryRun) {
     steps.push({name: 'workspace', status: 'skip', detail: 'would list workspaces and ask you to pick one'})
   } else {
-    if (!deps.interactive)
-      throw new Error('No workspace selected. Re-run with --workspace <id> (see: assethub workspace list).')
     const items = await deps.listWorkspaces()
     if (items.length === 0) throw new Error('No workspaces are available to this account.')
+    if (items.length > 1 && !deps.interactive)
+      throw new Error('No workspace selected. Re-run with --workspace <id> (see: assethub workspace list).')
     workspaceId = items.length === 1 ? items[0].id : await deps.pickWorkspace(items)
     await deps.useWorkspace(workspaceId)
     auth = await deps.resolveAuth()
@@ -903,6 +903,15 @@ export const promptLine = async (question: string): Promise<string> => {
   }
 }
 
+// Pasting into a raw-mode prompt can deliver terminal bytes with the text: Windows
+// terminals wrap it in bracketed-paste markers, and a console may pass Ctrl+V through.
+// Any of them in an Authorization header makes fetch fail before the request is sent.
+export const sanitizeSecretInput = (raw: string): string =>
+  raw
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+
 // Reads a secret without echoing it.
 export const promptHidden = (question: string): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -922,7 +931,7 @@ export const promptHidden = (question: string): Promise<string> =>
     }
     const onData = (chunk: string) => {
       for (const char of chunk) {
-        if (char === '\r' || char === '\n') return finish(() => resolve(value.trim()))
+        if (char === '\r' || char === '\n') return finish(() => resolve(sanitizeSecretInput(value)))
         if (char === '\u0003') return finish(() => reject(new Error('Cancelled.')))
         if (char === '\u007f' || char === '\b') value = value.slice(0, -1)
         else value += char

@@ -1,5 +1,15 @@
 # Changelog
 
+## CLI 0.1.39
+
+Fixes for setting up the CLI on Windows.
+
+- Pasting the API key into setup's hidden prompt works on Windows. The terminal added invisible bytes around the pasted key (bracketed-paste markers, or a literal Ctrl+V), so every request failed with `fetch failed`. The prompt now removes control characters and terminal escape sequences before using the key.
+- The CLI trusts the operating system's certificate store as well as Node's own. Antivirus HTTPS scanning and company proxies re-sign traffic with a root only the OS trusts, which made every request fail with `fetch failed` unless `NODE_OPTIONS=--use-system-ca` was set. Needs Node 22.19 or 24.5; older versions behave as before.
+- A network error shows its cause, for example `fetch failed: invalid Authorization header (UND_ERR_INVALID_ARG)` or `fetch failed: UNABLE_TO_VERIFY_LEAF_SIGNATURE`, instead of only `fetch failed`.
+- `assethub setup --api-key-stdin` (or any run that cannot ask) uses the only workspace the key can reach rather than failing with `No workspace selected`. With more than one, `--workspace <id>` is still required.
+- On Windows, setup links the skill into each agent with a directory junction instead of a symlink, so the `skills` step no longer fails with `EPERM` when Developer Mode is off. An existing link is kept.
+
 ## CLI 0.1.38
 
 - A session upload no longer gets stuck when the server already holds revisions this machine has no record of, for example after `~/.assethub` was deleted and set up again. Before, the upload failed with `already holds a different snapshot at this revision` and waited an hour to retry; now it skips past the revisions the server holds and uploads right away.

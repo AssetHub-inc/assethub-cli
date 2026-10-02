@@ -12,6 +12,7 @@ import {
   mergeCodexSection,
   redactKey,
   runSetup,
+  sanitizeSecretInput,
   type SetupDeps,
   type SetupOptions,
 } from '../setupCommand.js'
@@ -1101,5 +1102,38 @@ describe('auto-update step', () => {
     expect((await runSetup(options(), makeDeps({readAutoUpdate: async () => false}).deps)).steps.find(s => s.name === 'auto-update')?.detail).toContain('off')
     expect((await runSetup(options(), makeDeps({canSelfUpdate: async () => false}).deps)).steps.find(s => s.name === 'auto-update')).toMatchObject({status: 'skip', detail: expect.stringContaining('not a global install')})
     expect((await runSetup(options(), makeDeps({autoUpdateBlockedByEnv: true}).deps)).steps.find(s => s.name === 'auto-update')).toMatchObject({status: 'skip', detail: expect.stringContaining('ASSETHUB_NO_AUTO_UPDATE')})
+  })
+})
+
+describe('sanitizeSecretInput', () => {
+  it('drops the bracketed-paste markers a Windows terminal wraps around a pasted key', () => {
+    expect(sanitizeSecretInput(`\u001b[200~${KEY}\u001b[201~`)).toBe(KEY)
+  })
+
+  it('drops control characters such as a literal Ctrl+V and surrounding whitespace', () => {
+    expect(sanitizeSecretInput(`\u0016 ${KEY}\t\r`)).toBe(KEY)
+  })
+
+  it('leaves a clean key unchanged', () => {
+    expect(sanitizeSecretInput(KEY)).toBe(KEY)
+  })
+})
+
+describe('non-interactive workspace selection', () => {
+  it('uses the only workspace instead of failing', async () => {
+    const useWorkspace = vi.fn(async () => {})
+    const {deps} = makeDeps({
+      resolveAuth: async () => ({apiKey: KEY, baseUrl: 'https://x.test', profile: 'default'}),
+      listWorkspaces: async () => [{id: 'ws-only', name: 'Only'}],
+      useWorkspace,
+    })
+    const result = await runSetup(options({agents: ['codex']}), deps)
+    expect(useWorkspace).toHaveBeenCalledWith('ws-only')
+    expect(result.steps.find(step => step.name === 'workspace')?.detail).toBe('selected ws-only')
+  })
+
+  it('still asks for --workspace when there is more than one', async () => {
+    const {deps} = makeDeps({resolveAuth: async () => ({apiKey: KEY, baseUrl: 'https://x.test', profile: 'default'})})
+    await expect(runSetup(options({agents: ['codex']}), deps)).rejects.toThrow('No workspace selected')
   })
 })
