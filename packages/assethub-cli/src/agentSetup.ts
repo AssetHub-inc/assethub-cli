@@ -27,7 +27,7 @@ import {
 } from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {dirname, join, relative, resolve} from 'node:path'
-import {env, pid} from 'node:process'
+import {env, pid, platform} from 'node:process'
 import {fileURLToPath} from 'node:url'
 import {cliVersion, validatedBaseUrl} from './setup.js'
 import {compareVersions} from './update.js'
@@ -283,13 +283,26 @@ export const installSkill = async ({
 
 export type LinkStatus = 'linked' | 'relinked' | 'unchanged' | 'kept-existing'
 
+/**
+ * A directory symlink on Windows needs Developer Mode or an elevated shell; a
+ * junction does not, but it must point at an absolute path.
+ */
+export const skillLinkTarget = (
+  platform: NodeJS.Platform,
+  agentSkillsDir: string,
+  canonical: string,
+): {target: string; type: 'junction' | 'dir'} =>
+  platform === 'win32'
+    ? {target: canonical, type: 'junction'}
+    : {target: relative(agentSkillsDir, canonical), type: 'dir'}
+
 const linkSkill = async (
   agentSkillsDir: string,
   canonical: string,
   dryRun: boolean,
 ): Promise<{path: string; status: LinkStatus}> => {
   const link = join(agentSkillsDir, SKILL_NAME)
-  const relativeTarget = relative(agentSkillsDir, canonical)
+  const {target, type} = skillLinkTarget(platform, agentSkillsDir, canonical)
   let existing: Awaited<ReturnType<typeof lstat>> | undefined
   try {
     existing = await lstat(link)
@@ -301,14 +314,14 @@ const linkSkill = async (
       return {path: link, status: 'unchanged'}
     if (!dryRun) {
       await rm(link)
-      await symlink(relativeTarget, link, 'dir')
+      await symlink(target, link, type)
     }
     return {path: link, status: 'relinked'}
   }
   if (existing) return {path: link, status: 'kept-existing'}
   if (!dryRun) {
     await mkdir(agentSkillsDir, {recursive: true})
-    await symlink(relativeTarget, link, 'dir')
+    await symlink(target, link, type)
   }
   return {path: link, status: 'linked'}
 }

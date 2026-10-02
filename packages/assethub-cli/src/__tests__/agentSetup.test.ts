@@ -23,6 +23,7 @@ import {
   mcpServerEntry,
   parseAgentIds,
   syncInstalledSkill,
+  skillLinkTarget,
 } from '../agentSetup.js'
 import {cliVersion} from '../setup.js'
 
@@ -238,6 +239,22 @@ describe('built entrypoint', () => {
   it('rejects an unknown step', async () => {
     await expect(cli(['setup', '--skip', 'everything'])).rejects.toMatchObject({
       stderr: expect.stringContaining('Unknown setup step for --skip: everything'),
+    })
+  })
+})
+
+describe('skillLinkTarget', () => {
+  it('uses a junction with an absolute target on Windows, which needs no Developer Mode', () => {
+    expect(skillLinkTarget('win32', 'C:\\Users\\u\\.claude\\skills', 'C:\\Users\\u\\.agents\\skills\\assethub')).toEqual({
+      target: 'C:\\Users\\u\\.agents\\skills\\assethub',
+      type: 'junction',
+    })
+  })
+
+  it('keeps a relative directory symlink elsewhere', () => {
+    expect(skillLinkTarget('darwin', '/Users/u/.claude/skills', '/Users/u/.agents/skills/assethub')).toEqual({
+      target: '../../.agents/skills/assethub',
+      type: 'dir',
     })
   })
 })

@@ -31,6 +31,7 @@ import {
 import {launchAgentProgram, loadKeyIntoLaunchd} from './appEnv.js'
 import {defaultInstallHooks, type InstallHooks} from './setupHooksBridge.js'
 import {canUploadSessions, installHooks as installSessionHooks, runHooksCommand} from './hooks/index.js'
+import {describeError, trustSystemCertificates} from './networkErrors.js'
 import {createNodeUpdateDeps, runUpdate} from './update.js'
 import {
   autoUpdateEnabled,
@@ -85,6 +86,7 @@ import {
 import {homedir, tmpdir} from 'node:os'
 import {basename, dirname, extname, join, resolve} from 'node:path'
 import {argv, env, exit, stdin, stderr, stdout} from 'node:process'
+import tls from 'node:tls'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {promisify} from 'node:util'
 import {
@@ -8069,6 +8071,7 @@ const isMainModule = (() => {
 })()
 
 if (isMainModule) {
+  trustSystemCertificates(tls)
   process.once('SIGINT', () => {
     print({
       error: {
@@ -8085,7 +8088,7 @@ if (isMainModule) {
         `AssetHub API error [${error.status}] ${error.code}: ${error.message}\n`,
       )
     } else if (error instanceof Error) {
-      stderr.write(`${error.message}\n`)
+      stderr.write(`${describeError(error)}\n`)
     } else {
       stderr.write(`${String(error)}\n`)
     }
@@ -8098,7 +8101,7 @@ if (isMainModule) {
             : error instanceof CliExecutionError && error.exitCode === 3
               ? 'WAIT_TIMEOUT'
               : 'CLI_ERROR',
-        message: error instanceof Error ? error.message : String(error),
+        message: describeError(error),
       },
       runId:
         error instanceof CliExecutionError
