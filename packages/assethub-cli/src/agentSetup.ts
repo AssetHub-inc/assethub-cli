@@ -106,8 +106,11 @@ const SERVER_NAME = 'assethub'
 const SKILL_NAME = 'assethub'
 const VERSION_MARKER = '.assethub-cli-version'
 
-/** `ASSETHUB_CLI_HOME` keeps tests and sandboxes from writing into the real home directory. */
-export const cliHome = (): string => env.ASSETHUB_CLI_HOME || homedir()
+/**
+ * `ASSETHUB_CLI_HOME` keeps tests and sandboxes from writing into the real home
+ * directory. Resolved, because a Windows junction target must be absolute.
+ */
+export const cliHome = (): string => resolve(env.ASSETHUB_CLI_HOME || homedir())
 
 export const packagedSkillDir = (): string =>
   fileURLToPath(new URL(`../skills/${SKILL_NAME}/`, import.meta.url))
