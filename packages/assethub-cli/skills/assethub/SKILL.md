@@ -42,7 +42,7 @@ Operations, models and these rules change between releases, and an old CLI can r
 Auto-update is on by default: once a day the CLI installs a newer release by itself in the background, and the next command says so on stderr (`updated itself from … to …`). So this check usually reports `up_to_date`. It is still needed: auto-update may be off (`assethub setup --no-auto-update`, `ASSETHUB_NO_AUTO_UPDATE=1`, CI), may have failed, or may not have run yet today.
 
 - `"status": "up_to_date"`: carry on.
-- `"status": "update_available"`: run `assethub update --yes`. It upgrades the global install with the package manager that installed it and keeps the saved login. Tell the user which version you moved from and to (`from`, `to`). The next `assethub` command refreshes this skill automatically, so re-read it after that command; its rules may have changed.
+- `"status": "update_available"`: run `assethub update --yes`. It upgrades the global install with the package manager that installed it and keeps the saved login. Tell the user which version you moved from and to (`from`, `to`). The update also overwrites this skill with the new version's copy (its report lists them under `skills`), so re-read it now; its rules may have changed.
 - `update` refuses (an `npx` or project-local install, or a source checkout) or fails (no network): continue on the current version and tell the user once. Do not retry it in a loop.
 - Do not update while another `assethub` command is still running (a `--wait` in another terminal). Runs on the server are not affected by an update; resume them afterwards with their `runId`.
 
