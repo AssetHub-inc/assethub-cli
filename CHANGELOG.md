@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.39
+
+- `assethub update` now overwrites the agent skill with the new version's `SKILL.md` right away and says so: `Agent skill updated: <path> (<version>)`. It refreshes each copy setup installed, the one in your home folder and this folder's from `setup --project`, and never creates one you did not install. The JSON report lists them under `skills`. A skill that cannot be refreshed does not fail the update; it prints how to retry (`assethub setup --only skills`).
+
 ## CLI 0.1.38
 
 - A session upload no longer gets stuck when the server already holds revisions this machine has no record of, for example after `~/.assethub` was deleted and set up again. Before, the upload failed with `already holds a different snapshot at this revision` and waited an hour to retry; now it skips past the revisions the server holds and uploads right away.
