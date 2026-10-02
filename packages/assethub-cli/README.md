@@ -66,7 +66,7 @@ starts Claude Code or Codex. The key is redacted
 
 ```sh
 assethub update --check            # JSON: up_to_date or update_available
-assethub update                    # upgrade a global install now; keeps the saved login, overwrites the agent skill
+assethub update                    # upgrade a global install now; keeps the saved login, refreshes the skill setup installed
 assethub setup --no-auto-update    # turn background updates off (--auto-update turns them on)
 ```
 

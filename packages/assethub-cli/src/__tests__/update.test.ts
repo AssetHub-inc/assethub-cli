@@ -111,7 +111,7 @@ const deps = (overrides: Partial<UpdateDeps> = {}): {deps: UpdateDeps; calls: Ca
         calls.verified += 1
         return {version: '0.1.31', auth: 'pass'}
       },
-      refreshSkills: async () => {
+      prepareSkillRefresh: async () => async () => {
         calls.refreshed += 1
         return [{path: '/Users/a/.agents/skills/assethub', change: 'updated', version: '0.1.31'}]
       },
@@ -216,12 +216,18 @@ describe('runUpdate', () => {
 
   test('a skill refresh that fails does not fail the update and says how to retry', async () => {
     const {deps: d, calls} = deps({
-      refreshSkills: async () => {
+      prepareSkillRefresh: async () => {
         throw new Error('EACCES')
       },
     })
     expect(await runUpdate({}, d)).toMatchObject({status: 'updated', skills: []})
     expect(calls.said.join('\n')).toMatch(/EACCES.*assethub setup --only skills/)
+  })
+
+  test('rewrites the skill only after the installed binary is verified as the new version', async () => {
+    const {deps: d, calls} = deps({verify: async () => ({version: '0.1.30', auth: 'pass'})})
+    await expect(runUpdate({}, d)).rejects.toThrow(/still reports/)
+    expect(calls.refreshed).toBe(0)
   })
 
   test('never touches the skill when nothing was installed', async () => {
@@ -248,5 +254,26 @@ describe('runUpdate', () => {
   test('--check still works where self-update is refused', async () => {
     const {deps: d} = deps({binPath: async () => '/Users/a/game/node_modules/@assethub/cli/dist/index.js'})
     expect(await runUpdate({check: true}, d)).toMatchObject({status: 'update_available'})
+  })
+})
+
+describe('createNodeUpdateDeps().prepareSkillRefresh', () => {
+  test('reports an unreadable skill marker instead of treating the skill as not installed', async () => {
+    const {mkdtemp, mkdir, rm} = await import('node:fs/promises')
+    const {tmpdir} = await import('node:os')
+    const {join} = await import('node:path')
+    const {createNodeUpdateDeps} = await import('../update.js')
+    const home = await mkdtemp(join(tmpdir(), 'assethub-skill-marker-'))
+    const previous = process.env.ASSETHUB_CLI_HOME
+    process.env.ASSETHUB_CLI_HOME = home
+    try {
+      // A directory where the marker file belongs: reading it fails with EISDIR, not ENOENT.
+      await mkdir(join(home, '.agents', 'skills', 'assethub', '.assethub-cli-version'), {recursive: true})
+      await expect(createNodeUpdateDeps([]).prepareSkillRefresh()).rejects.toThrow(/cannot read .*\.assethub-cli-version/)
+    } finally {
+      if (previous === undefined) delete process.env.ASSETHUB_CLI_HOME
+      else process.env.ASSETHUB_CLI_HOME = previous
+      await rm(home, {recursive: true, force: true})
+    }
   })
 })

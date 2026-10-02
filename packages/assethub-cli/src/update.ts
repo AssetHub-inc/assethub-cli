@@ -35,8 +35,11 @@ export type UpdateDeps = {
   run: (command: string, args: string[]) => Promise<{code: number}>
   /** Runs the freshly installed binary: its version and whether the saved login still works. */
   verify: () => Promise<{version: string; auth: 'pass' | 'fail' | 'not_configured'}>
-  /** Has the freshly installed binary rewrite each agent skill copy setup installed. */
-  refreshSkills: () => Promise<SkillRefresh[]>
+  /**
+   * Notes each agent skill copy setup installed, before anything of the new
+   * version runs; the returned function has the new binary rewrite them.
+   */
+  prepareSkillRefresh: () => Promise<() => Promise<SkillRefresh[]>>
   interactive: boolean
   confirm: (question: string) => Promise<boolean>
   say: (message: string) => void
@@ -137,11 +140,11 @@ export const runUpdate = async (options: UpdateOptions, deps: UpdateDeps): Promi
   const {code} = await deps.run(command, args)
   if (code !== 0) throw new Error(`\`${shown}\` exited with code ${code}; ${PACKAGE_NAME} is still ${from}.`)
 
-  // Before verifying: the verifying doctor would quietly sync the home copy itself.
-  let skills: SkillRefresh[] = []
+  // Note the copies before verifying: the verifying doctor quietly syncs the home one itself.
+  let refreshSkills: (() => Promise<SkillRefresh[]>) | undefined
   let skillError: string | undefined
   try {
-    skills = await deps.refreshSkills()
+    refreshSkills = await deps.prepareSkillRefresh()
   } catch (error) {
     skillError = (error as Error).message
   }
@@ -154,6 +157,14 @@ export const runUpdate = async (options: UpdateOptions, deps: UpdateDeps): Promi
   if (installed.auth === 'fail')
     deps.say('Updated, but the saved login did not pass its check. Run `assethub doctor` to see why; the update did not change your login.')
 
+  // Only now: a shadowing older `assethub` on PATH has already failed the version check above.
+  let skills: SkillRefresh[] = []
+  if (refreshSkills)
+    try {
+      skills = await refreshSkills()
+    } catch (error) {
+      skillError = (error as Error).message
+    }
   if (skillError)
     deps.say(`Updated, but the agent skill could not be refreshed (${skillError}). Run \`assethub setup --only skills\` to refresh it.`)
   for (const skill of skills)
@@ -213,11 +224,20 @@ const latestViaRegistry = async (): Promise<string> => {
 // Mirrors agentSetup.ts: setup marks each skill copy it wrote with this file.
 const SKILL_MARKER = join('.agents', 'skills', 'assethub', '.assethub-cli-version')
 
+// Only a missing marker means "not installed"; any other read error is reported.
 const readMarker = (path: string): Promise<string | undefined> =>
   readFile(path, 'utf8').then(
     text => text.trim(),
-    () => undefined,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined
+      throw new Error(`cannot read ${path}: ${error.message}`)
+    },
   )
+
+const samePath = async (a: string, b: string): Promise<boolean> => {
+  const real = (path: string) => realpath(path).catch(() => path.replace(/[\\/]+$/, ''))
+  return (await real(a)) === (await real(b))
+}
 
 type SetupSkillsReport = {steps?: {name?: string; path?: string; detail?: string}[]}
 
@@ -273,30 +293,37 @@ export const createNodeUpdateDeps = (forwardFlags: string[], forwardEnv: Record<
   // The new binary rewrites the copies: the running (old) process may still
   // point at the previous package directory. Only copies setup installed are
   // touched: the home one, and this folder's from `setup --project`.
-  refreshSkills: async () => {
+  // The new binary rewrites the copies: the running (old) process may still
+  // point at the previous package directory. Only copies setup installed are
+  // touched: the home one, and this folder's from `setup --project`.
+  prepareSkillRefresh: async () => {
     const home = env.ASSETHUB_CLI_HOME || homedir()
-    const roots = [{dir: home, project: false}, ...(cwd() === home ? [] : [{dir: cwd(), project: true}])]
-    const refreshed: SkillRefresh[] = []
+    const roots = [{dir: home, project: false}, ...((await samePath(cwd(), home)) ? [] : [{dir: cwd(), project: true}])]
+    const installed: {dir: string; project: boolean; marker: string; before: string}[] = []
     for (const root of roots) {
       const marker = join(root.dir, SKILL_MARKER)
-      // Read before the new binary runs: any of its commands syncs the home copy first.
       const before = await readMarker(marker)
-      if (before === undefined) continue
-      const args = ['setup', '--only', 'skills', '--json', ...(root.project ? ['--project'] : []), ...forwardFlags]
-      let raw: string
-      try {
-        raw = (await execFileAsync('assethub', args, {shell, timeout: 60_000, cwd: root.dir, env: {...env, ...forwardEnv}})).stdout
-      } catch (error) {
-        raw = (error as {stdout?: string}).stdout ?? ''
-        if (!raw) throw new Error(`\`assethub ${args.join(' ')}\` failed: ${(error as Error).message}`)
-      }
-      const report = JSON.parse(raw) as SetupSkillsReport
-      const step = report.steps?.find(candidate => candidate.name === 'skills')
-      if (!step?.path) throw new Error(`\`assethub ${args.join(' ')}\` did not report the skill: ${step?.detail ?? 'no skills step'}`)
-      const after = await readMarker(marker)
-      refreshed.push({path: step.path, change: after !== before ? 'updated' : 'unchanged', ...(after ? {version: after} : {})})
+      if (before !== undefined) installed.push({...root, marker, before})
     }
-    return refreshed
+    return async () => {
+      const refreshed: SkillRefresh[] = []
+      for (const root of installed) {
+        const args = ['setup', '--only', 'skills', '--json', ...(root.project ? ['--project'] : []), ...forwardFlags]
+        let raw: string
+        try {
+          raw = (await execFileAsync('assethub', args, {shell, timeout: 60_000, cwd: root.dir, env: {...env, ...forwardEnv}})).stdout
+        } catch (error) {
+          raw = (error as {stdout?: string}).stdout ?? ''
+          if (!raw) throw new Error(`\`assethub ${args.join(' ')}\` failed: ${(error as Error).message}`)
+        }
+        const report = JSON.parse(raw) as SetupSkillsReport
+        const step = report.steps?.find(candidate => candidate.name === 'skills')
+        if (!step?.path) throw new Error(`\`assethub ${args.join(' ')}\` did not report the skill: ${step?.detail ?? 'no skills step'}`)
+        const after = await readMarker(root.marker)
+        refreshed.push({path: step.path, change: after !== root.before ? 'updated' : 'unchanged', ...(after ? {version: after} : {})})
+      }
+      return refreshed
+    }
   },
   interactive: Boolean(stdin.isTTY && stderr.isTTY),
   confirm: async question => {

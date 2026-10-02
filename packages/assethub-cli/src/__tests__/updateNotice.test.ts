@@ -132,6 +132,7 @@ describe('background refresh', () => {
         return {code: 0}
       },
       verify: async () => ({version, auth: 'pass'}),
+      prepareSkillRefresh: async () => async () => [],
       interactive: false,
       confirm: async () => false,
       say: () => {},
