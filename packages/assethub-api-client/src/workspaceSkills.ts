@@ -330,10 +330,22 @@ export type WorkspaceSkillBuildSource =
   | {kind: 'canvas_graph'; canvasIds: number[]}
   | {kind: 'memory_path'; memoryIds: string[]}
 
+/** The end result a built skill delivers. part_separation works for every
+ *  account; the others need the v7 Skill Builder (400 TASK_KIND_NOT_SUPPORTED). */
+export const WORKSPACE_SKILL_BUILD_TASK_KINDS = [
+  'part_separation',
+  'concept_art',
+  'part_composition',
+  'mesh_generation',
+  'mesh_processing',
+  'rigging_animation',
+  'character_production',
+] as const
+
 export type WorkspaceSkillBuildInput = {
   goal: string
   instructions?: string
-  taskKind: 'part_separation'
+  taskKind: (typeof WORKSPACE_SKILL_BUILD_TASK_KINDS)[number]
   source: WorkspaceSkillBuildSource
 }
 
@@ -850,4 +862,114 @@ export type SkillMemoryLinks = {
   /** True when the Skill cites more distinct memories than one call resolves;
    *  the extra refs are still listed, with `not_resolved_truncated`. */
   truncated: boolean
+}
+
+/** A skill run's state, as `GET /workspace-skills/{skillId}/runs/{runId}` answers. */
+export type WorkspaceSkillRunStatus =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'budget_exhausted'
+  | 'cancelled'
+
+export const TERMINAL_WORKSPACE_SKILL_RUN_STATUSES: readonly WorkspaceSkillRunStatus[] =
+  ['completed', 'failed', 'cancelled']
+
+export type WorkspaceSkillRunReference = {
+  role: string
+  assetId: string
+  note?: string
+}
+
+export type WorkspaceSkillRunStartInput = {
+  clientOperationId: string
+  canvasId: number
+  /** The image the skill starts from: an image asset on that canvas. */
+  sourceImageAssetId: string
+  budgetCredits: number
+  ask?: string
+  authorModel?: string
+  /** Refuse instead of charge when the skill changed after it was read. */
+  expectedRevision?: number
+  expectedContentSha256?: string
+  references?: WorkspaceSkillRunReference[]
+  executionContext?: {
+    canvasId: number
+    clientOperationId: string
+    source: 'cli' | 'mcp' | 'api'
+    agent?: {name: string; sessionId?: string}
+  }
+}
+
+export type WorkspaceSkillRunStarted = {
+  runId: string
+  skillId: string
+  canvasId: number
+  pin: {skillId: string; revision: number; contentSha256: string}
+  budget: {credits: number}
+  status: 'running'
+}
+
+export type WorkspaceSkillRunStep = {
+  stepId: string
+  stage: string
+  /** The first try is 1. */
+  attempt: number
+  status: string
+  artifactId: string
+  assetId?: string
+  part?: string
+}
+
+export type WorkspaceSkillRunVerdict = {
+  stepId: string
+  attempt: number
+  pass: boolean | null
+  by: string | null
+  reason: string | null
+}
+
+export type WorkspaceSkillRunOutput = {
+  artifactId: string
+  stepId: string | null
+  kind: 'image' | 'mesh' | 'json'
+  assetId?: string
+  /** True only once the goal is met and the outcome names this artifact. */
+  verified: boolean
+}
+
+export type WorkspaceSkillRun = {
+  runId: string
+  skillId: string
+  status: WorkspaceSkillRunStatus
+  budget: {credits: number; spentCredits: number; remainingCredits: number}
+  steps: WorkspaceSkillRunStep[]
+  verdicts: WorkspaceSkillRunVerdict[]
+  outputs: WorkspaceSkillRunOutput[]
+  outcome: {status: string; reason?: string; [key: string]: unknown} | null
+  parts: {
+    id: string
+    key: string
+    note: string
+    status: string
+    finals: string[]
+    reason: string
+  }[]
+  /** Present only where the Looks right / Needs changes gate is on. */
+  humanVerdict?: unknown
+}
+
+export type WorkspaceSkillRunResumeInput = {
+  clientOperationId: string
+  addCredits: number
+}
+
+export type WorkspaceSkillRunVerdictInput = {
+  verdict: 'keep' | 'not_right'
+  note?: string
+}
+
+export type WorkspaceSkillRunHumanVerdictResult = {
+  runId: string
+  humanVerdict: {verdict: 'keep' | 'not_right'; note: string | null; by: string}
 }

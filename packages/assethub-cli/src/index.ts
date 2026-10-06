@@ -8,6 +8,7 @@ import {
   discoverApiOperations,
   searchApiOperations,
   TERMINAL_WORKSPACE_SKILL_BUILD_STATUSES,
+  WORKSPACE_SKILL_BUILD_TASK_KINDS,
   WORKSPACE_SKILL_ENHANCE_SECTIONS,
   type WorkspaceSkillBuild,
 } from '@assethub/api-client'
@@ -70,6 +71,14 @@ import {
   type ProductionBatchItemResult,
 } from './productionBatch.js'
 import {importCanvasAssetWithState} from './canvasAssetImport.js'
+import {
+  listRunnableSkills,
+  nextSkillRunAction,
+  pinSkill,
+  type SkillListRow,
+  saveSkillRunOutputs,
+  waitForSkillRun,
+} from './skillRun.js'
 import {execFile, spawn} from 'node:child_process'
 import {createHash, randomUUID} from 'node:crypto'
 import {realpathSync} from 'node:fs'
@@ -547,7 +556,7 @@ Usage:
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
-  assethub skills list [--cursor <cursor>]
+  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: only skills that skills run accepts, every page)
   assethub skills get <skill-id> [--revision <n>]
   assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
   assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
@@ -558,7 +567,15 @@ Usage:
   assethub skills accept <proposal-id> --input-json <json|@file|@->
   assethub skills validate --input-json <json|@file|@-> [--build <build-id>]
   assethub skills schema
-  assethub skills build --goal <text> (--canvas <id>... | --memory <id>...) [--instructions <text>] [--operation-id <uuid>] [--wait] [--dry-run]
+  assethub skills build --goal <text> (--canvas <id>... | --memory <id>...) [--task-kind part_separation|concept_art|part_composition|mesh_generation|mesh_processing|rigging_animation|character_production] [--instructions <text>] [--operation-id <uuid>] [--wait] [--dry-run]
+  assethub skills build-status <build-id> [--wait]
+  assethub skills build-enhance <build-id> --section <section> --current <json> [--note <text>]   (a suggestion only; nothing is written)
+  assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
+  assethub skills build-discard <build-id>
+  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text>] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to --budget)
+  assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>]
+  assethub skills run-resume <skill-id> <run-id> --add-credits <n> [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to the new limit)
+  assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
   assethub skills official list
   assethub skills official install <skill-id> --revision <n> --content-sha256 <sha256> [--expected-revision <n>] [--expected-grant-revision <n>]
   assethub skills official prepare <skill-id> --input-json <json|@file|@->
@@ -7312,11 +7329,240 @@ const waitForSkillBuild = async (
   }
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+const operationIdFlag = (flags: Flags): string => {
+  const value = getFlag(flags, 'operation-id') ?? randomUUID()
+  if (!UUID_PATTERN.test(value)) throw new Error('--operation-id must be a UUID')
+  return value
+}
+
+/**
+ * Wait for a skill run, saying each change in one plain line on stderr, then
+ * save what it made (when there is a folder to save into) and print the end
+ * state with the next command to run.
+ */
+const finishSkillRun = async (
+  ctx: CommandContext,
+  input: {
+    skillId: string
+    runId: string
+    wait: boolean
+    outDir?: string
+    sourceFileName?: string
+    skillTitle?: string
+    extra?: Record<string, unknown>
+  },
+) => {
+  const {run, timedOut} = input.wait
+    ? await waitForSkillRun({
+        client: ctx.client,
+        skillId: input.skillId,
+        runId: input.runId,
+        onProgress: line => stderr.write(`${line}\n`),
+      })
+    : {
+        run: await ctx.client.v2.getWorkspaceSkillRun(
+          input.skillId,
+          input.runId,
+        ),
+        timedOut: false,
+      }
+  const files =
+    run.status === 'completed' && input.outDir
+      ? await saveSkillRunOutputs({
+          client: ctx.client,
+          run,
+          outDir: input.outDir,
+          sourceFileName: input.sourceFileName,
+          skillTitle:
+            input.skillTitle ??
+            (await ctx.client.v2.getWorkspaceSkill(input.skillId)).skill.title,
+        })
+      : undefined
+  for (const file of files?.saved ?? [])
+    stderr.write(`Saved: ${file.path}\n`)
+  print({
+    ...input.extra,
+    ...run,
+    ...(timedOut ? {timedOut: true} : {}),
+    ...(files ? {saved: files.saved, saveFailed: files.failed} : {}),
+    next: nextSkillRunAction(run),
+  })
+  if (timedOut) process.exitCode = 3
+  else if (
+    run.status === 'failed' ||
+    run.status === 'cancelled' ||
+    (files?.failed.length ?? 0) > 0
+  )
+    process.exitCode = 1
+}
+
+/**
+ * `skills run | run-status | run-resume | run-verdict`: a workspace skill is
+ * read from the server and run there; nothing about it is stored locally
+ * except the canvas import receipt for the source image.
+ */
+const commandSkillRun = async (
+  subcommand: string,
+  positionals: string[],
+  ctx: CommandContext,
+): Promise<void> => {
+  const skillId = requirePositional(positionals, 2, 'skill-id')
+  const wait = hasFlag(ctx.flags, 'wait')
+  const outDirFlag = getFlag(ctx.flags, 'out-dir')
+  try {
+    if (subcommand === 'run') {
+      const filePath = getFlag(ctx.flags, 'file')
+      const imageAssetId = getFlag(ctx.flags, 'image-asset')
+      if ((filePath == null) === (imageAssetId == null))
+        throw new Error(
+          'Pass exactly one image: --file <path> (a picture on this computer) or --image-asset <asset-id>.',
+        )
+      // No default: the spending limit is always the person's decision.
+      requireFlag(ctx.flags, 'budget')
+      const budgetCredits = parsePositiveIntegerFlag(ctx.flags, 'budget', 1)
+      const operationId = operationIdFlag(ctx.flags)
+      const pin = await pinSkill(ctx.client, skillId, {
+        revision: hasFlag(ctx.flags, 'revision')
+          ? parsePositiveIntegerFlag(ctx.flags, 'revision', 1)
+          : undefined,
+        contentSha256: getFlag(ctx.flags, 'content-sha256'),
+      })
+      const {canvas} = await openExecutionSession({
+        ...stateOptions(ctx),
+        canvasId: selectedCanvasId(ctx.flags),
+      })
+      const sourceImageAssetId =
+        imageAssetId ??
+        (
+          await importCanvasAssetWithState({
+            client: ctx.client,
+            baseUrl: ctx.client.baseUrl,
+            ownerId: canvas.ownerId,
+            canvasId: canvas.id,
+            stateDir: stateOptions(ctx).stateDir,
+            filePath: assertFlagHasValue(filePath!, '--file <image>'),
+          })
+        ).assetId
+      stderr.write(
+        `Running "${pin.title}" (revision ${pin.revision}) with a limit of ${budgetCredits} credits on canvas ${canvas.id}.\n` +
+          `If this command is interrupted, run it again with --operation-id ${operationId}: that continues the same run instead of paying twice.\n`,
+      )
+      const started = await ctx.client.v2.startWorkspaceSkillRun(skillId, {
+        clientOperationId: operationId,
+        canvasId: canvas.id,
+        sourceImageAssetId,
+        budgetCredits,
+        ask: getFlag(ctx.flags, 'ask'),
+        expectedRevision: pin.revision,
+        expectedContentSha256: pin.contentSha256,
+        executionContext: {
+          canvasId: canvas.id,
+          clientOperationId: operationId,
+          source: 'cli',
+        },
+      })
+      await finishSkillRun(ctx, {
+        skillId,
+        runId: started.runId,
+        wait,
+        outDir: outDirFlag ?? (filePath ? dirname(resolve(filePath)) : undefined),
+        sourceFileName: filePath ? basename(filePath) : undefined,
+        skillTitle: pin.title,
+        extra: {operationId, canvasId: canvas.id, pin: started.pin},
+      })
+      return
+    }
+    const runId = requirePositional(positionals, 3, 'run-id')
+    if (subcommand === 'run-status') {
+      await finishSkillRun(ctx, {skillId, runId, wait, outDir: outDirFlag})
+      return
+    }
+    if (subcommand === 'run-resume') {
+      requireFlag(ctx.flags, 'add-credits')
+      const operationId = operationIdFlag(ctx.flags)
+      await ctx.client.v2.resumeWorkspaceSkillRun(skillId, runId, {
+        clientOperationId: operationId,
+        addCredits: parsePositiveIntegerFlag(ctx.flags, 'add-credits', 1),
+      })
+      await finishSkillRun(ctx, {
+        skillId,
+        runId,
+        wait,
+        outDir: outDirFlag,
+        extra: {operationId},
+      })
+      return
+    }
+    if (subcommand === 'run-verdict') {
+      const verdict = parseEnumFlag(ctx.flags, 'verdict', [
+        'keep',
+        'not-right',
+      ] as const)
+      if (!verdict) throw new Error('Missing required flag: --verdict keep|not-right')
+      print(
+        await ctx.client.v2.recordWorkspaceSkillRunVerdict(skillId, runId, {
+          verdict: verdict === 'keep' ? 'keep' : 'not_right',
+          note: getFlag(ctx.flags, 'note'),
+        }),
+      )
+      return
+    }
+  } catch (error) {
+    if (
+      error instanceof AssetHubApiError &&
+      CALLER_ERROR_STATUSES.has(error.status)
+    ) {
+      // A key without skill runs gets the same 404 as an unknown path.
+      const unavailable =
+        error.code === 'SKILL_RUN_DISABLED' ||
+        (subcommand === 'run' && error.status === 404 && error.code === 'NOT_FOUND')
+      print({
+        error: {
+          code: error.code,
+          message: unavailable
+            ? 'Running skills is not available on this account yet.'
+            : error.message,
+          status: error.status,
+        },
+      })
+      process.exitCode = 2
+      return
+    }
+    throw error
+  }
+  throw new Error('Use skills run|run-status|run-resume|run-verdict')
+}
+
 export const commandSkills = async (
   subcommand: string | undefined,
   positionals: string[],
   ctx: CommandContext,
 ): Promise<void> => {
+  if (
+    subcommand === 'run' ||
+    subcommand === 'run-status' ||
+    subcommand === 'run-resume' ||
+    subcommand === 'run-verdict'
+  ) {
+    await commandSkillRun(subcommand, positionals, ctx)
+    return
+  }
+  if (subcommand === 'list' && hasFlag(ctx.flags, 'runnable')) {
+    print(
+      await listRunnableSkills(async cursor => {
+        const page = await ctx.client.v2.listWorkspaceSkills({cursor})
+        // The server sends schemaVersion; the published summary type predates it.
+        return {
+          items: page.items as unknown as SkillListRow[],
+          nextCursor: page.nextCursor,
+        }
+      }),
+    )
+    return
+  }
   if (subcommand === 'list') {
     print(
       await ctx.client.v2.listWorkspaceSkills({
@@ -7602,7 +7848,11 @@ export const commandSkills = async (
     const request = {
       goal: requireFlag(ctx.flags, 'goal'),
       instructions: getFlag(ctx.flags, 'instructions'),
-      taskKind: 'part_separation' as const,
+      // The end result the skill delivers; the server refuses a kind this
+      // account's builder cannot write rather than coercing it.
+      taskKind: (parseEnumFlag(ctx.flags, 'task-kind', [
+        ...WORKSPACE_SKILL_BUILD_TASK_KINDS,
+      ]) ?? 'part_separation') as (typeof WORKSPACE_SKILL_BUILD_TASK_KINDS)[number],
       source:
         canvasIds.length > 0
           ? {kind: 'canvas_graph' as const, canvasIds}
@@ -7693,7 +7943,7 @@ export const commandSkills = async (
     return
   }
   throw new Error(
-    'Use skills list|get|memory|learn|update|controls|prepare|proposal|accept|validate|schema|build|build-status|build-enhance|build-accept|build-discard|official',
+    'Use skills list|get|run|run-status|run-resume|run-verdict|memory|learn|update|controls|prepare|proposal|accept|validate|schema|build|build-status|build-enhance|build-accept|build-discard|official',
   )
 }
 

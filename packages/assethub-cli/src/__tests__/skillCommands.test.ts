@@ -240,6 +240,11 @@ it('validates a draft, reads the draft schema, and dry-runs a build from the CLI
       taskKind: 'part_separation',
       source: {kind: 'canvas_graph', canvasIds: [999]},
     })
+    await run(['build', '--goal', 'One side view', '--canvas', '999', '--task-kind', 'concept_art', '--dry-run'])
+    expect(requests.at(-1)?.body).toMatchObject({taskKind: 'concept_art'})
+    await expect(
+      run(['build', '--goal', 'x', '--canvas', '999', '--task-kind', 'turnaround', '--dry-run']),
+    ).rejects.toThrow(/task-kind/)
   } finally {
     await new Promise<void>(done => server.close(() => done()))
   }

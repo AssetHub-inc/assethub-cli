@@ -117,7 +117,7 @@ Usage:
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
-  assethub skills list [--cursor <cursor>]
+  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: only skills that skills run accepts, every page)
   assethub skills get <skill-id> [--revision <n>]
   assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
   assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
@@ -128,7 +128,15 @@ Usage:
   assethub skills accept <proposal-id> --input-json <json|@file|@->
   assethub skills validate --input-json <json|@file|@-> [--build <build-id>]
   assethub skills schema
-  assethub skills build --goal <text> (--canvas <id>... | --memory <id>...) [--instructions <text>] [--operation-id <uuid>] [--wait] [--dry-run]
+  assethub skills build --goal <text> (--canvas <id>... | --memory <id>...) [--task-kind part_separation|concept_art|part_composition|mesh_generation|mesh_processing|rigging_animation|character_production] [--instructions <text>] [--operation-id <uuid>] [--wait] [--dry-run]
+  assethub skills build-status <build-id> [--wait]
+  assethub skills build-enhance <build-id> --section <section> --current <json> [--note <text>]   (a suggestion only; nothing is written)
+  assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
+  assethub skills build-discard <build-id>
+  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text>] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to --budget)
+  assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>]
+  assethub skills run-resume <skill-id> <run-id> --add-credits <n> [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to the new limit)
+  assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
   assethub skills official list
   assethub skills official install <skill-id> --revision <n> --content-sha256 <sha256> [--expected-revision <n>] [--expected-grant-revision <n>]
   assethub skills official prepare <skill-id> --input-json <json|@file|@->

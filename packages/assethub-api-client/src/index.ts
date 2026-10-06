@@ -45,6 +45,8 @@ export {INTERVENTION_OPS} from './generated/intervention.js'
 // A value, not a type: callers poll against it.
 export {
   TERMINAL_WORKSPACE_SKILL_BUILD_STATUSES,
+  TERMINAL_WORKSPACE_SKILL_RUN_STATUSES,
+  WORKSPACE_SKILL_BUILD_TASK_KINDS,
   WORKSPACE_SKILL_ENHANCE_SECTIONS,
 } from './workspaceSkills.js'
 export {createWorkspaceClient, WorkspaceClientError} from './workspaces.js'
@@ -105,6 +107,17 @@ export type {
   OfficialWorkspaceSkillInstall,
   OfficialWorkspaceSkillList,
   OfficialWorkspaceSkillSummary,
+  WorkspaceSkillRun,
+  WorkspaceSkillRunOutput,
+  WorkspaceSkillRunReference,
+  WorkspaceSkillRunResumeInput,
+  WorkspaceSkillRunStartInput,
+  WorkspaceSkillRunStarted,
+  WorkspaceSkillRunStatus,
+  WorkspaceSkillRunStep,
+  WorkspaceSkillRunVerdict,
+  WorkspaceSkillRunVerdictInput,
+  WorkspaceSkillRunHumanVerdictResult,
 } from './workspaceSkills.js'
 export type {
   Workspace,
@@ -203,6 +216,12 @@ import type {
   WorkspaceSkillDraftValidateResult,
   WorkspaceSkillDraftSchema,
   WorkspaceSkillBuildDryRunResult,
+  WorkspaceSkillRun,
+  WorkspaceSkillRunResumeInput,
+  WorkspaceSkillRunStartInput,
+  WorkspaceSkillRunStarted,
+  WorkspaceSkillRunVerdictInput,
+  WorkspaceSkillRunHumanVerdictResult,
 } from './workspaceSkills.js'
 export type {
   GraphListResult,
@@ -2533,6 +2552,75 @@ export class AssetHubClient {
             body: JSON.stringify(body),
             ...idempotencyRequestInit(options),
           },
+        )
+      ).data,
+
+    /**
+     * Start a skill run on an image. PAID: credits are charged as steps run,
+     * up to `budgetCredits`. Reusing the same `clientOperationId` after a lost
+     * response returns the SAME run instead of starting a second one.
+     */
+    startWorkspaceSkillRun: async (
+      skillId: string,
+      body: WorkspaceSkillRunStartInput,
+    ): Promise<WorkspaceSkillRunStarted> =>
+      (
+        await this.request<WorkspaceSkillRunStarted>(
+          'v2',
+          `/workspace-skills/${encodeURIComponent(skillId)}/runs`,
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+            ...idempotencyRequestInit({
+              idempotencyKey: body.clientOperationId,
+            }),
+          },
+        )
+      ).data,
+
+    getWorkspaceSkillRun: async (
+      skillId: string,
+      runId: string,
+    ): Promise<WorkspaceSkillRun> =>
+      (
+        await this.request<WorkspaceSkillRun>(
+          'v2',
+          `/workspace-skills/${encodeURIComponent(skillId)}/runs/${encodeURIComponent(runId)}`,
+          {method: 'GET'},
+        )
+      ).data,
+
+    /** Raise the spending limit of a run paused at `budget_exhausted` and continue the SAME run. */
+    resumeWorkspaceSkillRun: async (
+      skillId: string,
+      runId: string,
+      body: WorkspaceSkillRunResumeInput,
+    ): Promise<WorkspaceSkillRun> =>
+      (
+        await this.request<WorkspaceSkillRun>(
+          'v2',
+          `/workspace-skills/${encodeURIComponent(skillId)}/runs/${encodeURIComponent(runId)}/resume`,
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+            ...idempotencyRequestInit({
+              idempotencyKey: body.clientOperationId,
+            }),
+          },
+        )
+      ).data,
+
+    /** Looks right (`keep`) / Needs changes (`not_right`). Free; changes neither the skill nor the run. */
+    recordWorkspaceSkillRunVerdict: async (
+      skillId: string,
+      runId: string,
+      body: WorkspaceSkillRunVerdictInput,
+    ): Promise<WorkspaceSkillRunHumanVerdictResult> =>
+      (
+        await this.request<WorkspaceSkillRunHumanVerdictResult>(
+          'v2',
+          `/workspace-skills/${encodeURIComponent(skillId)}/runs/${encodeURIComponent(runId)}/verdict`,
+          {method: 'POST', body: JSON.stringify(body)},
         )
       ).data,
 

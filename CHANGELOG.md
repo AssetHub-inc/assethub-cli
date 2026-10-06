@@ -1,5 +1,18 @@
 # Changelog
 
+## CLI 0.1.41 / API client 0.1.19
+
+Artists can find, run and create workspace skills from Claude Code, Codex or Cursor without writing API calls. Publish `@assethub/api-client` 0.1.19 first: the CLI needs its new skill-run methods.
+
+- `assethub skills run <skill-id> --file <image> --budget <credits> --wait` runs a workspace skill on a picture from this computer. It uploads the picture to the canvas, pins the skill revision you approved (an edited skill is refused instead of charged), prints one plain line per try and per AI check on stderr, and saves the verified results next to the original as new files (`hero.turnaround-view.png`, then `-2`, …); nothing is ever overwritten. The JSON says what to do next in `next`. Running again with the same `--operation-id` continues the same run. Running skills is not open to every account yet; such an account gets `Running skills is not available on this account yet.`
+- `skills run-status`, `skills run-resume --add-credits <n>` (a run paused at its spending limit continues; never a second run) and `skills run-verdict --verdict keep|not-right [--note]`.
+- `skills list --runnable` lists only the skills a run accepts (the same ones the canvas "Use skill" node offers), across every page, and marks two skills with the same title (`sameSummaryAs`).
+- `skills build --task-kind <kind>` builds a skill for any end result (`concept_art`, `part_composition`, `mesh_generation`, `mesh_processing`, `rigging_animation`, `character_production`), not only `part_separation`. The other kinds need the v7 Skill Builder on your account; otherwise the server answers `TASK_KIND_NOT_SUPPORTED`.
+- `skills build-status`, `build-enhance`, `build-accept` and `build-discard` are listed in `--help`. They worked before but were not shown.
+- The bundled `assethub` skill is rewritten for artists: the assistant checks the team's skills before any work, asks every choice through its question tool (AskUserQuestion in Claude Code, numbered options elsewhere), runs a skill with one command, and starts every new skill with an interview (kind, canvas, goal, what must stay the same, criteria, a full read-back) steered by what was decided in the conversation. A test keeps every command and flag the skill names in `--help`.
+- API client: `startWorkspaceSkillRun`, `getWorkspaceSkillRun`, `resumeWorkspaceSkillRun`, `recordWorkspaceSkillRunVerdict`, their types, `TERMINAL_WORKSPACE_SKILL_RUN_STATUSES`, and `WORKSPACE_SKILL_BUILD_TASK_KINDS` (a build's `taskKind` takes all seven kinds).
+- `assethub setup` ends by saying what to type: `type /assethub, or just say what you want, e.g. "what skills does our workspace have?"`.
+
 ## CLI 0.1.40 · SDK 0.1.18
 
 - `production analyze` and `production batch` take `--mesh-quality low|high` and a repeatable `--mesh-model <id>` for V4 Character Assembly (`--part-extractor v4`). They set the run's mesh quality and the only models it may use, the same as the canvas start card: `--mesh-quality low --mesh-model meshGen.tripo_p2_preview` makes every part Tripo P2, and the AI's fallback never leaves that list. Defaults: low uses Tripo P2, high uses Tripo 3.1. The `meshGen.` prefix is optional. Needs the mesh-quality rollout (internal and named V4 testers); the server refuses the request before any credit hold otherwise.
