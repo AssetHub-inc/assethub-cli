@@ -1,5 +1,16 @@
 # Changelog
 
+## CLI 0.1.42
+
+Skills commands work as written on Windows (PowerShell and cmd.exe).
+
+- `skills build --instructions`, `skills run --ask` and `skills build-enhance --current` take `@file` (or `@-` for stdin). The bundled skill writes multi-line instructions and JSON to a file instead of putting line breaks or quotes inside one argument, which PowerShell and cmd.exe break.
+- The bundled skill writes every command on one line: no trailing `\` (PowerShell ran the first half alone, so `skills run` started without its `--revision`/`--content-sha256` pin), no `$(uuidgen)`, no single-quoted JSON. A test keeps it that way.
+- `skills run` progress lines are plain ASCII (`Try 1: Making the image - done.`); Windows PowerShell 5.1 showed the em dash as `ΓÇö`.
+- The bundled skill quotes every `@file` argument (`--instructions "@instructions.txt"`): PowerShell reads an unquoted `@name` as splatting, so the file never reached the CLI. A test keeps them quoted.
+- On Windows, `setup --print-env` prints `$env:ASSETHUB_API_KEY = "…"` and setup's hints say `setx ASSETHUB_API_KEY "<your key>"` instead of a bash `export`.
+- CI also builds, typechecks and runs the skills tests on `windows-latest`.
+
 ## CLI 0.1.41 / API client 0.1.19
 
 Artists can find, run and create workspace skills from Claude Code, Codex or Cursor without writing API calls. Publish `@assethub/api-client` 0.1.19 first: the CLI needs its new skill-run methods.

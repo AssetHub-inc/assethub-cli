@@ -260,6 +260,10 @@ const listJoin = (items: string[]): string =>
 // How each agent's desktop app is named in restart instructions.
 const APP_NAMES: Record<AgentId, string> = {'claude-code': 'Claude (Cmd+Q)', codex: 'Codex', cursor: 'Cursor'}
 
+/** The line that sets the key in the current shell: PowerShell on Windows, POSIX sh elsewhere. */
+const envLine = (platform: NodeJS.Platform, value: string) =>
+  platform === 'win32' ? `$env:${API_KEY_ENV} = "${value}"` : `export ${API_KEY_ENV}=${value}`
+
 export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<SetupResult> => {
   const steps: SetupStep[] = []
   const say = (line: string) => deps.log(line)
@@ -598,7 +602,8 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   if (!skipped('mcp'))
     say(`${listJoin(agentNames)} ${agents.length > 1 ? 'read' : 'reads'} the key from the ${API_KEY_ENV} environment variable: export it in your shell (run \`assethub setup --print-env\` to print the line). Setup never writes it to a shell profile.`)
   let exportLine: string | undefined
-  if (options.printEnv) exportLine = `export ${API_KEY_ENV}=${options.dryRun || !key ? shownKey : key}`
+  if (options.printEnv)
+    exportLine = envLine(deps.platform, options.dryRun || !key ? shownKey : key)
 
   // 4. Skill: one copy under <root>/.agents/skills, linked into each agent.
   let skill: SkillsReport | undefined
@@ -730,7 +735,9 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
           : 'Done.'
         : appEnv?.status === 'ok'
           ? `Quit and reopen ${apps} so it reads ${API_KEY_ENV}, then ${firstWords}. Terminal tabs opened before setup still need \`export ${API_KEY_ENV}=…\`.`
-          : `Export ${API_KEY_ENV} in the shell that starts ${agentNames.join(' / ')}, restart it, then ${firstWords}.`
+          : deps.platform === 'win32'
+            ? `Set ${API_KEY_ENV} for ${agentNames.join(' / ')} (PowerShell: setx ${API_KEY_ENV} "<your key>", then open a new window), restart it, then ${firstWords}.`
+            : `Export ${API_KEY_ENV} in the shell that starts ${agentNames.join(' / ')}, restart it, then ${firstWords}.`
   return {
     ok,
     dryRun: options.dryRun,
@@ -801,7 +808,10 @@ const ensureAppEnv = async (options: SetupOptions, deps: SetupDeps, key: string)
     return {
       name,
       status: 'skip',
-      detail: `set ${API_KEY_ENV} in the environment your apps start with (\`assethub setup --print-env\` prints the line)`,
+      detail:
+        deps.platform === 'win32'
+          ? `set ${API_KEY_ENV} for your apps: in PowerShell run \`setx ${API_KEY_ENV} "<your key>"\`, then open a new window (\`assethub setup --print-env\` prints the line for this window)`
+          : `set ${API_KEY_ENV} in the environment your apps start with (\`assethub setup --print-env\` prints the line)`,
     }
   const plistPath = launchAgentPath(deps.home)
   if (options.dryRun) {

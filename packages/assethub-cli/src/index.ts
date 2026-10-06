@@ -567,12 +567,12 @@ Usage:
   assethub skills accept <proposal-id> --input-json <json|@file|@->
   assethub skills validate --input-json <json|@file|@-> [--build <build-id>]
   assethub skills schema
-  assethub skills build --goal <text> (--canvas <id>... | --memory <id>...) [--task-kind part_separation|concept_art|part_composition|mesh_generation|mesh_processing|rigging_animation|character_production] [--instructions <text>] [--operation-id <uuid>] [--wait] [--dry-run]
+  assethub skills build --goal <text> (--canvas <id>... | --memory <id>...) [--task-kind part_separation|concept_art|part_composition|mesh_generation|mesh_processing|rigging_animation|character_production] [--instructions <text|@file|@->] [--operation-id <uuid>] [--wait] [--dry-run]
   assethub skills build-status <build-id> [--wait]
-  assethub skills build-enhance <build-id> --section <section> --current <json> [--note <text>]   (a suggestion only; nothing is written)
+  assethub skills build-enhance <build-id> --section <section> --current <json|@file|@-> [--note <text>]   (a suggestion only; nothing is written)
   assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
   assethub skills build-discard <build-id>
-  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text>] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to --budget)
+  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to --budget)
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>]
   assethub skills run-resume <skill-id> <run-id> --add-credits <n> [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to the new limit)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
@@ -2849,6 +2849,18 @@ const watchOptions = (flags: Flags) => ({
   timeoutMs: parsePositiveIntegerFlag(flags, 'timeout-ms', defaultWaitMs(flags)),
   onProgress: runReporter({write: text => stderr.write(text)}),
 })
+/**
+ * A text flag's value, or the contents of `@file` / stdin for `@-`. Multi-line
+ * text and JSON go through a file so no shell (PowerShell and cmd.exe least of
+ * all) has to carry newlines or quotes inside one argument.
+ */
+const readTextArgument = async (value: string): Promise<string> =>
+  value === '@-'
+    ? await readStdin()
+    : value.startsWith('@')
+      ? await readFile(resolve(value.slice(1)), 'utf8')
+      : value
+
 const readJsonArgument = async (
   value: string,
   flag: string,
@@ -7455,7 +7467,9 @@ const commandSkillRun = async (
         canvasId: canvas.id,
         sourceImageAssetId,
         budgetCredits,
-        ask: getFlag(ctx.flags, 'ask'),
+        ask: hasFlag(ctx.flags, 'ask')
+          ? await readTextArgument(requireFlag(ctx.flags, 'ask'))
+          : undefined,
         expectedRevision: pin.revision,
         expectedContentSha256: pin.contentSha256,
         executionContext: {
@@ -7847,7 +7861,9 @@ export const commandSkills = async (
       throw new Error('Pass either --canvas (1-5) or --memory (1-8), not both.')
     const request = {
       goal: requireFlag(ctx.flags, 'goal'),
-      instructions: getFlag(ctx.flags, 'instructions'),
+      instructions: hasFlag(ctx.flags, 'instructions')
+        ? await readTextArgument(requireFlag(ctx.flags, 'instructions'))
+        : undefined,
       // The end result the skill delivers; the server refuses a kind this
       // account's builder cannot write rather than coercing it.
       taskKind: (parseEnumFlag(ctx.flags, 'task-kind', [
@@ -7907,7 +7923,10 @@ export const commandSkills = async (
           section: parseEnumFlag(ctx.flags, 'section', [
             ...WORKSPACE_SKILL_ENHANCE_SECTIONS,
           ]) as (typeof WORKSPACE_SKILL_ENHANCE_SECTIONS)[number],
-          current: JSON.parse(requireFlag(ctx.flags, 'current')),
+          current: parseJsonValue(
+            await readTextArgument(requireFlag(ctx.flags, 'current')),
+            '--current',
+          ),
           note: getFlag(ctx.flags, 'note'),
         },
       ),

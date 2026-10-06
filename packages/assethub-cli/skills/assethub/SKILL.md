@@ -59,6 +59,7 @@ description: |
 `assethub` is a client, not an agent. It calls the AssetHub API, prints **one JSON object to stdout**, and writes progress lines to stderr.
 
 - Parse stdout. Progress on stderr is written for people and may be passed on as is; do not parse it.
+- **Every command here works as written in bash, zsh, PowerShell and cmd.exe** (Windows included). Keep it that way: one line per command, never a trailing `\` to continue a line (PowerShell would run the first half alone, without the flags after it), no `$(…)`, and multi-line text or JSON goes in a file passed as `@file` (`--instructions`, `--ask`, `--current`, `--input-json`).
 - Exit codes: `0` accepted or completed · `1` terminal failure · `2` input, auth, capability, or budget error · `3` timeout, history pending, or needs review · `130` interrupted.
 - **Exit 3 is not a failure.** The job keeps running on the server. The JSON still carries `runId` / `operationId`; use them to continue or watch.
 - Errors arrive as `{"error": {"code", "message"}}` plus any known `runId` / `operationId`.
@@ -137,15 +138,14 @@ Running skills is not open to every account yet. If `skills run` answers `Runnin
 There is no up-front price for a skill run; never invent one. Suggest **50 credits** (the canvas "Use skill" default) unless the person names a limit. The run always needs one, and it is their decision.
 
 ```bash
-assethub skills run <skill-id> --file ./hero.png --budget 50 \
-  --revision <n> --content-sha256 <sha256> --wait
+assethub skills run <skill-id> --file ./hero.png --budget 50 --revision <n> --content-sha256 <sha256> --wait
 ```
 
 - `--file` uploads a picture from this computer to the canvas first; `--image-asset <asset-id>` uses one already in AssetHub instead. Exactly one of the two. With `--image-asset` there is no original folder, so also pass `--out-dir <folder>` (it is created if missing); without it the results stay on the canvas only.
 - `--revision` / `--content-sha256` come from `skills get`: the version the person approved. If the skill was edited since, the run is refused instead of charged; read it again and ask again.
 - `--ask "<text>"` passes the person's own instructions ("keep the scarf"). `--canvas <id>` picks the canvas; without it, the CLI uses one canvas per folder.
 - The first stderr line shows the operation ID. **If the command is interrupted, run the identical command again with `--operation-id <that id>`.** It reconnects to the same run; it never starts a second one.
-- While it runs, stderr gives one plain line per step and per AI check ("Try 1: Making the image — done.", "AI check (try 1): the fingers look fused. Correcting it automatically."). Pass them on in the person's language.
+- While it runs, stderr gives one plain line per step and per AI check ("Try 1: Making the image - done.", "AI check (try 1): the fingers look fused. Correcting it automatically."). Pass them on in the person's language.
 - When it finishes, verified results are saved **next to the original** as new files (`hero.turnaround-view.png`, then `-2`, `-3`, …). stderr lists each `Saved:` path; the JSON has `saved` and `canvasId`. Nothing is ever overwritten. Read the saved image before you describe it.
 - The JSON's `next` field says what to do next.
 
@@ -241,10 +241,10 @@ Must: white background; same shape and colour as the concept; nothing that is no
 Use on: Pluffy concepts with accessories, front view.
 ```
 
-Decisions only: never paste the conversation itself, file paths, ids, or anything private.
+Write these lines to a file (for example `instructions.txt` next to the image) and pass `--instructions "@instructions.txt"`. Never put line breaks inside a command-line argument: PowerShell and cmd.exe break them. Put every `@file` argument in double quotes (`"@instructions.txt"`): unquoted, PowerShell reads `@name` as splatting and the CLI never sees the file. Decisions only: never paste the conversation itself, file paths, ids, or anything private.
 
 ```bash
-assethub skills build --goal "<goal>" --canvas <id> --task-kind <kind> --instructions "<one decision per line, as above>" --dry-run
+assethub skills build --goal "<goal>" --canvas <id> --task-kind <kind> --instructions "@instructions.txt" --dry-run
 ```
 
 Ask with a summary card: the skill's name, the kind (in the person's words), what it learns from, the goal, the criteria, what it is for, `estimatedCredits`, and the time budget the dry run gives. Options: **Build it now (Recommended)** / **Change something** / **Cancel**.
@@ -252,13 +252,13 @@ Ask with a summary card: the skill's name, the kind (in the person's words), wha
 **Build**, only after a yes, with a new operation ID; reuse that ID after any interruption:
 
 ```bash
-assethub skills build --goal "<goal>" --canvas <id> --task-kind <kind> --instructions "<…>" --operation-id <uuid> --wait
+assethub skills build --goal "<goal>" --canvas <id> --task-kind <kind> --instructions "@instructions.txt" --operation-id <uuid> --wait
 ```
 
 `--wait` returns when the draft is `ready` for review, or the build failed (say why from `error`; the reserved credits go back). Explain the draft in plain words: what it does step by step, and what it checks. If the builder chose a different kind than the person picked, its `uncertainties` say why; tell them. Then ask **Save it (Recommended)** / **Change one part first** / **Discard**.
 
 - Save: `assethub skills build-accept <build-id> --draft-sha256 <the draft's contentSha256>`. The hash is the draft you showed; if it changed, the save is refused instead of publishing something nobody read.
-- Change one part: `assethub skills build-enhance <build-id> --section <section> --current '<json>' --note "<what to change>"` returns a suggestion only; the CLI cannot apply it to the draft. Show it, then ask: **Save now and edit that part on the skill's page in AssetHub** / **Build again with the change in the instructions** (a new paid build).
+- Change one part: `assethub skills build-enhance <build-id> --section <section> --current "@current.json" --note "<what to change>"` (write the section's current JSON to `current.json` first) returns a suggestion only; the CLI cannot apply it to the draft. Show it, then ask: **Save now and edit that part on the skill's page in AssetHub** / **Build again with the change in the instructions** (a new paid build).
 - Discard: `assethub skills build-discard <build-id>`.
 
 After it is saved, offer to try it on another image right away (back to "Run it").
@@ -291,12 +291,12 @@ The default is not always right. A model's catalog entry carries its credit plan
 ```bash
 assethub image generate --prompt "stylized wooden crate" --wait --download --out-dir ./out/crate
 assethub mesh generate --source-id <image-asset-id> --canvas <canvas-id> --wait
-assethub api call "POST /mesh/compose" --input-json @request.json --operation-id $(uuidgen)
+assethub api call "POST /mesh/compose" --input-json "@request.json" --operation-id <uuid>
 ```
 
 - `--wait` blocks until the job finishes. Without it you get an id to watch.
 - `--download --out-dir <dir>` fetches every output and writes a `manifest.json`.
-- `--operation-id <uuid>`: reuse the **same** id with the **same** input to retry; a new attempt needs a new id.
+- `--operation-id <uuid>`: reuse the **same** id with the **same** input to retry; a new attempt needs a new id. Make the UUID yourself and paste the value (any random v4 UUID); don't rely on `uuidgen`, which Windows lacks.
 - Results include `execution` with the canvas URL, run and job ids, and output asset ids. Chain them into the next step with `--source-id`.
 
 ### Fast path: one image to a finished, composed asset
@@ -323,8 +323,7 @@ After a timeout, an interruption, or any unclear answer, `runs resume <operation
 ### Recording a verdict on an asset
 
 ```bash
-assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> \
-  --report ./review.json --agent <your-name> --require-pass
+assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> --report ./review.json --agent <your-name> --require-pass
 ```
 
 `review.json` needs `schemaVersion: "assethub.evaluation-submission.v1"`, a `rubric`, a `verdict` of `pass` | `fail` | `needs_review`, `criteria`, `referenceAssetIds`, and `evidenceAssetIds`. Look at the downloaded result before you write it; a verdict you did not check is worse than none. `--require-pass` exits 1 on fail and 3 on needs_review. An agent verdict is never the creator's approval.
@@ -355,7 +354,7 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> \
 - `parts split` and `parts compare` with `--preprocess-prompt` create a second production order; use `--all-ready`, not `--task-id`.
 - Every generation should land on a canvas. Pass `--canvas <id>` to keep a job's steps together; without it the CLI makes one canvas per working folder.
 - Input can come from a file, a URL, stdin bytes, base64, a data URI, an OpenAI- or Anthropic-style JSON attachment (`--stdin-json`), or the clipboard. No temporary file needed.
-- Large or complex requests: `--input-json @request.json` with the schema from `api describe`.
+- Large or complex requests: `--input-json "@request.json"` with the schema from `api describe`.
 
 ## MCP equivalents
 

@@ -6,10 +6,11 @@ import {usage} from '../index.js'
 // The bundled agent skill is what artists' assistants follow. A command or flag
 // it names that this CLI does not have makes the assistant fail at that step,
 // so every one of them must appear in the CLI's own usage text.
+// A Windows checkout may turn the file's line endings into CRLF.
 const skill = readFileSync(
   fileURLToPath(new URL('../../skills/assethub/SKILL.md', import.meta.url)),
   'utf8',
-)
+).replace(/\r\n/g, '\n')
 
 const VERB = /^[a-z][a-z0-9-]*$/
 
@@ -57,6 +58,27 @@ describe('bundled SKILL.md', () => {
       })
       .map(verbs => verbs.join(' '))
     expect([...new Set(missing)]).toEqual([])
+  })
+
+  // Agents on Windows run these in PowerShell or cmd.exe. A trailing `\` is
+  // not a continuation there (PowerShell runs the first half alone, dropping
+  // e.g. the revision pin), `$(…)` is not command substitution in cmd and runs
+  // a missing `uuidgen` in PowerShell, and single quotes do not quote in cmd.
+  it('writes every command so PowerShell and cmd.exe run it as written', () => {
+    const unsafe = found.filter(
+      invocation => /\\\s*$|\$\(|\s'[^']*'/.test(invocation),
+    )
+    const blocks = [...skill.matchAll(/```(?:bash|sh|shell)?\n([\s\S]*?)```/g)]
+      .flatMap(match => match[1].split('\n'))
+      .filter(line => /\\\s*$|\$\(/.test(line))
+    expect([...unsafe, ...blocks]).toEqual([])
+  })
+
+  // PowerShell reads an unquoted `@name` as splatting, so `--flag @file.json`
+  // never reaches the CLI there. Quoted, it works in every shell.
+  it('quotes every @file argument it names', () => {
+    const unquoted = found.flatMap(invocation => [...invocation.matchAll(/\s(--[a-z-]+)\s+@[^\s"']+/g)].map(m => m[0].trim()))
+    expect(unquoted).toEqual([])
   })
 
   it('names only flags this CLI documents', () => {

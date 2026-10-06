@@ -16,3 +16,21 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+  # Artists run the CLI and its agent skill on Windows too. Separate job, so
+  # the required `check` keeps its name. It builds, typechecks and runs every
+  # skills test plus the help snapshot. Older suites still assume macOS or
+  # POSIX (launchctl, file modes, `/` in expected paths) and fail here:
+  # setupCommand, hooks, appEnv, workspaceCommands, canvasSelection,
+  # nativeOperationReplay, internalWorkspace. Add each one here once it passes.
+  check-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npx vitest run packages/assethub-cli/src/__tests__/skill packages/assethub-cli/src/__tests__/usage.test.ts

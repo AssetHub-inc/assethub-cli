@@ -147,7 +147,7 @@ it('runs a skill pinned to the version read, waits, and saves the result next to
     dir,
   )
   expect(result.stderr).toContain('Running "Figure → clay" (revision 5) with a limit of 80 credits')
-  expect(result.stderr).toContain('Try 1: Making the image — done.')
+  expect(result.stderr).toContain('Try 1: Making the image - done.')
   expect(result.stderr).toContain('AI check (try 1): looks right.')
   expect(result.code).toBe(0)
   const start = seen.find(r => r.method === 'POST' && r.path.endsWith('/runs'))!
