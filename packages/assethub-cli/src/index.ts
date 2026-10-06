@@ -537,6 +537,7 @@ Usage:
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
   assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
     Production graph options: --pipeline-depth parts|mesh|composition [--assembly-policy concept-to-character-v1] [--mesh-generation-json <json|@file>]
+    V4 mesh options: [--mesh-quality low|high] [--mesh-model <model-id>...] (the run only uses these models; default low = meshGen.tripo_p2_preview)
   assethub production batch (--file <path>... | --files-dir <dir> | --source-id <id>... | --source-url <url>...) --part-extractor <name> [--repeat <n>] [--yes] [--canvas <id>] [--operation-id <uuid>] [--wait [--concurrency <n>]] [--download --out-dir <dir>]
     One production analyze per image × --repeat, on one canvas. Takes the production analyze options. Rerun with the printed --operation-id to resume; nothing is started twice.
   assethub production agents
@@ -5036,6 +5037,40 @@ const commandProductionBatch = async (ctx: CommandContext) => {
   )
 }
 
+/** V4's default allowed models per quality, as on the canvas start card. */
+const V4_DEFAULT_MESH_MODELS = {
+  low: 'meshGen.tripo_p2_preview',
+  high: 'meshGen.tripo_3_1',
+} as const
+
+/**
+ * `--mesh-quality` / `--mesh-model`: the V4 start card's Mesh quality and its
+ * allowed models, sent as `meshGeneration.preferences`. The run only uses the
+ * listed models (fallback stays inside them); the server validates each model
+ * for the quality and checks the rollout gate before billing.
+ */
+const resolveV4MeshPreferences = (flags: Flags, agentVersion: string) => {
+  const quality = getFlag(flags, 'mesh-quality')
+  const models = getFlagValues(flags, 'mesh-model').map(id =>
+    id.startsWith('meshGen.') ? id : `meshGen.${id}`,
+  )
+  if (quality === undefined && models.length === 0) return undefined
+  if (agentVersion !== 'ah_agent_graph_harpy_assembly_v2')
+    throw new Error('--mesh-quality and --mesh-model require --part-extractor v4')
+  if (quality !== undefined && quality !== 'low' && quality !== 'high')
+    throw new Error('--mesh-quality must be low or high')
+  if (new Set(models).size !== models.length)
+    throw new Error('--mesh-model lists the same model twice')
+  const selected = quality ?? 'low'
+  const chosen = models.length > 0 ? models : [V4_DEFAULT_MESH_MODELS[selected]]
+  const preferences = {
+    quality: selected,
+    low: selected === 'low' ? chosen : [V4_DEFAULT_MESH_MODELS.low],
+    high: selected === 'high' ? chosen : [V4_DEFAULT_MESH_MODELS.high],
+  }
+  return {modelId: chosen[0]!, preferences}
+}
+
 /**
  * Everything `production analyze` sends besides the image source; shared with
  * `production batch` so a batch item is the same request.
@@ -5081,10 +5116,16 @@ const resolveProductionAnalyzeOptions = async (ctx: CommandContext) => {
       throw new Error('--pipeline-depth must be parts, mesh or composition')
     const assemblyPolicy = getFlag(ctx.flags, 'assembly-policy')
     const meshGenerationInput = getFlag(ctx.flags, 'mesh-generation-json')
+    const meshPreferences = resolveV4MeshPreferences(ctx.flags, agentVersion)
+    if (meshPreferences && meshGenerationInput !== undefined)
+      throw new Error(
+        '--mesh-quality / --mesh-model cannot be combined with --mesh-generation-json',
+      )
     const meshGeneration =
-      meshGenerationInput === undefined
+      meshPreferences ??
+      (meshGenerationInput === undefined
         ? undefined
-        : await readJsonArgument(meshGenerationInput, '--mesh-generation-json')
+        : await readJsonArgument(meshGenerationInput, '--mesh-generation-json'))
     if (
       assemblyPolicy !== undefined &&
       assemblyPolicy !== 'concept-to-character-v1'

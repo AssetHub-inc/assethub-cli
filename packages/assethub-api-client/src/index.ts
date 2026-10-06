@@ -1101,10 +1101,23 @@ export type ProductionWorkspaceSkillSelection = {
   skillIds: string[]
 }
 
+/** V4 mesh quality and the allowed models per quality (`meshGen.*` ids). */
+export type ProductionMeshPreferences = {
+  quality: 'low' | 'high'
+  low: string[]
+  high: string[]
+  settings?: {
+    low?: Record<string, Record<string, boolean | number | string>>
+    high?: Record<string, Record<string, boolean | number | string>>
+  }
+}
+
 export type ProductionAnalyzeRequest = RequireAtLeastOne<
   {
     meshGeneration?: {
       modelId: string
+      /** V4 only: Mesh quality and the models each quality may use. */
+      preferences?: ProductionMeshPreferences
       faceLimit?: number
       params?: Record<string, boolean | number | string>
     }
