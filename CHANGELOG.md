@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## CLI 0.1.40 / API client 0.1.18
 
-Artists can find, run and create workspace skills from Claude Code, Codex or Cursor without writing API calls.
+Artists can find, run and create workspace skills from Claude Code, Codex or Cursor without writing API calls. Publish `@assethub/api-client` 0.1.18 first: the CLI needs its new skill-run methods.
 
 - `assethub skills run <skill-id> --file <image> --budget <credits> --wait` runs a workspace skill on a picture from this computer. It uploads the picture to the canvas, pins the skill revision you approved (an edited skill is refused instead of charged), prints one plain line per try and per AI check on stderr, and saves the verified results next to the original as new files (`hero.turnaround-view.png`, then `-2`, …); nothing is ever overwritten. The JSON says what to do next in `next`. Running again with the same `--operation-id` continues the same run. Running skills is not open to every account yet; such an account gets `Running skills is not available on this account yet.`
 - `skills run-status`, `skills run-resume --add-credits <n>` (a run paused at its spending limit continues; never a second run) and `skills run-verdict --verdict keep|not-right [--note]`.
@@ -10,6 +10,7 @@ Artists can find, run and create workspace skills from Claude Code, Codex or Cur
 - `skills build --task-kind <kind>` builds a skill for any end result (`concept_art`, `part_composition`, `mesh_generation`, `mesh_processing`, `rigging_animation`, `character_production`), not only `part_separation`. The other kinds need the v7 Skill Builder on your account; otherwise the server answers `TASK_KIND_NOT_SUPPORTED`.
 - `skills build-status`, `build-enhance`, `build-accept` and `build-discard` are listed in `--help`. They worked before but were not shown.
 - The bundled `assethub` skill is rewritten for artists: the assistant checks the team's skills before any work, asks every choice through its question tool (AskUserQuestion in Claude Code, numbered options elsewhere), runs a skill with one command, and starts every new skill with an interview (kind, canvas, goal, what must stay the same, criteria, a full read-back) steered by what was decided in the conversation. A test keeps every command and flag the skill names in `--help`.
+- API client: `startWorkspaceSkillRun`, `getWorkspaceSkillRun`, `resumeWorkspaceSkillRun`, `recordWorkspaceSkillRunVerdict`, their types, `TERMINAL_WORKSPACE_SKILL_RUN_STATUSES`, and `WORKSPACE_SKILL_BUILD_TASK_KINDS` (a build's `taskKind` takes all seven kinds).
 - `assethub setup` ends by saying what to type: `type /assethub, or just say what you want, e.g. "what skills does our workspace have?"`.
 
 ## CLI 0.1.39
