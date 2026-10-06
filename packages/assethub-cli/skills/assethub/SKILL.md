@@ -151,6 +151,8 @@ assethub skills run <skill-id> --file ./hero.png --budget 50 --revision <n> --co
 
 **Statuses:** `running` (still working: check again with `skills run-status <skill-id> <run-id> --wait`, never restart) · `budget_exhausted` (paused, below) · `completed` · `failed` (`outcome.reason` says why) · `cancelled`.
 
+**Lost track of a run?** A new session, a closed window or a laptop that slept knows no run ID. Run `assethub skills run-list` (free): it lists the skill runs started from this folder, newest first, each with its status and the next command. `--file <image>` narrows it to one picture; `--all` shows every folder on this computer. Continue the one the person means with `assethub skills run-status <skill-id> <run-id> --wait` (results are saved next to the original) or `skills run-resume`. Never start a new run for work that may still be running.
+
 **Paused at the limit** (`budget_exhausted`, exit 0). Nothing is lost. Ask with exactly two options:
 
 > - **Raise the limit by 20 and continue (Recommended)**: new limit 70, same run
@@ -162,7 +164,27 @@ Base the amount on what one step cost so far (`budget.spentCredits`, `budget.rem
 assethub skills run-resume <skill-id> <run-id> --add-credits 20 --wait --out-dir <folder of the original>
 ```
 
-**Failed:** say why in one sentence from `outcome.reason`, and how many credits were used. Ask: **Try again with an extra instruction** (a new run, with its own limit) / **Use another skill** / **Stop for now**. Never retry on your own.
+**Failed:** say why in one sentence from `outcome.reason`, and how many credits were used. If the JSON has `rejected` (the run's AI check said no to its last try), go to **When the AI check says no** below. Otherwise ask: **Try again with an extra instruction** (a new run, with its own limit) / **Use another skill** / **Stop for now**. Never retry on your own.
+
+#### When the AI check says no: fix it here
+
+A run can end `failed`, or pause at its limit (`budget_exhausted`), right after its own AI check rejected a try. The JSON then has `rejected: {attempt, reason}`. Don't stop there and don't start a blind new run. Continue the work yourself, in this session:
+
+1. **Save the tries (free):** `assethub skills run-status <skill-id> <run-id> --attempts`. Each image try is saved next to the original as `<name>.<skill>.try<n>-rejected.png` (or `-passed`, `-unchecked`). The JSON's `attempts` lists each path with the check's `reason`.
+2. **Look before you judge.** Read the original, the rejected try, and the skill's checks (`acceptanceCriteria` and each step's `checks` from `skills get`). Say in one plain sentence what the check rejected and whether you agree ("The check says the hands are fused with the sleeve; I see the same.").
+3. **Ask once** (the price comes from `assethub models get <model-id>`):
+   > **The skill's AI check rejected the last try. Fix it here?**
+   > - **Fix the rejected try (Recommended)**: one image edit that changes only what the check named, about N credits, charged to <workspace>
+   > - **Run the skill again**: a new run with its own limit
+   > - **Stop for now**
+   For a run paused at its limit, also offer **Raise the limit and let the skill try again** (`run-resume`).
+4. **Fix only what was rejected.** Edit the rejected try with the model the skill's image step names (`skills get` → `steps[].run.model`, matched in `assethub models list`), on the run's canvas, saving next to the original:
+   `assethub image generate --file <the -rejected.png> --prompt "<what to fix, from the check's reason>; keep everything else exactly as it is: <the skill's preserve rules>" --model-id <model id> --canvas <canvasId> --operation-id <a new UUID you write out> --wait --download --out-dir <folder of the original>`
+   If the try is so far off that editing it makes no sense (the wrong subject, everything merged into one image), edit the **original** with the skill's own instruction plus the check's reason instead, and say so.
+5. **Check it like the skill would.** Read the new image and go through the skill's `acceptanceCriteria` one by one, `must` first. Tell the person plainly which pass and which don't. Never call it fixed when a `must` still fails.
+6. **Show it and ask Looks right / Needs changes**, as in "After the result". At most **two** local fixes per run: if the second still fails a `must`, stop and say what keeps failing. That is a problem with the skill, not something more credits will solve, so suggest telling whoever maintains it.
+
+This does not change the skill or the run. The fixed image is a new file next to the original, never over a try or the original.
 
 ### 3. After the result
 
@@ -340,6 +362,8 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> --report 
 | What you see | What to do |
 |---|---|
 | Exit 3, or the command was interrupted | Continue the same job: `runs resume <operation-id>`, `skills run-status`, or rerun with the same `--operation-id`. Never start fresh. |
+| A run failed or paused with `rejected` (its AI check said no) | `skills run-status <skill-id> <run-id> --attempts`, then fix the rejected try here: see "When the AI check says no". |
+| "What happened to my run?" in a new session | `assethub skills run-list` (this folder) or `--all`, then `skills run-status <skill-id> <run-id> --wait`. |
 | `Running skills is not available on this account yet.` | Tell the person exactly that. Stop. |
 | A skill run refused because the version changed | `skills get` again, describe what changed, ask again before running. |
 | `budget_exhausted` | Offer "Raise the limit by x and continue" or "Keep this try and stop"; resume the same run. |

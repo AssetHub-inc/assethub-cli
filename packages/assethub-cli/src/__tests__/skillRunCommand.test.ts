@@ -16,6 +16,7 @@ const seen: Seen[] = []
 let runStatus = 'completed'
 let baseUrl = ''
 let runsDisabled = false
+let rejectedRun = false
 
 const server = createServer(async (req, res) => {
   let raw = ''
@@ -66,9 +67,9 @@ const server = createServer(async (req, res) => {
       skillId: 'figure-clay',
       status: runStatus,
       budget: {credits: 80, spentCredits: 40, remainingCredits: 40},
-      steps: [{stepId: 's', stage: 'image', attempt: 1, status: 'completed', artifactId: 'a'}],
-      verdicts: [{stepId: 's', attempt: 1, pass: true, by: 'ai', reason: null}],
-      outputs: [{artifactId: 'a', stepId: 's', kind: 'image', assetId: 'img_9', verified: true}],
+      steps: [{stepId: 's', stage: 'image', attempt: 1, status: 'completed', artifactId: 'a', ...(rejectedRun ? {assetId: 'img_9'} : {})}],
+      verdicts: [{stepId: 's', attempt: 1, pass: !rejectedRun, by: 'ai', reason: rejectedRun ? 'the hands are fused with the sleeve' : null}],
+      outputs: rejectedRun ? [] : [{artifactId: 'a', stepId: 's', kind: 'image', assetId: 'img_9', verified: true}],
       outcome: runStatus === 'completed' ? {status: 'completed'} : null,
       parts: [],
     })
@@ -101,7 +102,7 @@ type CliJson = {
   [field: string]: unknown
 }
 
-const cli = async (args: string[], cwd: string) =>
+const cli = async (args: string[], cwd: string, extraEnv: Record<string, string> = {}) =>
   new Promise<{code: number | null; json: CliJson; stderr: string}>(
     (done, reject) => {
       const child = spawn(process.execPath, [fileURLToPath(new URL('../../dist/index.js', import.meta.url)), 'skills', ...args], {
@@ -113,6 +114,7 @@ const cli = async (args: string[], cwd: string) =>
           ASSETHUB_API_BASE_URL: baseUrl,
           ASSETHUB_CLI_CONFIG: join(cwd, 'config.json'),
           ASSETHUB_CLI_STATE_DIR: join(cwd, 'state'),
+          ...extraEnv,
           ASSETHUB_NO_AUTO_UPDATE: '1',
         },
       })
@@ -221,4 +223,66 @@ it('records Needs changes as not_right with the note', async () => {
   )
   expect(result.code).toBe(0)
   expect(seen.at(-1)!.body).toEqual({verdict: 'not_right', note: 'arms too thin'})
+})
+
+it('finds a run again from a new session: run-list, then run-status saves into the original folder', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  seen.length = 0
+  runStatus = 'running'
+  const started = await cli(
+    ['run', 'figure-clay', '--image-asset', 'img_1', '--canvas', '42', '--budget', '80', '--out-dir', dir],
+    dir,
+  )
+  expect(started.code).toBe(0)
+
+  // A new session knows nothing but the folder it is in.
+  const listed = await cli(['run-list'], dir)
+  expect(listed.code).toBe(0)
+  const items = listed.json.items as Array<Record<string, unknown>>
+  expect(items).toHaveLength(1)
+  expect(items[0]).toMatchObject({
+    skillId: 'figure-clay',
+    skillTitle: 'Figure → clay',
+    runId,
+    status: 'running',
+    outDir: dir,
+  })
+  expect(String(items[0].next)).toContain(`run-status figure-clay ${runId}`)
+
+  runStatus = 'completed'
+  const finished = await cli(['run-status', 'figure-clay', runId], dir)
+  expect(finished.code).toBe(0)
+  expect(finished.json.saved).toEqual([{assetId: 'img_9', path: join(dir, 'result.figure-clay.png')}])
+
+  const elsewhere = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  const env = {ASSETHUB_CLI_STATE_DIR: join(dir, 'state')}
+  const fromOtherFolder = await cli(['run-list'], elsewhere, env)
+  expect(fromOtherFolder.json.items).toEqual([])
+  const all = await cli(['run-list', '--all'], elsewhere, env)
+  expect((all.json.items as unknown[]).length).toBe(1)
+})
+
+it('saves the rejected try and points the assistant at fixing it here when the AI check said no', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  runStatus = 'failed'
+  rejectedRun = true
+  try {
+    const result = await cli(['run-status', 'figure-clay', runId, '--attempts', '--out-dir', dir], dir)
+    expect(result.code).toBe(1)
+    expect(result.json.rejected).toEqual({attempt: 1, reason: 'the hands are fused with the sleeve'})
+    expect(result.json.attempts).toEqual([
+      {
+        assetId: 'img_9',
+        attempt: 1,
+        check: 'rejected',
+        reason: 'the hands are fused with the sleeve',
+        path: join(dir, 'result.figure-clay.try1-rejected.png'),
+      },
+    ])
+    expect(result.json.next).toContain('When the AI check says no')
+    expect(await readFile(join(dir, 'result.figure-clay.try1-rejected.png'))).toEqual(png)
+  } finally {
+    rejectedRun = false
+    runStatus = 'completed'
+  }
 })

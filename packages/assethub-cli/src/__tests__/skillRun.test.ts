@@ -8,6 +8,7 @@ import {
   listRunnableSkills,
   nextSkillRunAction,
   pinSkill,
+  saveSkillRunAttempts,
   saveSkillRunOutputs,
   waitForSkillRun,
   type SkillRunClient,
@@ -321,5 +322,43 @@ describe('listRunnableSkills', () => {
     }))
     expect(result.items).toEqual([])
     expect(result.hint).toMatch(/No skill in this workspace can run on an image yet/)
+  })
+})
+
+describe('saveSkillRunAttempts', () => {
+  const png = new Uint8Array([137, 80, 78, 71])
+  const fetchImpl = (async () =>
+    new Response(png, {headers: {'content-type': 'image/png'}})) as typeof fetch
+
+  it('saves every image try, named by try and by what the AI check said, without overwriting', async () => {
+    const dir = await tempDir()
+    await writeFile(join(dir, 'hero.png'), 'original')
+    const result = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        status: 'budget_exhausted',
+        steps: [
+          {stepId: 's', stage: 'author', attempt: 1, status: 'succeeded', artifactId: 'a0'},
+          {stepId: 's', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a1', assetId: 'img_1'},
+          {stepId: 's', stage: 'image', attempt: 2, status: 'succeeded', artifactId: 'a2', assetId: 'img_2', part: 'Red bow'},
+          {stepId: 's', stage: 'image', attempt: 3, status: 'succeeded', artifactId: 'a3', assetId: 'img_3'},
+        ],
+        verdicts: [
+          {stepId: 's', attempt: 1, pass: false, by: 'ai', reason: 'combined into one image'},
+          {stepId: 's', attempt: 2, pass: true, by: 'ai', reason: null},
+        ],
+      }),
+      skillTitle: 'Pluffy Accessory Extraction',
+      outDir: dir,
+      sourceFileName: 'hero.png',
+      fetchImpl,
+    })
+    expect(result.failed).toEqual([])
+    expect(result.saved).toEqual([
+      {assetId: 'img_1', attempt: 1, check: 'rejected', reason: 'combined into one image', path: join(dir, 'hero.pluffy-accessory-extraction.try1-rejected.png')},
+      {assetId: 'img_2', attempt: 2, check: 'passed', part: 'Red bow', path: join(dir, 'hero.pluffy-accessory-extraction.try2-red-bow-passed.png')},
+      {assetId: 'img_3', attempt: 3, check: 'unchecked', path: join(dir, 'hero.pluffy-accessory-extraction.try3-unchecked.png')},
+    ])
+    expect(await readFile(join(dir, 'hero.png'), 'utf8')).toBe('original')
   })
 })

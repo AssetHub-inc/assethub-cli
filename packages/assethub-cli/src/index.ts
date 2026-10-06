@@ -76,9 +76,15 @@ import {
   nextSkillRunAction,
   pinSkill,
   type SkillListRow,
+  saveSkillRunAttempts,
   saveSkillRunOutputs,
   waitForSkillRun,
 } from './skillRun.js'
+import {
+  listSkillRunReceipts,
+  readSkillRunReceipt,
+  writeSkillRunReceipt,
+} from './skillRunReceipts.js'
 import {execFile, spawn} from 'node:child_process'
 import {createHash, randomUUID} from 'node:crypto'
 import {realpathSync} from 'node:fs'
@@ -573,7 +579,8 @@ Usage:
   assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
   assethub skills build-discard <build-id>
   assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to --budget)
-  assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>]
+  assethub skills run-list [--file <image>] [--all] [--limit <n>]   (runs started from this folder, newest first, with their status)
+  assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
   assethub skills run-resume <skill-id> <run-id> --add-credits <n> [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to the new limit)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
   assethub skills official list
@@ -7365,6 +7372,8 @@ const finishSkillRun = async (
     sourceFileName?: string
     skillTitle?: string
     extra?: Record<string, unknown>
+    /** Also save every image try, checked or not (`run-status --attempts`). */
+    attempts?: boolean
   },
 ) => {
   const {run, timedOut} = input.wait
@@ -7395,12 +7404,37 @@ const finishSkillRun = async (
       : undefined
   for (const file of files?.saved ?? [])
     stderr.write(`Saved: ${file.path}\n`)
+  const tries =
+    input.attempts && input.outDir
+      ? await saveSkillRunAttempts({
+          client: ctx.client,
+          run,
+          outDir: input.outDir,
+          sourceFileName: input.sourceFileName,
+          skillTitle:
+            input.skillTitle ??
+            (await ctx.client.v2.getWorkspaceSkill(input.skillId)).skill.title,
+        })
+      : undefined
+  for (const file of tries?.saved ?? [])
+    stderr.write(`Saved try ${file.attempt} (${file.check}): ${file.path}\n`)
+  // The run's own AI check said no to its last try: the person's assistant
+  // can pick it up here instead of the person paying for a new run blind.
+  const lastCheck = [...run.verdicts].reverse().find(v => v.pass !== null)
+  const rejected =
+    lastCheck?.pass === false && run.status !== 'completed' && run.status !== 'running'
+      ? {attempt: lastCheck.attempt, reason: lastCheck.reason}
+      : undefined
   print({
     ...input.extra,
     ...run,
     ...(timedOut ? {timedOut: true} : {}),
     ...(files ? {saved: files.saved, saveFailed: files.failed} : {}),
-    next: nextSkillRunAction(run),
+    ...(tries ? {attempts: tries.saved, attemptsFailed: tries.failed} : {}),
+    ...(rejected ? {rejected} : {}),
+    next: rejected
+      ? `The AI check rejected try ${rejected.attempt}. Offer to fix it here: assethub skills run-status ${run.skillId} ${run.runId} --attempts${input.outDir ? '' : ' --out-dir <folder of the original>'}, then follow "When the AI check says no" in the assethub skill.`
+      : nextSkillRunAction(run),
   })
   if (timedOut) process.exitCode = 3
   else if (
@@ -7478,11 +7512,35 @@ const commandSkillRun = async (
           source: 'cli',
         },
       })
+      const outDir = outDirFlag
+        ? resolve(outDirFlag)
+        : filePath
+          ? dirname(resolve(filePath))
+          : undefined
+      // Written before waiting, so a closed window or a sleeping laptop can
+      // still find this run with `skills run-list`.
+      await writeSkillRunReceipt(stateOptions(ctx).stateDir, {
+        schemaVersion: 'assethub.skill-run.v1',
+        baseUrl: ctx.client.baseUrl,
+        ownerId: canvas.ownerId,
+        skillId,
+        skillTitle: pin.title,
+        revision: pin.revision,
+        runId: started.runId,
+        operationId,
+        canvasId: canvas.id,
+        ...(filePath ? {sourceFile: resolve(filePath)} : {}),
+        ...(outDir ? {outDir} : {}),
+        startedIn: process.cwd(),
+        startedAt: new Date().toISOString(),
+      }).catch(error =>
+        stderr.write(`Could not record this run locally (${error instanceof Error ? error.message : error}); keep the operation id above.\n`),
+      )
       await finishSkillRun(ctx, {
         skillId,
         runId: started.runId,
         wait,
-        outDir: outDirFlag ?? (filePath ? dirname(resolve(filePath)) : undefined),
+        outDir,
         sourceFileName: filePath ? basename(filePath) : undefined,
         skillTitle: pin.title,
         extra: {operationId, canvasId: canvas.id, pin: started.pin},
@@ -7490,8 +7548,16 @@ const commandSkillRun = async (
       return
     }
     const runId = requirePositional(positionals, 3, 'run-id')
+    // A run started from this computer saves into the original's folder
+    // unless --out-dir says otherwise.
+    const receipt = await readSkillRunReceipt(stateOptions(ctx).stateDir, runId)
+    const saveTo = {
+      outDir: outDirFlag ?? receipt?.outDir,
+      ...(!outDirFlag && receipt?.sourceFile ? {sourceFileName: basename(receipt.sourceFile)} : {}),
+      ...(receipt ? {skillTitle: receipt.skillTitle} : {}),
+    }
     if (subcommand === 'run-status') {
-      await finishSkillRun(ctx, {skillId, runId, wait, outDir: outDirFlag})
+      await finishSkillRun(ctx, {skillId, runId, wait, ...saveTo, attempts: hasFlag(ctx.flags, 'attempts')})
       return
     }
     if (subcommand === 'run-resume') {
@@ -7505,7 +7571,7 @@ const commandSkillRun = async (
         skillId,
         runId,
         wait,
-        outDir: outDirFlag,
+        ...saveTo,
         extra: {operationId},
       })
       return
@@ -7550,11 +7616,62 @@ const commandSkillRun = async (
   throw new Error('Use skills run|run-status|run-resume|run-verdict')
 }
 
+/**
+ * `skills run-list`: the skill runs started from this computer (by default
+ * from this folder), newest first, with their live status. Free: only reads.
+ */
+const commandSkillRunList = async (ctx: CommandContext): Promise<void> => {
+  const {ownerId} = await ctx.client.v2.getCapabilities()
+  const receipts = await listSkillRunReceipts(stateOptions(ctx).stateDir, {
+    baseUrl: ctx.client.baseUrl,
+    ownerId,
+    cwd: process.cwd(),
+    file: getFlag(ctx.flags, 'file'),
+    all: hasFlag(ctx.flags, 'all'),
+  })
+  const limit = parsePositiveIntegerFlag(ctx.flags, 'limit', 10)
+  const items = []
+  for (const receipt of receipts.slice(0, limit)) {
+    const run = await ctx.client.v2
+      .getWorkspaceSkillRun(receipt.skillId, receipt.runId)
+      .catch((error: unknown) =>
+        error instanceof AssetHubApiError ? {error: error.code} : Promise.reject(error),
+      )
+    const status = 'status' in run ? run.status : 'unknown'
+    items.push({
+      ...receipt,
+      status,
+      ...('budget' in run ? {budget: run.budget} : {}),
+      ...('error' in run ? {error: run.error} : {}),
+      next:
+        status === 'completed'
+          ? `Save the results next to the original: assethub skills run-status ${receipt.skillId} ${receipt.runId}`
+          : 'status' in run
+            ? nextSkillRunAction(run)
+            : undefined,
+    })
+  }
+  print({
+    items,
+    ...(items.length === 0
+      ? {
+          hint: hasFlag(ctx.flags, 'all')
+            ? 'No skill runs were started from this computer with this account.'
+            : 'No skill runs were started from this folder. Try --all for every folder on this computer.',
+        }
+      : {}),
+  })
+}
+
 export const commandSkills = async (
   subcommand: string | undefined,
   positionals: string[],
   ctx: CommandContext,
 ): Promise<void> => {
+  if (subcommand === 'run-list') {
+    await commandSkillRunList(ctx)
+    return
+  }
   if (
     subcommand === 'run' ||
     subcommand === 'run-status' ||
@@ -7962,7 +8079,7 @@ export const commandSkills = async (
     return
   }
   throw new Error(
-    'Use skills list|get|run|run-status|run-resume|run-verdict|memory|learn|update|controls|prepare|proposal|accept|validate|schema|build|build-status|build-enhance|build-accept|build-discard|official',
+    'Use skills list|get|run|run-list|run-status|run-resume|run-verdict|memory|learn|update|controls|prepare|proposal|accept|validate|schema|build|build-status|build-enhance|build-accept|build-discard|official',
   )
 }
 
