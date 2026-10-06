@@ -1,7 +1,11 @@
 // `assethub skills run` and its follow-ups: run a workspace skill (stored on
 // the server, never copied locally) on one image, watch it in plain words,
 // and save what it made next to the original without overwriting anything.
-import {open} from 'node:fs/promises'
+import {createWriteStream} from 'node:fs'
+import {mkdir, open} from 'node:fs/promises'
+import {Readable} from 'node:stream'
+import {pipeline} from 'node:stream/promises'
+import type {ReadableStream as WebReadableStream} from 'node:stream/web'
 import {basename, extname, join} from 'node:path'
 import {
   TERMINAL_WORKSPACE_SKILL_RUN_STATUSES,
@@ -130,6 +134,21 @@ export const isSkillRunSettled = (run: WorkspaceSkillRun) =>
   run.status === 'budget_exhausted' ||
   TERMINAL_WORKSPACE_SKILL_RUN_STATUSES.includes(run.status)
 
+/** The read's answer, or undefined when it took longer than `ms`. */
+const readWithin = async <T>(read: () => Promise<T>, ms: number) => {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      read(),
+      new Promise<undefined>(done => {
+        timer = setTimeout(() => done(undefined), ms)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export const waitForSkillRun = async (input: {
   client: SkillRunClient
   skillId: string
@@ -139,17 +158,29 @@ export const waitForSkillRun = async (input: {
   timeoutMs?: number
   sleep?: (ms: number) => Promise<void>
   now?: () => number
+  /** One read that takes longer is abandoned and retried, so a stalled
+   *  request cannot hold `--wait` past its deadline. */
+  requestTimeoutMs?: number
 }): Promise<{run: WorkspaceSkillRun; timedOut: boolean}> => {
   const sleep =
     input.sleep ?? (ms => new Promise<void>(done => setTimeout(done, ms)))
   const now = input.now ?? Date.now
   const deadline = now() + (input.timeoutMs ?? 45 * 60_000)
+  const requestTimeoutMs = input.requestTimeoutMs ?? 60_000
   let previous: WorkspaceSkillRun | undefined
   for (;;) {
-    const run = await input.client.v2.getWorkspaceSkillRun(
-      input.skillId,
-      input.runId,
+    const run = await readWithin(
+      () => input.client.v2.getWorkspaceSkillRun(input.skillId, input.runId),
+      requestTimeoutMs,
     )
+    if (!run) {
+      if (now() >= deadline) {
+        if (previous) return {run: previous, timedOut: true}
+        throw new Error(`Could not read skill run ${input.runId}: the server did not answer.`)
+      }
+      await sleep(input.pollMs ?? 5_000)
+      continue
+    }
     for (const line of describeSkillRunProgress(previous, run))
       input.onProgress(line)
     previous = run
@@ -211,25 +242,27 @@ export const saveSkillRunOutputs = async (input: {
       const mime = response.headers.get('content-type')?.split(';')[0] ?? ''
       const extension =
         EXTENSIONS[mime] ?? (extname(new URL(url).pathname) || '.bin')
-      const bytes = new Uint8Array(await response.arrayBuffer())
+      if (!response.body) throw new Error('empty response')
+      await mkdir(input.outDir, {recursive: true})
       for (let n = 1; ; n++) {
         const path = join(
           input.outDir,
           `${stem}.${label}${n === 1 ? '' : `-${n}`}${extension}`,
         )
+        let handle
         try {
-          const handle = await open(path, 'wx')
-          try {
-            await handle.writeFile(bytes)
-          } finally {
-            await handle.close()
-          }
-          saved.push({assetId, path})
-          break
+          handle = await open(path, 'wx')
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
           throw error
         }
+        // Streamed to disk: a mesh output can be far larger than an image.
+        await pipeline(
+          Readable.fromWeb(response.body as WebReadableStream<Uint8Array>),
+          createWriteStream('', {fd: handle.fd, autoClose: false}),
+        ).finally(() => handle.close())
+        saved.push({assetId, path})
+        break
       }
     } catch (error) {
       failed.push({

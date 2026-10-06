@@ -713,7 +713,13 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   // Say what to type: a person new to coding assistants stops at "ask it to use the tools".
   const firstWords = skipped('skills')
     ? 'ask it, for example, "what skills does our AssetHub workspace have?"'
-    : `type ${agents.length === 1 && agents[0] === 'codex' ? '$assethub' : '/assethub'}, or just say what you want, e.g. "what skills does our workspace have?"`
+    : `type ${
+        !agents.includes('codex')
+          ? '/assethub'
+          : agents.length === 1
+            ? '$assethub'
+            : '/assethub (or $assethub in Codex)'
+      }, or just say what you want, e.g. "what skills does our workspace have?"`
   const nextStep = options.dryRun
     ? 'Re-run without --dry-run to apply these changes.'
     : !ok

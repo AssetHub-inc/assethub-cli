@@ -1,7 +1,7 @@
-import {mkdtemp, readFile, readdir, writeFile} from 'node:fs/promises'
+import {mkdtemp, readFile, readdir, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {describe, expect, it} from 'vitest'
+import {afterEach, describe, expect, it} from 'vitest'
 import type {WorkspaceSkillRun} from '@assethub/api-client'
 import {
   describeSkillRunProgress,
@@ -14,6 +14,16 @@ import {
 } from '../skillRun.js'
 
 const runId = '33333333-3333-4333-8333-333333333333'
+
+const tempDirs: string[] = []
+const tempDir = async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skill-run-'))
+  tempDirs.push(dir)
+  return dir
+}
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map(dir => rm(dir, {recursive: true, force: true})))
+})
 const sha = 'a'.repeat(64)
 
 const view = (patch: Partial<WorkspaceSkillRun> = {}): WorkspaceSkillRun => ({
@@ -151,6 +161,27 @@ describe('waitForSkillRun', () => {
     ])
   })
 
+  it('retries a poll that stalls instead of hanging on it', async () => {
+    let calls = 0
+    const {run, timedOut} = await waitForSkillRun({
+      client: client({
+        getWorkspaceSkillRun: async () => {
+          calls++
+          if (calls === 1) return new Promise<never>(() => undefined)
+          return view({status: 'completed'})
+        },
+      }),
+      skillId: 'figure-clay',
+      runId,
+      onProgress: () => undefined,
+      sleep: async () => undefined,
+      requestTimeoutMs: 5,
+    })
+    expect(calls).toBe(2)
+    expect(timedOut).toBe(false)
+    expect(run.status).toBe('completed')
+  })
+
   it('stops waiting at the deadline without touching the run', async () => {
     let time = 0
     const {timedOut, run} = await waitForSkillRun({
@@ -176,7 +207,7 @@ describe('saveSkillRunOutputs', () => {
     new Response(png, {headers: {'content-type': 'image/png'}})) as typeof fetch
 
   it('saves verified outputs next to the original and never overwrites a file', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'skill-run-'))
+    const dir = await tempDir()
     await writeFile(join(dir, 'cat.png'), 'original')
     await writeFile(join(dir, 'cat.figure-clay.png'), 'an earlier result')
     const result = await saveSkillRunOutputs({
@@ -208,8 +239,23 @@ describe('saveSkillRunOutputs', () => {
     ])
   })
 
+  it('creates an --out-dir that does not exist yet', async () => {
+    const dir = join(await tempDir(), 'new', 'folder')
+    const result = await saveSkillRunOutputs({
+      client: client(),
+      run: view({
+        outputs: [{artifactId: 'a', stepId: 's', kind: 'image', assetId: 'img_1', verified: true}],
+      }),
+      skillTitle: 'Clay',
+      outDir: dir,
+      fetchImpl,
+    })
+    expect(result.failed).toEqual([])
+    expect(await readFile(join(dir, 'result.clay.png'))).toEqual(Buffer.from(png))
+  })
+
   it('records a download that failed instead of dropping it', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'skill-run-'))
+    const dir = await tempDir()
     const result = await saveSkillRunOutputs({
       client: client(),
       run: view({

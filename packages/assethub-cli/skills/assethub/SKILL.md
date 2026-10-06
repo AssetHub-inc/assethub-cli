@@ -30,7 +30,7 @@ description: |
 > - "That looks great. Make a skill from this so the team can use it." (it asks you a few questions first)
 > - "Turn `crate.png` into a 3D model and download it to `./out`."
 >
-> Before anything that costs credits, the assistant asks you **one** question with the price and the spending limit, and waits for your yes. Your original files are never overwritten; results are saved next to them as new files. If something stops halfway, the assistant continues the same job instead of paying for it twice.
+> Before anything that costs credits, the assistant asks you **one** question with the price when there is one up front (a skill run has none) and always the spending limit, and waits for your yes. Your original files are never overwritten; results are saved next to them as new files. If something stops halfway, the assistant continues the same job instead of paying for it twice.
 
 ## Words used here
 
@@ -45,7 +45,7 @@ description: |
 
 ## Golden rules
 
-1. **Ask once before spending, then do exactly what was agreed.** State what will run, on which image, the spending limit, and which workspace pays. Wait for a yes. Never start paid work the person did not approve.
+1. **Ask once before spending, then do exactly what was agreed.** State what will run, on which image, the price when the catalog or an estimate gives one (never invent one; a skill run has none), the spending limit, and which workspace pays. Wait for a yes. Never start paid work the person did not approve.
 2. **Never pay twice for one job.** After a timeout, an interruption, or an unclear answer, continue the same job (same operation ID, `runs resume`, `skills run-status`, `skills run-resume`). Starting the command fresh is a second charge.
 3. **Never overwrite the person's files.** Save results as new files next to the originals.
 4. **Read before you call.** Use `api describe` for the exact input. Never guess parameter names or invent ids, prices, or commands.
@@ -141,7 +141,7 @@ assethub skills run <skill-id> --file ./hero.png --budget 50 \
   --revision <n> --content-sha256 <sha256> --wait
 ```
 
-- `--file` uploads a picture from this computer to the canvas first; `--image-asset <asset-id>` uses one already in AssetHub instead. Exactly one of the two.
+- `--file` uploads a picture from this computer to the canvas first; `--image-asset <asset-id>` uses one already in AssetHub instead. Exactly one of the two. With `--image-asset` there is no original folder, so also pass `--out-dir <folder>` (it is created if missing); without it the results stay on the canvas only.
 - `--revision` / `--content-sha256` come from `skills get`: the version the person approved. If the skill was edited since, the run is refused instead of charged; read it again and ask again.
 - `--ask "<text>"` passes the person's own instructions ("keep the scarf"). `--canvas <id>` picks the canvas; without it, the CLI uses one canvas per folder.
 - The first stderr line shows the operation ID. **If the command is interrupted, run the identical command again with `--operation-id <that id>`.** It reconnects to the same run; it never starts a second one.
@@ -192,7 +192,7 @@ A skill is learned from real results on a canvas, never from free text alone. Dr
 
 Use these to fill the **Recommended** option in every round, so the interview confirms what they already told you instead of asking it again. In round 3, ask **From our conversation, the skill should also…** as a `multiSelect` of those decisions in plain words (all checked by default), so they can drop anything that was a one-off.
 
-Make sure the decisions also exist on the canvas: a **Needs changes** or **Looks right** from this conversation that was never recorded gets recorded now with `skills run-verdict … --note "<their words>"` (free). The builder reads verdict notes on the canvas as the artist's own judgement, its strongest evidence.
+Make sure the decisions on skill runs also exist on the canvas: a **Needs changes** or **Looks right** on a skill run from this conversation that was never recorded gets recorded now with `skills run-verdict <skill-id> <run-id> … --note "<their words>"` (free). The builder reads verdict notes on the canvas as the artist's own judgement, its strongest evidence. `run-verdict` needs a skill run; decisions about other work (an image edit, a generation) travel only in `--instructions`.
 
 If they point to an earlier session ("like we did yesterday"), ask which canvas it was: the canvas keeps every step and verdict. Use what they say or show you about it. Don't go looking through old chat logs.
 

@@ -924,7 +924,7 @@ describe('one setup for every agent', () => {
     expect(result.steps.map(s => s.name)).toEqual(['agents', 'skills'])
     expect(result.steps[1]).toMatchObject({status: 'ok', change: 'unchanged'})
     expect(result.nextStep).toBe(
-      'Restart Claude Code and Codex so they reload their skills, then type /assethub, or just say what you want, e.g. "what skills does our workspace have?".',
+      'Restart Claude Code and Codex so they reload their skills, then type /assethub (or $assethub in Codex), or just say what you want, e.g. "what skills does our workspace have?".',
     )
     expect([...files.keys()]).toEqual([])
     expect(runs).toEqual([])
