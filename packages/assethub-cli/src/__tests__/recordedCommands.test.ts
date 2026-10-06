@@ -518,6 +518,37 @@ describe('built recorded CLI', () => {
     }
     let expectedPostCount = 2 + aliases.length
     expect(posted.at(-1)?.body).not.toHaveProperty('autoRepair')
+    if (apiValue === 'ah_agent_graph_harpy_assembly_v2') {
+      // @testdoc V4 analyze sends the mesh quality and its allowed models as meshGeneration.preferences, like the canvas start card.
+      const low = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--mesh-quality', 'low', '--mesh-model', 'meshGen.tripo_p2_preview'])
+      expect(low.code, low.stderr).toBe(0)
+      expect(posted.at(-1)?.body.meshGeneration).toEqual({
+        modelId: 'meshGen.tripo_p2_preview',
+        preferences: {quality: 'low', low: ['meshGen.tripo_p2_preview'], high: ['meshGen.tripo_3_1']},
+      })
+      expectedPostCount += 1
+      const high = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--mesh-quality', 'high', '--mesh-model', 'tripo_3_1', '--mesh-model', 'hunyuan31'])
+      expect(high.code, high.stderr).toBe(0)
+      expect(posted.at(-1)?.body.meshGeneration).toEqual({
+        modelId: 'meshGen.tripo_3_1',
+        preferences: {quality: 'high', low: ['meshGen.tripo_p2_preview'], high: ['meshGen.tripo_3_1', 'meshGen.hunyuan31']},
+      })
+      expectedPostCount += 1
+      for (const bad of [
+        ['--mesh-quality', 'medium'],
+        ['--mesh-model', 'tripo_p1', '--mesh-model', 'meshGen.tripo_p1'],
+        ['--mesh-quality', 'low', '--mesh-generation-json', '{"modelId":"meshGen.tripo_p1"}'],
+      ]) {
+        const refused = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, ...bad])
+        expect(refused.code).not.toBe(0)
+        expect(posted).toHaveLength(expectedPostCount)
+      }
+    } else {
+      // @testdoc Other agents refuse the V4 mesh quality options before any request.
+      const refused = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--mesh-quality', 'low'])
+      expect(refused.code).not.toBe(0)
+      expect(posted).toHaveLength(expectedPostCount)
+    }
     if (apiValue === 'ah_agent_graph_v3_7_2') {
       const meshGeneration = {
         modelId: 'meshGen.tripo_p2_preview',

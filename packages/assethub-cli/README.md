@@ -457,6 +457,23 @@ contract is in `docs/api-character-assembly-progress.md`.
 
 ### Batch runs: many images, or one image many times
 
+V4 actors with the mesh-quality rollout (internal and named V4 testers) can choose the
+mesh quality and the models the run may use, like the canvas start card. The whole run
+uses one quality; fallback never leaves the listed models:
+
+```sh
+# low poly, Tripo P2 only (also the default for a gated V4 run)
+assethub production analyze --file ./concept.png --part-extractor v4 --mesh-quality low --mesh-model meshGen.tripo_p2_preview --wait
+# high poly, Tripo 3.1 or Hunyuan 3.1 (the meshGen. prefix is optional)
+assethub production analyze --file ./concept.png --part-extractor v4 --mesh-quality high --mesh-model tripo_3_1 --mesh-model hunyuan31 --wait
+```
+
+Low poly models: `meshGen.tripo_p2_preview`, `meshGen.tripo_p1`, `meshGen.meshy_t2`. High poly:
+`meshGen.tripo_3_1`, `meshGen.hunyuan31`, `meshGen.meshy_v7_1`, `meshGen.rodin.gen2_5` and others the
+canvas offers. The server refuses a model that doesn't fit the quality, and refuses the options
+for other agents or actors without the rollout, before any credit hold. Both options work with
+`production batch`.
+
 `production batch` starts one `production analyze` per image, and per `--repeat`,
 with the same agent and options on one canvas. Use it to run V4 over several
 concepts, or to repeat one concept and compare how consistent the results are:
