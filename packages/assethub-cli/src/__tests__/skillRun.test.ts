@@ -1,0 +1,279 @@
+import {mkdtemp, readFile, readdir, writeFile} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {describe, expect, it} from 'vitest'
+import type {WorkspaceSkillRun} from '@assethub/api-client'
+import {
+  describeSkillRunProgress,
+  listRunnableSkills,
+  nextSkillRunAction,
+  pinSkill,
+  saveSkillRunOutputs,
+  waitForSkillRun,
+  type SkillRunClient,
+} from '../skillRun.js'
+
+const runId = '33333333-3333-4333-8333-333333333333'
+const sha = 'a'.repeat(64)
+
+const view = (patch: Partial<WorkspaceSkillRun> = {}): WorkspaceSkillRun => ({
+  runId,
+  skillId: 'figure-clay',
+  status: 'running',
+  budget: {credits: 100, spentCredits: 0, remainingCredits: 100},
+  steps: [],
+  verdicts: [],
+  outputs: [],
+  outcome: null,
+  parts: [],
+  ...patch,
+})
+
+const client = (over: Partial<SkillRunClient['v2']> = {}): SkillRunClient => ({
+  v2: {
+    getWorkspaceSkill: async () => ({
+      skill: {skillId: 'figure-clay', revision: 5, contentSha256: sha, title: 'Figure → clay'},
+    }),
+    startWorkspaceSkillRun: async () => {
+      throw new Error('not expected')
+    },
+    getWorkspaceSkillRun: async () => view(),
+    getAsset: async assetId => ({url: `https://files.test/${assetId}.png`}),
+    ...over,
+  },
+})
+
+describe('pinSkill', () => {
+  it('pins the current revision and hash when none is named', async () => {
+    expect(await pinSkill(client(), 'figure-clay', {})).toEqual({
+      skillId: 'figure-clay',
+      title: 'Figure → clay',
+      revision: 5,
+      contentSha256: sha,
+    })
+  })
+
+  it('refuses a revision whose content is not what the person approved', async () => {
+    await expect(
+      pinSkill(client(), 'figure-clay', {revision: 5, contentSha256: 'b'.repeat(64)}),
+    ).rejects.toThrow(/not the version you approved/)
+  })
+
+  it('asks the server for the named revision', async () => {
+    const asked: unknown[] = []
+    await pinSkill(
+      client({
+        getWorkspaceSkill: async (_id, options) => {
+          asked.push(options)
+          return {skill: {skillId: 'figure-clay', revision: 3, contentSha256: sha, title: 't'}}
+        },
+      }),
+      'figure-clay',
+      {revision: 3},
+    )
+    expect(asked).toEqual([{revision: 3}])
+  })
+})
+
+describe('describeSkillRunProgress', () => {
+  it('says each finished try and every AI check in plain words, once', () => {
+    const first = view({
+      steps: [
+        {stepId: 's1', stage: 'image', attempt: 1, status: 'completed', artifactId: 'a1'},
+        {stepId: 's1', stage: 'review', attempt: 1, status: 'completed', artifactId: 'r1'},
+      ],
+      verdicts: [
+        {stepId: 's1', attempt: 1, pass: false, by: 'ai', reason: 'the fingers look fused'},
+      ],
+    })
+    expect(describeSkillRunProgress(undefined, first)).toEqual([
+      'Try 1: Making the image — done.',
+      'AI check (try 1): the fingers look fused. Correcting it automatically.',
+    ])
+    const second = view({
+      ...first,
+      status: 'completed',
+      steps: [
+        ...first.steps,
+        {stepId: 's1', stage: 'image', attempt: 2, status: 'completed', artifactId: 'a2'},
+      ],
+      verdicts: [
+        ...first.verdicts,
+        {stepId: 's1', attempt: 2, pass: true, by: 'ai', reason: null},
+      ],
+    })
+    expect(describeSkillRunProgress(first, second)).toEqual([
+      'Try 2: Making the image — done.',
+      'AI check (try 2): looks right.',
+      'Finished.',
+    ])
+  })
+
+  it('says when the spending limit pauses the run', () => {
+    expect(
+      describeSkillRunProgress(
+        view(),
+        view({
+          status: 'budget_exhausted',
+          budget: {credits: 100, spentCredits: 96, remainingCredits: 4},
+        }),
+      ),
+    ).toEqual(['Paused: the spending limit is reached (96 of 100 credits used).'])
+  })
+})
+
+describe('waitForSkillRun', () => {
+  it('polls until the run settles and reports progress on the way', async () => {
+    const states = [
+      view(),
+      view({
+        steps: [{stepId: 's', stage: 'image', attempt: 1, status: 'completed', artifactId: 'a'}],
+      }),
+      view({
+        status: 'budget_exhausted',
+        steps: [{stepId: 's', stage: 'image', attempt: 1, status: 'completed', artifactId: 'a'}],
+        budget: {credits: 50, spentCredits: 50, remainingCredits: 0},
+      }),
+    ]
+    const lines: string[] = []
+    const {run, timedOut} = await waitForSkillRun({
+      client: client({getWorkspaceSkillRun: async () => states.shift()!}),
+      skillId: 'figure-clay',
+      runId,
+      onProgress: line => lines.push(line),
+      sleep: async () => undefined,
+    })
+    expect(timedOut).toBe(false)
+    expect(run.status).toBe('budget_exhausted')
+    expect(lines).toEqual([
+      'Try 1: Making the image — done.',
+      'Paused: the spending limit is reached (50 of 50 credits used).',
+    ])
+  })
+
+  it('stops waiting at the deadline without touching the run', async () => {
+    let time = 0
+    const {timedOut, run} = await waitForSkillRun({
+      client: client(),
+      skillId: 'figure-clay',
+      runId,
+      onProgress: () => undefined,
+      timeoutMs: 10,
+      now: () => time,
+      sleep: async ms => {
+        time += ms
+      },
+      pollMs: 6,
+    })
+    expect(timedOut).toBe(true)
+    expect(run.status).toBe('running')
+  })
+})
+
+describe('saveSkillRunOutputs', () => {
+  const png = new Uint8Array([137, 80, 78, 71])
+  const fetchImpl = (async () =>
+    new Response(png, {headers: {'content-type': 'image/png'}})) as typeof fetch
+
+  it('saves verified outputs next to the original and never overwrites a file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'skill-run-'))
+    await writeFile(join(dir, 'cat.png'), 'original')
+    await writeFile(join(dir, 'cat.figure-clay.png'), 'an earlier result')
+    const result = await saveSkillRunOutputs({
+      client: client(),
+      run: view({
+        status: 'completed',
+        outputs: [
+          {artifactId: 'a', stepId: 's', kind: 'image', assetId: 'img_1', verified: true},
+          {artifactId: 'b', stepId: 's', kind: 'image', assetId: 'img_2', verified: false},
+        ],
+      }),
+      skillTitle: 'Figure → clay',
+      outDir: dir,
+      sourceFileName: 'cat.png',
+      fetchImpl,
+    })
+    expect(result.failed).toEqual([])
+    expect(result.saved).toEqual([
+      {assetId: 'img_1', path: join(dir, 'cat.figure-clay-2.png')},
+    ])
+    expect(await readFile(join(dir, 'cat.png'), 'utf8')).toBe('original')
+    expect(await readFile(join(dir, 'cat.figure-clay.png'), 'utf8')).toBe(
+      'an earlier result',
+    )
+    expect((await readdir(dir)).sort()).toEqual([
+      'cat.figure-clay-2.png',
+      'cat.figure-clay.png',
+      'cat.png',
+    ])
+  })
+
+  it('records a download that failed instead of dropping it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'skill-run-'))
+    const result = await saveSkillRunOutputs({
+      client: client(),
+      run: view({
+        outputs: [{artifactId: 'a', stepId: 's', kind: 'image', assetId: 'img_1', verified: true}],
+      }),
+      skillTitle: 'x',
+      outDir: dir,
+      fetchImpl: (async () => new Response('', {status: 403})) as typeof fetch,
+    })
+    expect(result).toEqual({saved: [], failed: [{assetId: 'img_1', error: 'HTTP 403'}]})
+  })
+})
+
+describe('nextSkillRunAction', () => {
+  it('points a paused run at resume, never at a new run', () => {
+    expect(nextSkillRunAction(view({status: 'budget_exhausted'}))).toBe(
+      `Ask before spending more, then: assethub skills run-resume figure-clay ${runId} --add-credits <n> --wait`,
+    )
+  })
+})
+
+describe('listRunnableSkills', () => {
+  const row = (skillId: string, patch: Record<string, unknown> = {}) => ({
+    skillId,
+    summary: `Summary of ${skillId}`,
+    schemaVersion: 'ag.memory-skill.v7',
+    mode: 'manual',
+    revision: 1,
+    taskKind: 'concept_art',
+    ...patch,
+  })
+
+  it('keeps only v7 skills that are not off, across every page, and flags look-alikes', async () => {
+    const pages: Record<string, {items: ReturnType<typeof row>[]; nextCursor: string | null}> = {
+      first: {
+        items: [
+          row('turn-a', {summary: 'Turnaround view Make one view'}),
+          row('old', {schemaVersion: 'ag.memory-skill.v3'}),
+          row('paused', {mode: 'off'}),
+        ],
+        nextCursor: 'c2',
+      },
+      c2: {items: [row('turn-b', {summary: 'Turnaround view Make one view'}), row('clay')], nextCursor: null},
+    }
+    const result = await listRunnableSkills(async cursor => pages[cursor ?? 'first'])
+    expect(result.items.map(item => item.skillId)).toEqual(['turn-a', 'turn-b', 'clay'])
+    expect(result.items[0]).toEqual({
+      skillId: 'turn-a',
+      summary: 'Turnaround view Make one view',
+      revision: 1,
+      mode: 'manual',
+      taskKind: 'concept_art',
+      sameSummaryAs: ['turn-b'],
+    })
+    expect(result.items[2]).not.toHaveProperty('sameSummaryAs')
+    expect(result.notRunnable).toEqual({total: 2, off: 1, otherVersion: 1})
+  })
+
+  it('explains what to do when nothing can run', async () => {
+    const result = await listRunnableSkills(async () => ({
+      items: [row('old', {schemaVersion: 'ag.memory-skill.v4'})],
+      nextCursor: null,
+    }))
+    expect(result.items).toEqual([])
+    expect(result.hint).toMatch(/No skill in this workspace can run on an image yet/)
+  })
+})

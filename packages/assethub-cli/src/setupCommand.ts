@@ -710,17 +710,21 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
 
   const ok = steps.every(step => step.status !== 'fail')
   const apps = listJoin(agents.map(agent => APP_NAMES[agent]))
+  // Say what to type: a person new to coding assistants stops at "ask it to use the tools".
+  const firstWords = skipped('skills')
+    ? 'ask it, for example, "what skills does our AssetHub workspace have?"'
+    : `type ${agents.length === 1 && agents[0] === 'codex' ? '$assethub' : '/assethub'}, or just say what you want, e.g. "what skills does our workspace have?"`
   const nextStep = options.dryRun
     ? 'Re-run without --dry-run to apply these changes.'
     : !ok
       ? 'Fix the failed steps above, then re-run `assethub setup` (it is safe to repeat).'
       : skipped('mcp')
         ? agents.length > 0
-          ? `Restart ${listJoin(agentNames)} so ${agents.length > 1 ? 'they reload their' : 'it reloads its'} skills.`
+          ? `Restart ${listJoin(agentNames)} so ${agents.length > 1 ? 'they reload their' : 'it reloads its'} skills, then ${firstWords}.`
           : 'Done.'
         : appEnv?.status === 'ok'
-          ? `Quit and reopen ${apps} so it reads ${API_KEY_ENV}, then ask it to use the AssetHub tools. Terminal tabs opened before setup still need \`export ${API_KEY_ENV}=…\`.`
-          : `Export ${API_KEY_ENV} in the shell that starts ${agentNames.join(' / ')}, restart it, then ask it to use the AssetHub tools.`
+          ? `Quit and reopen ${apps} so it reads ${API_KEY_ENV}, then ${firstWords}. Terminal tabs opened before setup still need \`export ${API_KEY_ENV}=…\`.`
+          : `Export ${API_KEY_ENV} in the shell that starts ${agentNames.join(' / ')}, restart it, then ${firstWords}.`
   return {
     ok,
     dryRun: options.dryRun,
