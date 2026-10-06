@@ -241,10 +241,10 @@ Must: white background; same shape and colour as the concept; nothing that is no
 Use on: Pluffy concepts with accessories, front view.
 ```
 
-Write these lines to a file (for example `instructions.txt` next to the image) and pass `--instructions @instructions.txt`. Never put line breaks inside a command-line argument: PowerShell and cmd.exe break them. Decisions only: never paste the conversation itself, file paths, ids, or anything private.
+Write these lines to a file (for example `instructions.txt` next to the image) and pass `--instructions "@instructions.txt"`. Never put line breaks inside a command-line argument: PowerShell and cmd.exe break them. Put every `@file` argument in double quotes (`"@instructions.txt"`): unquoted, PowerShell reads `@name` as splatting and the CLI never sees the file. Decisions only: never paste the conversation itself, file paths, ids, or anything private.
 
 ```bash
-assethub skills build --goal "<goal>" --canvas <id> --task-kind <kind> --instructions @instructions.txt --dry-run
+assethub skills build --goal "<goal>" --canvas <id> --task-kind <kind> --instructions "@instructions.txt" --dry-run
 ```
 
 Ask with a summary card: the skill's name, the kind (in the person's words), what it learns from, the goal, the criteria, what it is for, `estimatedCredits`, and the time budget the dry run gives. Options: **Build it now (Recommended)** / **Change something** / **Cancel**.
@@ -252,13 +252,13 @@ Ask with a summary card: the skill's name, the kind (in the person's words), wha
 **Build**, only after a yes, with a new operation ID; reuse that ID after any interruption:
 
 ```bash
-assethub skills build --goal "<goal>" --canvas <id> --task-kind <kind> --instructions @instructions.txt --operation-id <uuid> --wait
+assethub skills build --goal "<goal>" --canvas <id> --task-kind <kind> --instructions "@instructions.txt" --operation-id <uuid> --wait
 ```
 
 `--wait` returns when the draft is `ready` for review, or the build failed (say why from `error`; the reserved credits go back). Explain the draft in plain words: what it does step by step, and what it checks. If the builder chose a different kind than the person picked, its `uncertainties` say why; tell them. Then ask **Save it (Recommended)** / **Change one part first** / **Discard**.
 
 - Save: `assethub skills build-accept <build-id> --draft-sha256 <the draft's contentSha256>`. The hash is the draft you showed; if it changed, the save is refused instead of publishing something nobody read.
-- Change one part: `assethub skills build-enhance <build-id> --section <section> --current @current.json --note "<what to change>"` (write the section's current JSON to `current.json` first) returns a suggestion only; the CLI cannot apply it to the draft. Show it, then ask: **Save now and edit that part on the skill's page in AssetHub** / **Build again with the change in the instructions** (a new paid build).
+- Change one part: `assethub skills build-enhance <build-id> --section <section> --current "@current.json" --note "<what to change>"` (write the section's current JSON to `current.json` first) returns a suggestion only; the CLI cannot apply it to the draft. Show it, then ask: **Save now and edit that part on the skill's page in AssetHub** / **Build again with the change in the instructions** (a new paid build).
 - Discard: `assethub skills build-discard <build-id>`.
 
 After it is saved, offer to try it on another image right away (back to "Run it").
@@ -291,7 +291,7 @@ The default is not always right. A model's catalog entry carries its credit plan
 ```bash
 assethub image generate --prompt "stylized wooden crate" --wait --download --out-dir ./out/crate
 assethub mesh generate --source-id <image-asset-id> --canvas <canvas-id> --wait
-assethub api call "POST /mesh/compose" --input-json @request.json --operation-id <uuid>
+assethub api call "POST /mesh/compose" --input-json "@request.json" --operation-id <uuid>
 ```
 
 - `--wait` blocks until the job finishes. Without it you get an id to watch.
@@ -354,7 +354,7 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> --report 
 - `parts split` and `parts compare` with `--preprocess-prompt` create a second production order; use `--all-ready`, not `--task-id`.
 - Every generation should land on a canvas. Pass `--canvas <id>` to keep a job's steps together; without it the CLI makes one canvas per working folder.
 - Input can come from a file, a URL, stdin bytes, base64, a data URI, an OpenAI- or Anthropic-style JSON attachment (`--stdin-json`), or the clipboard. No temporary file needed.
-- Large or complex requests: `--input-json @request.json` with the schema from `api describe`.
+- Large or complex requests: `--input-json "@request.json"` with the schema from `api describe`.
 
 ## MCP equivalents
 

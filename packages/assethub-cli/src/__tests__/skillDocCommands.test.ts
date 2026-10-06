@@ -74,6 +74,13 @@ describe('bundled SKILL.md', () => {
     expect([...unsafe, ...blocks]).toEqual([])
   })
 
+  // PowerShell reads an unquoted `@name` as splatting, so `--flag @file.json`
+  // never reaches the CLI there. Quoted, it works in every shell.
+  it('quotes every @file argument it names', () => {
+    const unquoted = found.flatMap(invocation => [...invocation.matchAll(/\s(--[a-z-]+)\s+@[^\s"']+/g)].map(m => m[0].trim()))
+    expect(unquoted).toEqual([])
+  })
+
   it('names only flags this CLI documents', () => {
     const flags = new Set(
       found.flatMap(invocation => [...invocation.matchAll(/\s(--[a-z][a-z0-9-]*)/g)].map(m => m[1])),
