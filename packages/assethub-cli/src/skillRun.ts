@@ -313,12 +313,23 @@ export const saveSkillRunAttempts = async (input: {
   const saved: SavedAttempt[] = []
   const failed: {assetId: string; error: string}[] = []
   const seen = new Set<string>()
-  for (const step of input.run.steps) {
-    if (step.stage !== 'image' || !step.assetId || seen.has(step.assetId)) continue
+  const images = input.run.steps.filter(step => step.stage === 'image')
+  const checked = input.run.verdicts.filter(v => v.pass !== null)
+  // A verdict names its review step ("review"), not the image it judged
+  // ("isolate"), so the try is matched by attempt. Only when that is
+  // unambiguous: with several images per try (one per part) the checks cannot
+  // be told apart, and a wrong "rejected" would send the person after the
+  // wrong image, so those stay "unchecked".
+  const verdictFor = (step: (typeof images)[number]) =>
+    checked.find(v => v.stepId === step.stepId && v.attempt === step.attempt) ??
+    (images.filter(other => other.attempt === step.attempt).length === 1 &&
+    checked.filter(v => v.attempt === step.attempt).length === 1
+      ? checked.find(v => v.attempt === step.attempt)
+      : undefined)
+  for (const step of images) {
+    if (!step.assetId || seen.has(step.assetId)) continue
     seen.add(step.assetId)
-    const verdict = input.run.verdicts.find(
-      v => v.attempt === step.attempt && v.pass !== null,
-    )
+    const verdict = verdictFor(step)
     const check = verdict ? (verdict.pass ? 'passed' : 'rejected') : 'unchecked'
     const part = step.part ? `-${slug(step.part)}` : ''
     try {

@@ -362,3 +362,69 @@ describe('saveSkillRunAttempts', () => {
     expect(await readFile(join(dir, 'hero.png'), 'utf8')).toBe('original')
   })
 })
+
+describe('saveSkillRunAttempts: which AI check belongs to which try', () => {
+  const png = new Uint8Array([137, 80, 78, 71])
+  const fetchImpl = (async () =>
+    new Response(png, {headers: {'content-type': 'image/png'}})) as typeof fetch
+
+  it('reads the review verdict for its try, as runs record them (image step "isolate", verdict "review")', async () => {
+    const dir = await tempDir()
+    const {saved} = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        steps: [
+          {stepId: 'isolate', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a1', assetId: 'img_1'},
+          {stepId: 'review', stage: 'review', attempt: 1, status: 'succeeded', artifactId: 'r1'},
+        ],
+        verdicts: [{stepId: 'review', attempt: 1, pass: false, by: 'ai', reason: 'combined into one image'}],
+      }),
+      skillTitle: 'X',
+      outDir: dir,
+      fetchImpl,
+    })
+    expect(saved.map(item => [item.check, item.reason])).toEqual([['rejected', 'combined into one image']])
+  })
+
+  it('does not guess when several images share a try and their checks cannot be told apart', async () => {
+    const dir = await tempDir()
+    const {saved} = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        steps: [
+          {stepId: 'isolate', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a1', assetId: 'img_1', part: 'Hat'},
+          {stepId: 'isolate', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a2', assetId: 'img_2', part: 'Bag'},
+        ],
+        verdicts: [
+          {stepId: 'review', attempt: 1, pass: true, by: 'ai', reason: null},
+          {stepId: 'review', attempt: 1, pass: false, by: 'ai', reason: 'strap cut off'},
+        ],
+      }),
+      skillTitle: 'X',
+      outDir: dir,
+      fetchImpl,
+    })
+    expect(saved.map(item => item.check)).toEqual(['unchecked', 'unchecked'])
+  })
+
+  it('uses a verdict recorded on the image step itself when there is one', async () => {
+    const dir = await tempDir()
+    const {saved} = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        steps: [
+          {stepId: 'img_a', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a1', assetId: 'img_1'},
+          {stepId: 'img_b', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a2', assetId: 'img_2'},
+        ],
+        verdicts: [
+          {stepId: 'img_b', attempt: 1, pass: false, by: 'ai', reason: 'b is wrong'},
+          {stepId: 'img_a', attempt: 1, pass: true, by: 'ai', reason: null},
+        ],
+      }),
+      skillTitle: 'X',
+      outDir: dir,
+      fetchImpl,
+    })
+    expect(saved.map(item => [item.assetId, item.check])).toEqual([['img_1', 'passed'], ['img_2', 'rejected']])
+  })
+})
