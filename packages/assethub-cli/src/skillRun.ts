@@ -212,6 +212,48 @@ const slug = (text: string) =>
  * (`cat.figure-to-clay.png`, then `-2`, `-3`, ...). Files are created with
  * `wx`, so an existing file — the original above all — is never overwritten.
  */
+/** Stream one asset into `outDir` as `<base>.<ext>` (then `-2`, `-3`, …),
+ *  opened with `wx` so an existing file is never overwritten. */
+const downloadAsset = async (input: {
+  client: SkillRunClient
+  assetId: string
+  outDir: string
+  base: string
+  fetchImpl: typeof fetch
+}): Promise<string> => {
+  const {url} = await input.client.v2.getAsset(input.assetId)
+  const response = await input.fetchImpl(url, {signal: AbortSignal.timeout(120_000)})
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const mime = response.headers.get('content-type')?.split(';')[0] ?? ''
+  const extension = EXTENSIONS[mime] ?? (extname(new URL(url).pathname) || '.bin')
+  if (!response.body) throw new Error('empty response')
+  await mkdir(input.outDir, {recursive: true})
+  for (let n = 1; ; n++) {
+    const path = join(input.outDir, `${input.base}${n === 1 ? '' : `-${n}`}${extension}`)
+    let handle
+    try {
+      handle = await open(path, 'wx')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
+      throw error
+    }
+    // Streamed to disk: a mesh output can be far larger than an image.
+    await pipeline(
+      Readable.fromWeb(response.body as WebReadableStream<Uint8Array>),
+      createWriteStream('', {fd: handle.fd, autoClose: false}),
+    ).finally(() => handle.close())
+    return path
+  }
+}
+
+const stemOf = (sourceFileName?: string) =>
+  sourceFileName ? basename(sourceFileName, extname(sourceFileName)) : 'result'
+
+/**
+ * Download the run's verified outputs into `outDir`, named after the original
+ * (`cat.figure-to-clay.png`, then `-2`, `-3`, ...). Files are created with
+ * `wx`, so an existing file — the original above all — is never overwritten.
+ */
 export const saveSkillRunOutputs = async (input: {
   client: SkillRunClient
   run: WorkspaceSkillRun
@@ -221,11 +263,7 @@ export const saveSkillRunOutputs = async (input: {
   sourceFileName?: string
   fetchImpl?: typeof fetch
 }): Promise<{saved: {assetId: string; path: string}[]; failed: {assetId: string; error: string}[]}> => {
-  const fetchImpl = input.fetchImpl ?? fetch
-  const stem = input.sourceFileName
-    ? basename(input.sourceFileName, extname(input.sourceFileName))
-    : 'result'
-  const label = slug(input.skillTitle)
+  const base = `${stemOf(input.sourceFileName)}.${slug(input.skillTitle)}`
   const saved: {assetId: string; path: string}[] = []
   const failed: {assetId: string; error: string}[] = []
   const assetIds = [
@@ -237,39 +275,80 @@ export const saveSkillRunOutputs = async (input: {
   ]
   for (const assetId of assetIds) {
     try {
-      const {url} = await input.client.v2.getAsset(assetId)
-      const response = await fetchImpl(url, {signal: AbortSignal.timeout(120_000)})
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const mime = response.headers.get('content-type')?.split(';')[0] ?? ''
-      const extension =
-        EXTENSIONS[mime] ?? (extname(new URL(url).pathname) || '.bin')
-      if (!response.body) throw new Error('empty response')
-      await mkdir(input.outDir, {recursive: true})
-      for (let n = 1; ; n++) {
-        const path = join(
-          input.outDir,
-          `${stem}.${label}${n === 1 ? '' : `-${n}`}${extension}`,
-        )
-        let handle
-        try {
-          handle = await open(path, 'wx')
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
-          throw error
-        }
-        // Streamed to disk: a mesh output can be far larger than an image.
-        await pipeline(
-          Readable.fromWeb(response.body as WebReadableStream<Uint8Array>),
-          createWriteStream('', {fd: handle.fd, autoClose: false}),
-        ).finally(() => handle.close())
-        saved.push({assetId, path})
-        break
-      }
-    } catch (error) {
-      failed.push({
+      saved.push({
         assetId,
-        error: error instanceof Error ? error.message : String(error),
+        path: await downloadAsset({...input, assetId, base, fetchImpl: input.fetchImpl ?? fetch}),
       })
+    } catch (error) {
+      failed.push({assetId, error: error instanceof Error ? error.message : String(error)})
+    }
+  }
+  return {saved, failed}
+}
+
+export type SavedAttempt = {
+  assetId: string
+  attempt: number
+  /** What the run's AI check said about this try. */
+  check: 'passed' | 'rejected' | 'unchecked'
+  reason?: string
+  part?: string
+  path: string
+}
+
+/**
+ * Download every image try of a run, verified or not, as
+ * `<original>.<skill>.try<n>[-<part>]-<passed|rejected|unchecked>.<ext>`, so
+ * the person's own assistant can look at a rejected try and fix it locally.
+ */
+export const saveSkillRunAttempts = async (input: {
+  client: SkillRunClient
+  run: WorkspaceSkillRun
+  skillTitle: string
+  outDir: string
+  sourceFileName?: string
+  fetchImpl?: typeof fetch
+}): Promise<{saved: SavedAttempt[]; failed: {assetId: string; error: string}[]}> => {
+  const prefix = `${stemOf(input.sourceFileName)}.${slug(input.skillTitle)}`
+  const saved: SavedAttempt[] = []
+  const failed: {assetId: string; error: string}[] = []
+  const seen = new Set<string>()
+  const images = input.run.steps.filter(step => step.stage === 'image')
+  const checked = input.run.verdicts.filter(v => v.pass !== null)
+  // A verdict names its review step ("review"), not the image it judged
+  // ("isolate"), so the try is matched by attempt. Only when that is
+  // unambiguous: with several images per try (one per part) the checks cannot
+  // be told apart, and a wrong "rejected" would send the person after the
+  // wrong image, so those stay "unchecked".
+  const verdictFor = (step: (typeof images)[number]) =>
+    checked.find(v => v.stepId === step.stepId && v.attempt === step.attempt) ??
+    (images.filter(other => other.attempt === step.attempt).length === 1 &&
+    checked.filter(v => v.attempt === step.attempt).length === 1
+      ? checked.find(v => v.attempt === step.attempt)
+      : undefined)
+  for (const step of images) {
+    if (!step.assetId || seen.has(step.assetId)) continue
+    seen.add(step.assetId)
+    const verdict = verdictFor(step)
+    const check = verdict ? (verdict.pass ? 'passed' : 'rejected') : 'unchecked'
+    const part = step.part ? `-${slug(step.part)}` : ''
+    try {
+      const path = await downloadAsset({
+        ...input,
+        assetId: step.assetId,
+        base: `${prefix}.try${step.attempt}${part}-${check}`,
+        fetchImpl: input.fetchImpl ?? fetch,
+      })
+      saved.push({
+        assetId: step.assetId,
+        attempt: step.attempt,
+        check,
+        ...(check === 'rejected' && verdict?.reason ? {reason: verdict.reason} : {}),
+        ...(step.part ? {part: step.part} : {}),
+        path,
+      })
+    } catch (error) {
+      failed.push({assetId: step.assetId, error: error instanceof Error ? error.message : String(error)})
     }
   }
   return {saved, failed}

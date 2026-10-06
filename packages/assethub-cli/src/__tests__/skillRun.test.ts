@@ -8,6 +8,7 @@ import {
   listRunnableSkills,
   nextSkillRunAction,
   pinSkill,
+  saveSkillRunAttempts,
   saveSkillRunOutputs,
   waitForSkillRun,
   type SkillRunClient,
@@ -321,5 +322,109 @@ describe('listRunnableSkills', () => {
     }))
     expect(result.items).toEqual([])
     expect(result.hint).toMatch(/No skill in this workspace can run on an image yet/)
+  })
+})
+
+describe('saveSkillRunAttempts', () => {
+  const png = new Uint8Array([137, 80, 78, 71])
+  const fetchImpl = (async () =>
+    new Response(png, {headers: {'content-type': 'image/png'}})) as typeof fetch
+
+  it('saves every image try, named by try and by what the AI check said, without overwriting', async () => {
+    const dir = await tempDir()
+    await writeFile(join(dir, 'hero.png'), 'original')
+    const result = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        status: 'budget_exhausted',
+        steps: [
+          {stepId: 's', stage: 'author', attempt: 1, status: 'succeeded', artifactId: 'a0'},
+          {stepId: 's', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a1', assetId: 'img_1'},
+          {stepId: 's', stage: 'image', attempt: 2, status: 'succeeded', artifactId: 'a2', assetId: 'img_2', part: 'Red bow'},
+          {stepId: 's', stage: 'image', attempt: 3, status: 'succeeded', artifactId: 'a3', assetId: 'img_3'},
+        ],
+        verdicts: [
+          {stepId: 's', attempt: 1, pass: false, by: 'ai', reason: 'combined into one image'},
+          {stepId: 's', attempt: 2, pass: true, by: 'ai', reason: null},
+        ],
+      }),
+      skillTitle: 'Pluffy Accessory Extraction',
+      outDir: dir,
+      sourceFileName: 'hero.png',
+      fetchImpl,
+    })
+    expect(result.failed).toEqual([])
+    expect(result.saved).toEqual([
+      {assetId: 'img_1', attempt: 1, check: 'rejected', reason: 'combined into one image', path: join(dir, 'hero.pluffy-accessory-extraction.try1-rejected.png')},
+      {assetId: 'img_2', attempt: 2, check: 'passed', part: 'Red bow', path: join(dir, 'hero.pluffy-accessory-extraction.try2-red-bow-passed.png')},
+      {assetId: 'img_3', attempt: 3, check: 'unchecked', path: join(dir, 'hero.pluffy-accessory-extraction.try3-unchecked.png')},
+    ])
+    expect(await readFile(join(dir, 'hero.png'), 'utf8')).toBe('original')
+  })
+})
+
+describe('saveSkillRunAttempts: which AI check belongs to which try', () => {
+  const png = new Uint8Array([137, 80, 78, 71])
+  const fetchImpl = (async () =>
+    new Response(png, {headers: {'content-type': 'image/png'}})) as typeof fetch
+
+  it('reads the review verdict for its try, as runs record them (image step "isolate", verdict "review")', async () => {
+    const dir = await tempDir()
+    const {saved} = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        steps: [
+          {stepId: 'isolate', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a1', assetId: 'img_1'},
+          {stepId: 'review', stage: 'review', attempt: 1, status: 'succeeded', artifactId: 'r1'},
+        ],
+        verdicts: [{stepId: 'review', attempt: 1, pass: false, by: 'ai', reason: 'combined into one image'}],
+      }),
+      skillTitle: 'X',
+      outDir: dir,
+      fetchImpl,
+    })
+    expect(saved.map(item => [item.check, item.reason])).toEqual([['rejected', 'combined into one image']])
+  })
+
+  it('does not guess when several images share a try and their checks cannot be told apart', async () => {
+    const dir = await tempDir()
+    const {saved} = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        steps: [
+          {stepId: 'isolate', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a1', assetId: 'img_1', part: 'Hat'},
+          {stepId: 'isolate', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a2', assetId: 'img_2', part: 'Bag'},
+        ],
+        verdicts: [
+          {stepId: 'review', attempt: 1, pass: true, by: 'ai', reason: null},
+          {stepId: 'review', attempt: 1, pass: false, by: 'ai', reason: 'strap cut off'},
+        ],
+      }),
+      skillTitle: 'X',
+      outDir: dir,
+      fetchImpl,
+    })
+    expect(saved.map(item => item.check)).toEqual(['unchecked', 'unchecked'])
+  })
+
+  it('uses a verdict recorded on the image step itself when there is one', async () => {
+    const dir = await tempDir()
+    const {saved} = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        steps: [
+          {stepId: 'img_a', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a1', assetId: 'img_1'},
+          {stepId: 'img_b', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a2', assetId: 'img_2'},
+        ],
+        verdicts: [
+          {stepId: 'img_b', attempt: 1, pass: false, by: 'ai', reason: 'b is wrong'},
+          {stepId: 'img_a', attempt: 1, pass: true, by: 'ai', reason: null},
+        ],
+      }),
+      skillTitle: 'X',
+      outDir: dir,
+      fetchImpl,
+    })
+    expect(saved.map(item => [item.assetId, item.check])).toEqual([['img_1', 'passed'], ['img_2', 'rejected']])
   })
 })
