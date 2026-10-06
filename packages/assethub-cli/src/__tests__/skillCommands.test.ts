@@ -1,5 +1,8 @@
 import {spawn} from 'node:child_process'
 import {createServer} from 'node:http'
+import {mkdtemp, writeFile} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {expect, it} from 'vitest'
 import {fileURLToPath} from 'node:url'
 
@@ -245,6 +248,16 @@ it('validates a draft, reads the draft schema, and dry-runs a build from the CLI
     await expect(
       run(['build', '--goal', 'x', '--canvas', '999', '--task-kind', 'turnaround', '--dry-run']),
     ).rejects.toThrow(/task-kind/)
+    // Multi-line text and JSON come from a file, so no shell (PowerShell, cmd)
+    // has to carry newlines or quotes inside an argument.
+    const dir = await mkdtemp(join(tmpdir(), 'skill-args-'))
+    const notes = 'Artist asked: one view.\r\nArtist corrected: keep the scarf.\n'
+    await writeFile(join(dir, 'instructions.txt'), notes)
+    await run(['build', '--goal', 'x', '--canvas', '999', '--instructions', `@${join(dir, 'instructions.txt')}`, '--dry-run'])
+    expect(requests.at(-1)?.body).toMatchObject({instructions: notes})
+    await writeFile(join(dir, 'current.json'), JSON.stringify(['Keep the "scarf"', 'One view']))
+    await run(['build-enhance', '22222222-2222-4222-8222-222222222222', '--section', 'acceptanceCriteria', '--current', `@${join(dir, 'current.json')}`])
+    expect(requests.at(-1)?.body).toMatchObject({current: ['Keep the "scarf"', 'One view']})
   } finally {
     await new Promise<void>(done => server.close(() => done()))
   }

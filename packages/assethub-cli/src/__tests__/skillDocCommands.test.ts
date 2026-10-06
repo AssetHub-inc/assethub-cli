@@ -59,6 +59,20 @@ describe('bundled SKILL.md', () => {
     expect([...new Set(missing)]).toEqual([])
   })
 
+  // Agents on Windows run these in PowerShell or cmd.exe. A trailing `\` is
+  // not a continuation there (PowerShell runs the first half alone, dropping
+  // e.g. the revision pin), `$(…)` is not command substitution in cmd and runs
+  // a missing `uuidgen` in PowerShell, and single quotes do not quote in cmd.
+  it('writes every command so PowerShell and cmd.exe run it as written', () => {
+    const unsafe = found.filter(
+      invocation => /\\\s*$|\$\(|\s'[^']*'/.test(invocation),
+    )
+    const blocks = [...skill.matchAll(/```(?:bash|sh|shell)?\n([\s\S]*?)```/g)]
+      .flatMap(match => match[1].split('\n'))
+      .filter(line => /\\\s*$|\$\(/.test(line))
+    expect([...unsafe, ...blocks]).toEqual([])
+  })
+
   it('names only flags this CLI documents', () => {
     const flags = new Set(
       found.flatMap(invocation => [...invocation.matchAll(/\s(--[a-z][a-z0-9-]*)/g)].map(m => m[1])),

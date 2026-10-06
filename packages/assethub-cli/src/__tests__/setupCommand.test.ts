@@ -625,6 +625,15 @@ describe('runSetup app-env (macOS)', () => {
     expect(dry.logs.join('\n')).toContain('[dry-run] would install')
   })
 
+  it('gives Windows the PowerShell and setx forms, never a bash export', async () => {
+    const printed = await runSetup(options({printEnv: true}), makeDeps({platform: 'win32'}).deps)
+    expect(printed.exportLine).toBe(`$env:ASSETHUB_API_KEY = "${KEY}"`)
+    const quiet = await runSetup(options({noAppEnv: false}), makeDeps({platform: 'win32'}).deps)
+    expect(step(quiet)?.detail).toContain('setx ASSETHUB_API_KEY')
+    expect(JSON.stringify(quiet)).not.toContain('export ASSETHUB_API_KEY')
+    expect(JSON.stringify(quiet)).not.toContain(KEY)
+  })
+
   it('points other platforms at the environment their apps start with', async () => {
     const {deps, runs} = makeDeps()
     const result = await runSetup(options(), deps)

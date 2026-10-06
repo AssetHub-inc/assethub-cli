@@ -99,7 +99,8 @@ export const describeSkillRunProgress = (
     const what = STAGE_WORDS[step.stage] ?? step.stage
     const part = step.part ? ` (${step.part})` : ''
     lines.push(
-      `Try ${step.attempt}: ${what}${part} — ${step.status === 'completed' ? 'done' : 'failed'}.`,
+      // ASCII only: Windows PowerShell 5.1 garbles an em dash read from a pipe.
+      `Try ${step.attempt}: ${what}${part} - ${step.status === 'completed' ? 'done' : 'failed'}.`,
     )
   }
   const seen = new Set(

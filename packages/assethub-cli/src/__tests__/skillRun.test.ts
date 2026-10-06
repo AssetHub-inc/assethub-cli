@@ -97,7 +97,7 @@ describe('describeSkillRunProgress', () => {
       ],
     })
     expect(describeSkillRunProgress(undefined, first)).toEqual([
-      'Try 1: Making the image — done.',
+      'Try 1: Making the image - done.',
       'AI check (try 1): the fingers look fused. Correcting it automatically.',
     ])
     const second = view({
@@ -113,7 +113,7 @@ describe('describeSkillRunProgress', () => {
       ],
     })
     expect(describeSkillRunProgress(first, second)).toEqual([
-      'Try 2: Making the image — done.',
+      'Try 2: Making the image - done.',
       'AI check (try 2): looks right.',
       'Finished.',
     ])
@@ -156,7 +156,7 @@ describe('waitForSkillRun', () => {
     expect(timedOut).toBe(false)
     expect(run.status).toBe('budget_exhausted')
     expect(lines).toEqual([
-      'Try 1: Making the image — done.',
+      'Try 1: Making the image - done.',
       'Paused: the spending limit is reached (50 of 50 credits used).',
     ])
   })
