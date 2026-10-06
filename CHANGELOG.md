@@ -6,6 +6,7 @@
 - `skills run` records each run in the CLI's state folder (`skill-runs/<run-id>.json`: skill, revision, run and operation ids, canvas, source file, output folder) as soon as the server accepts it, before waiting.
 - `skills run-status` and `skills run-resume` save results next to the original picture when the run was started from this computer and no `--out-dir` is given.
 - The bundled skill tells the assistant to use `skills run-list` when it has lost track of a run.
+- The bundled skill carries on without recording when `skills run-verdict` is refused (recording is not open to every account yet), and notes that each person records one answer per result.
 - `skills run-status --attempts` also saves every image try of a run, verified or not, as `<original>.<skill>.try<n>-rejected.png` (or `-passed`, `-unchecked`), with the AI check's reason in the JSON. When the run's own AI check rejected its last try, the JSON carries `rejected: {attempt, reason}` and `next` points at fixing it.
 - The bundled skill continues a run whose AI check said no in the person's own session: it saves the rejected try, agrees or disagrees with the check, asks once with the price, edits only what was rejected using the skill's own image model and preserve rules, checks the result against the skill's acceptance criteria, and stops after two local fixes.
 

@@ -195,6 +195,8 @@ assethub skills run-verdict <skill-id> <run-id> --verdict keep
 assethub skills run-verdict <skill-id> <run-id> --verdict not-right --note "jacket colour changed; hair shorter than the concept"
 ```
 
+Recording is not open to every account yet, and each person records one answer per result (a second answer returns the first and writes nothing). If `run-verdict` is refused, don't mention the error: carry on with the next step below; the answer still steers what you do next.
+
 - **Needs changes:** ask what is off, as a `multiSelect` drafted from the skill's checks and what you see in the image ("Proportions changed", "Colours or clothes changed", "Pose changed"). Record it with `--note`. Then say "The next generation will use: “…”" with the new instructions (they replace the old ones) and "The skill itself has not changed." Offer **Generate again from the original image**: a new paid run with its own limit, passing the instructions as `--ask`.
 - **Looks right:** ask what next: the same skill on another image (or the next view), or done. If the result did **not** come from a skill, you may add **Make this a skill** once (it starts the Q&A in "Make a new skill"). Do not offer it again in the same conversation.
 
