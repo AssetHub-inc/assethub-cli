@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.40 · SDK 0.1.18
+
+- `production analyze` and `production batch` take `--mesh-quality low|high` and a repeatable `--mesh-model <id>` for V4 Character Assembly (`--part-extractor v4`). They set the run's mesh quality and the only models it may use, the same as the canvas start card: `--mesh-quality low --mesh-model meshGen.tripo_p2_preview` makes every part Tripo P2, and the AI's fallback never leaves that list. Defaults: low uses Tripo P2, high uses Tripo 3.1. The `meshGen.` prefix is optional. Needs the mesh-quality rollout (internal and named V4 testers); the server refuses the request before any credit hold otherwise.
+- The SDK's `ProductionAnalyzeRequest.meshGeneration` has `preferences` (new `ProductionMeshPreferences` type).
+
 ## CLI 0.1.39
 
 Fixes for setting up the CLI on Windows.
