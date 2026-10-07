@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.49
+
+- `skills run --wait` and `skills run-status` keep the parts that passed when another part fails the run: a split into parts where one part is still rejected after its retries now saves the passed parts next to the original instead of nothing (needs the matching web change, assethub-web #8392).
+
 ## CLI 0.1.48
 
 - The bundled skill always reads the staff-shared skills (`GET /workspace-skills/shares`) alongside `skills list --runnable` before saying no skill fits. It used to read them only after `api search staff` found the share operations, so agents skipped them and told staff there was no skill. A refused call (a key that is not staff) is passed over silently.

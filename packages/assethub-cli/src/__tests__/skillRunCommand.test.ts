@@ -279,6 +279,19 @@ it('finds a run again from a new session: run-list, then run-status saves into t
   expect((all.json.items as unknown[]).length).toBe(1)
 })
 
+it('saves the parts that passed when another part failed the run', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  runStatus = 'failed'
+  try {
+    const result = await cli(['run-status', 'figure-clay', runId, '--out-dir', dir], dir)
+    expect(result.code).toBe(1)
+    expect(result.json.saved).toEqual([{assetId: 'img_9', path: join(dir, 'result.figure-clay.png')}])
+    expect(await readFile(join(dir, 'result.figure-clay.png'))).toEqual(png)
+  } finally {
+    runStatus = 'completed'
+  }
+})
+
 it('saves the rejected try and points the assistant at fixing it here when the AI check said no', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
   runStatus = 'failed'
