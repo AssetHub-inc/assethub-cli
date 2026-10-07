@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.45
+
+- The bundled skill leads with "say what you want": an "I want …" request that names no skill still checks the team's skills, asks once, then runs.
+- The bundled skill shares a skill revision with AssetHub staff (staff accounts only), checks and stops a share, and lets staff find and run skills other staff shared. Share and stop pass an `--operation-id`, as every `api call` mutation must.
+
 ## CLI 0.1.44
 
 - The bundled skill offers to fix a result in the person's own session when they say **Needs changes**, not only when the skill's AI check rejected it: one image edit of only what they named, with the skill's model and preserve rules, checked against the skill's acceptance criteria, at most two fixes. Regenerating from the original stays an option, and is recommended when most of the image is wrong.
