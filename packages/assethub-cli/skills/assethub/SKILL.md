@@ -9,6 +9,7 @@ description: |
   - Rigging, animating, retopologizing, texturing, or converting a mesh
   - Using, listing, or choosing a workspace skill / method ("use the clay skill on this", "スキルを使って", "which skills do we have?")
   - Making a new skill or saving a way of working ("make a skill from this", "save this as our method", "スキルにして", "bikin skill buat turnaround")
+  - Sharing a skill with AssetHub staff, or running one staff shared ("share it with staff", "stop sharing it", "which shared skills can I use?")
   - Running a 3D production pipeline, checking a job, or recovering a run
   - Asking what models or operations are available, or what something will cost
   - Recording whether a generated asset is acceptable
@@ -28,6 +29,7 @@ description: |
 > - "Make a side view of `~/Desktop/hero.png`." (the assistant checks whether your team has a skill for it)
 > - 「このキャラ画像を3D用に前処理して。上限は50クレジットで。」
 > - "That looks great. Make a skill from this so the team can use it." (it asks you a few questions first)
+> - "Share that skill with staff." (AssetHub staff only; it asks first)
 > - "Turn `crate.png` into a 3D model and download it to `./out`."
 >
 > Before anything that costs credits, the assistant asks you **one** question with the price when there is one up front (a skill run has none) and always the spending limit, and waits for your yes. Your original files are never overwritten; results are saved next to them as new files. If something stops halfway, the assistant continues the same job instead of paying for it twice.
@@ -289,6 +291,33 @@ After it is saved, offer to try it on another image right away (back to "Run it"
 
 - `TASK_KIND_NOT_SUPPORTED`: this account can only build part-separation skills for now. Say so plainly. Never rebuild the same idea as part separation to get around it.
 - 403: an editor of the workspace has to build it.
+
+### 5. Share a skill with AssetHub staff (staff accounts only)
+
+This is only for AssetHub staff accounts. If `assethub api search staff` finds nothing, this key cannot share; say so and stop. Sharing lets every staff member run one tested revision in their own workspace, and each run is charged to the workspace it runs in. Only an editor of the skill's workspace can share it (for a personal skill, its artist). Official skills and customized copies of them cannot be shared (422 `SKILL_NOT_SHAREABLE`).
+
+When the person asks to "share it with staff" or "publish it to the team":
+
+1. `assethub skills get <skill-id>` gives the `revision` and `contentSha256`. Share a revision that already has a result marked keep, not a draft nobody has tried. If it has none, offer to try it on an image first.
+2. Ask once: **Share revision N with AssetHub staff (Recommended)** / **Try it on an image first** / **Not now**. Name the skill and the revision, and say that staff run it at their own cost.
+3. Share it. It is free. Sharing a newer revision later moves the share to that revision. Write `skill.json` as `{"skillId": "<skill-id>"}` and `share.json` as `{"revision": <n>, "contentSha256": "<sha256>"}`, then:
+
+```bash
+assethub api call "PUT /workspace-skills/{skillId}/staff-share" --path-json "@skill.json" --input-json "@share.json"
+```
+
+409 `WORKSPACE_SKILL_CONFLICT` means the skill changed since you read it: read it again and ask again. Never retry with a new hash on your own.
+
+- Check what is shared: `assethub api call "GET /workspace-skills/{skillId}/staff-share" --path-json "@skill.json"` (`revision` is `null` when it is not shared).
+- Stop sharing ("stop sharing it", "unshare"): `assethub api call "POST /workspace-skills/{skillId}/staff-share/stop" --path-json "@skill.json"`. Staff can then no longer start or resume runs of it. Results they already have stay.
+
+**Staff running a skill someone shared.** Shared skills are not in `skills list`. List them with `assethub api call "GET /workspace-skills/shares"`, and check them for a fit the same way as the workspace's own skills. On a canvas, staff pick them in the Use skill node. From the CLI, ask the same one round (skill and limit), put the image on a canvas (`assethub canvas import --canvas <id> --file <image>` returns its `assetId`), then start the run with a new operation ID. Write `share-id.json` as `{"shareId": "<share-id>"}` and `run.json` as `{"clientOperationId": "<uuid>", "canvasId": <id>, "sourceImageAssetId": "<asset-id>", "budgetCredits": <n>}`, then:
+
+```bash
+assethub api call "POST /workspace-skills/shares/{shareId}/runs" --path-json "@share-id.json" --input-json "@run.json" --operation-id <the same uuid>
+```
+
+Follow it with `assethub skills run-status <the returned skillId> <runId> --wait --out-dir .`, and record the verdict with `skills run-verdict` as usual. 409 `SHARE_STOPPED` means the owner stopped sharing it: say so, and offer the workspace's own skills instead.
 
 ## Other work: images, meshes, parts, production
 
