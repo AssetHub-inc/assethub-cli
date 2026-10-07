@@ -7,6 +7,7 @@ description: |
   - Generating or editing an image, concept, or reference for a 3D asset
   - Turning an image or prompt into a 3D mesh, splitting it into parts, or composing parts
   - Rigging, animating, retopologizing, texturing, or converting a mesh
+  - Any "I want …" request to make or change an asset, even when no skill is named ("I want a turnaround of hero.png", "bikin side view dong"): check the team's skills first, ask once, then run
   - Using, listing, or choosing a workspace skill / method ("use the clay skill on this", "スキルを使って", "which skills do we have?")
   - Making a new skill or saving a way of working ("make a skill from this", "save this as our method", "スキルにして", "bikin skill buat turnaround")
   - Sharing a skill with AssetHub staff, or running one staff shared ("share it with staff", "stop sharing it", "which shared skills can I use?")
@@ -23,7 +24,9 @@ description: |
 
 > **New to this? Read this box, then skip to whatever you need.**
 >
-> This file teaches an AI coding assistant (Claude Code, Codex, Cursor) how to use AssetHub for you. You don't run anything in it yourself; you just talk to the assistant in your own words and language, for example:
+> This file teaches an AI coding assistant (Claude Code, Codex, Cursor) how to use AssetHub for you. You don't run anything in it yourself; you just talk to the assistant in your own words and language.
+>
+> **The easy way: say what you want.** "I want a clean turnaround of `hero.png`." You never need a skill's name, a command or an id. The assistant looks through your team's skills, asks you **one** question (which skill and how many credits at most), runs it, and saves the result next to your file. More examples:
 >
 > - "What skills does our workspace have?"
 > - "Make a side view of `~/Desktop/hero.png`." (the assistant checks whether your team has a skill for it)
