@@ -5,6 +5,12 @@
 - The bundled skill leads with "say what you want": an "I want …" request that names no skill still checks the team's skills, asks once, then runs.
 - The bundled skill shares a skill revision with AssetHub staff (staff accounts only), checks and stops a share, and lets staff find and run skills other staff shared. Share and stop pass an `--operation-id`, as every `api call` mutation must.
 
+## CLI 0.1.44
+
+- The bundled skill offers to fix a result in the person's own session when they say **Needs changes**, not only when the skill's AI check rejected it: one image edit of only what they named, with the skill's model and preserve rules, checked against the skill's acceptance criteria, at most two fixes. Regenerating from the original stays an option, and is recommended when most of the image is wrong.
+- The bundled skill makes every image through AssetHub: the assistant never draws or edits the person's pictures with its own image tool or code.
+- The bundled skill runs a skill as written with `skills run` and never copies, rewords or swaps the model of its steps; the person's wishes go in `--ask`. (In a team eval, agents that rewrote a skill's steps broke its rules.)
+
 ## CLI 0.1.43
 
 - `assethub skills run-list` finds a skill run again from a new session: a closed window or a laptop that slept no longer needs the operation id the old window printed. It lists the runs started from this folder (or `--file <image>`, or `--all`), newest first, with each run's live status and the next command. Free; it only reads.

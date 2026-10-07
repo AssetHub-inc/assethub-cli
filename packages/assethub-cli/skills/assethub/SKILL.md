@@ -58,6 +58,8 @@ description: |
 6. **Check the team's skills before you work.** A request to make or change something starts with `skills list --runnable` (free). The team's method beats one you invent.
 7. **Ask, don't assume.** Every choice goes through your question tool (see "Asking the person"), with your recommendation first.
 8. **A new skill always starts with an interview.** However the request is worded, and however much it already says, ask the rounds in "Make a new skill" and read the answers back before anything is built.
+9. **Make every image through AssetHub.** Never draw, generate or edit the person's pictures with your own image tool, a built-in generator, or code, even when that looks faster. Work done in AssetHub is checked, repeatable by the rest of the team, and kept on the canvas. If AssetHub cannot do what was asked, say so and ask what to do.
+10. **Run a skill as written.** Start it with `skills run`. Never copy a skill's steps into your own prompt, reword them, or swap its model: the skill's exact wording is what keeps its rules (agents that rewrote it broke them). The person's own wishes go in `--ask`.
 
 ## How the CLI answers
 
@@ -202,7 +204,16 @@ assethub skills run-verdict <skill-id> <run-id> --verdict not-right --note "jack
 
 Recording is not open to every account yet, and each person records one answer per result (a second answer returns the first and writes nothing). If `run-verdict` is refused, don't mention the error: carry on with the next step below; the answer still steers what you do next.
 
-- **Needs changes:** ask what is off, as a `multiSelect` drafted from the skill's checks and what you see in the image ("Proportions changed", "Colours or clothes changed", "Pose changed"). Record it with `--note`. Then say "The next generation will use: “…”" with the new instructions (they replace the old ones) and "The skill itself has not changed." Offer **Generate again from the original image**: a new paid run with its own limit, passing the instructions as `--ask`.
+- **Needs changes:** ask what is off, as a `multiSelect` drafted from the skill's checks and what you see in the image ("Proportions changed", "Colours or clothes changed", "Pose changed"). Record it with `--note`. Say "The skill itself has not changed." Then ask once:
+
+  > **How should I fix it?**
+  > - **Fix it here (Recommended)**: one image edit that changes only what you named, about N credits, charged to <workspace>
+  > - **Generate again from the original image**: a new run of the skill with its own limit
+  > - **Stop for now**
+
+  Offer **Fix it here** only for an image result: it is an image edit, so for a mesh or any other file leave it out and offer the other two. Recommend **Generate again** instead when most of the image is wrong (the wrong subject, pose or outfit overall), since an edit cannot rescue that.
+  - **Fix it here:** follow steps 4 and 5 of "When the AI check says no", starting from the saved result instead of a rejected try, with the person's note as the reason. Then show the fix and ask whether it looks right, but don't record it with `run-verdict`: this result already has its answer, and a second one is ignored. The same limit applies: at most two local fixes, each a new file next to the original.
+  - **Generate again:** say "The next generation will use: “…”" with the new instructions (they replace the old ones), then start a new paid run with its own limit, passing them as `--ask`.
 - **Looks right:** ask what next: the same skill on another image (or the next view), or done. If the result did **not** come from a skill, you may add **Make this a skill** once (it starts the Q&A in "Make a new skill"). Do not offer it again in the same conversation.
 
 ### 4. Make a new skill: always a Q&A first
