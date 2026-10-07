@@ -117,7 +117,7 @@ assethub skills get <skill-id>       # free
 
 When the person asks you to **make or change** something (an image, a view, parts, a cleanup), look for a team skill first, before planning the work yourself. Skip this only when they already named a skill or only asked a question.
 
-1. `skills list --runnable`, then match their request and their image against each title and summary.
+1. `skills list --runnable`, then match their request and their image against each title and summary. For an AssetHub staff account (`assethub api search staff` finds the share operations), also read `assethub api call "GET /workspace-skills/shares"`: skills other staff shared are candidates too (run them as in step 5).
 2. `skills get` the best one to three candidates. Check that the image fits the skill's "when to use" and that its goal is what they asked for.
 3. **One or more fit:** ask (the skill and the limit can share one round):
 
@@ -311,7 +311,7 @@ assethub api call "PUT /workspace-skills/{skillId}/staff-share" --path-json "@sk
 - Check what is shared: `assethub api call "GET /workspace-skills/{skillId}/staff-share" --path-json "@skill.json"` (`revision` is `null` when it is not shared).
 - Stop sharing ("stop sharing it", "unshare"): `assethub api call "POST /workspace-skills/{skillId}/staff-share/stop" --path-json "@skill.json"`. Staff can then no longer start or resume runs of it. Results they already have stay.
 
-**Staff running a skill someone shared.** Shared skills are not in `skills list`. List them with `assethub api call "GET /workspace-skills/shares"`, and check them for a fit the same way as the workspace's own skills. On a canvas, staff pick them in the Use skill node. From the CLI, ask the same one round (skill and limit), put the image on a canvas (`assethub canvas import --canvas <id> --file <image>` returns its `assetId`), then start the run with a new operation ID. Write `share-id.json` as `{"shareId": "<share-id>"}` and `run.json` as `{"clientOperationId": "<uuid>", "canvasId": <id>, "sourceImageAssetId": "<asset-id>", "budgetCredits": <n>}`, then:
+**Staff running a skill someone shared.** Shared skills are not in `skills list`, so step 1 of "Before any work" also reads `assethub api call "GET /workspace-skills/shares"` for staff; the person never has to name one. On a canvas, staff pick them in the Use skill node. From the CLI, ask the same one round (skill and limit), put the image on a canvas (`assethub canvas import --canvas <id> --file <image>` returns its `assetId`), then start the run with a new operation ID. Write `share-id.json` as `{"shareId": "<share-id>"}` and `run.json` as `{"clientOperationId": "<uuid>", "canvasId": <id>, "sourceImageAssetId": "<asset-id>", "budgetCredits": <n>}`, then:
 
 ```bash
 assethub api call "POST /workspace-skills/shares/{shareId}/runs" --path-json "@share-id.json" --input-json "@run.json" --operation-id <the same uuid>
