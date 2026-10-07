@@ -227,13 +227,13 @@ A run can end `failed`, or pause at its limit (`budget_exhausted`), right after 
    `assethub image generate --file <the -rejected.png> --prompt "<what to fix, from the check's reason>; keep everything else exactly as it is: <the skill's preserve rules>" --model-id <model id> --canvas <canvasId> --operation-id <a new UUID you write out> --wait --download --out-dir <folder of the original>`
    If the try is so far off that editing it makes no sense (the wrong subject, everything merged into one image), edit the **original** with the skill's own instruction plus the check's reason instead, and say so.
 5. **Check it like the skill would.** Read the new image and go through the skill's `acceptanceCriteria` one by one, `must` first. Tell the person plainly which pass and which don't. Never call it fixed when a `must` still fails.
-6. **Show it and ask Looks right / Needs changes**, as in "After the result". At most **two** local fixes per run: if the second still fails a `must`, stop and say what keeps failing. That is a problem with the skill, not something more credits will solve, so suggest telling whoever maintains it.
+6. **Show it and ask Keep / Not right**, as in "After the result". At most **two** local fixes per run: if the second still fails a `must`, stop and say what keeps failing. That is a problem with the skill, not something more credits will solve, so suggest telling whoever maintains it.
 
 This does not change the skill or the run. The fixed image is a new file next to the original, never over a try or the original.
 
 ### 3. After the result
 
-Show the result, then ask **Looks right** / **Needs changes**. Say that neither changes the skill or spends credits. Record the answer:
+Show the result, then ask **Keep** / **Not right**. Say that neither changes the skill or spends credits. Record the answer:
 
 ```bash
 assethub skills run-verdict <skill-id> <run-id> --verdict keep
@@ -242,7 +242,7 @@ assethub skills run-verdict <skill-id> <run-id> --verdict not-right --note "jack
 
 Recording is not open to every account yet, and each person records one answer per result (a second answer returns the first and writes nothing). If `run-verdict` is refused, don't mention the error: carry on with the next step below; the answer still steers what you do next.
 
-- **Needs changes:** ask what is off, as a `multiSelect` drafted from the skill's checks and what you see in the image ("Proportions changed", "Colours or clothes changed", "Pose changed"). Record it with `--note`. Say "The skill itself has not changed." Then ask once:
+- **Not right:** ask what is off, as a `multiSelect` drafted from the skill's checks and what you see in the image ("Proportions changed", "Colours or clothes changed", "Pose changed"). Record it with `--note`. Say "The skill itself has not changed." Then ask once:
 
   > **How should I fix it?**
   > - **Fix it here (Recommended)**: one image edit that changes only what you named, about N credits, charged to <workspace>
@@ -252,7 +252,7 @@ Recording is not open to every account yet, and each person records one answer p
   Offer **Fix it here** only for an image result: it is an image edit, so for a mesh or any other file leave it out and offer the other two. Recommend **Generate again** instead when most of the image is wrong (the wrong subject, pose or outfit overall), since an edit cannot rescue that.
   - **Fix it here:** follow steps 4 and 5 of "When the AI check says no", starting from the saved result instead of a rejected try, with the person's note as the reason. Then show the fix and ask whether it looks right, but don't record it with `run-verdict`: this result already has its answer, and a second one is ignored. The same limit applies: at most two local fixes, each a new file next to the original.
   - **Generate again:** say "The next generation will use: “…”" with the new instructions (they replace the old ones), then start a new paid run with its own limit, passing them as `--ask`.
-- **Looks right:** ask what next: the same skill on another image (or the next view), or done. If the result did **not** come from a skill, you may add **Make this a skill** once (it starts the Q&A in "Make a new skill"). Do not offer it again in the same conversation.
+- **Keep:** ask what next: the same skill on another image (or the next view), or done. If the result did **not** come from a skill, you may add **Make this a skill** once (it starts the Q&A in "Make a new skill"). Do not offer it again in the same conversation.
 
 ### 4. Make a new skill: always a Q&A first
 
@@ -260,17 +260,17 @@ Any request to create a skill starts this interview: "make a skill from this", "
 
 A skill is learned from real results on a canvas, never from free text alone. Draft every option yourself from what happened (the operations on the canvas, the result they liked, what they corrected), so they mostly pick. Four rounds, one at a time. After each round, say back in one line what you understood ("So: an image skill that makes one side view from a front image, learned from the canvas we just used.") before asking the next.
 
-**No result to learn from yet?** If they describe a skill but no canvas shows it working, say so plainly ("A skill learns from a result you were happy with. Let's make one first."). Then ask: **Do it on one image now (Recommended)** / **Use a canvas where we already did it** (they name it) / **Not now**. With the first choice, do the work normally (asking before anything paid), get their "Looks right", then come back to round 1 with that canvas as the source.
+**No result to learn from yet?** If they describe a skill but no canvas shows it working, say so plainly ("A skill learns from a result you were happy with. Let's make one first."). Then ask: **Do it on one image now (Recommended)** / **Use a canvas where we already did it** (they name it) / **Not now**. With the first choice, do the work normally (asking before anything paid), wait until they say **Keep**, then come back to round 1 with that canvas as the source.
 
 **Use the conversation to steer it.** Before round 1, go back through this conversation and collect what the person decided along the way:
 - what they asked for, in their own words;
-- every correction they gave ("make the hair longer", "keep the scarf") and every **Needs changes** answer;
+- every correction they gave ("make the hair longer", "keep the scarf") and every **Not right** answer;
 - the AI check reasons that made a try go again, and the tries they rejected, with why;
 - the result they kept, and what they said about it.
 
 Use these to fill the **Recommended** option in every round, so the interview confirms what they already told you instead of asking it again. In round 3, ask **From our conversation, the skill should also…** as a `multiSelect` of those decisions in plain words (all checked by default), so they can drop anything that was a one-off.
 
-Make sure the decisions on skill runs also exist on the canvas: a **Needs changes** or **Looks right** on a skill run from this conversation that was never recorded gets recorded now with `skills run-verdict <skill-id> <run-id> … --note "<their words>"` (free). The builder reads verdict notes on the canvas as the artist's own judgement, its strongest evidence. `run-verdict` needs a skill run; decisions about other work (an image edit, a generation) travel only in `--instructions`.
+Make sure the decisions on skill runs also exist on the canvas: a **Not right** or **Keep** on a skill run from this conversation that was never recorded gets recorded now with `skills run-verdict <skill-id> <run-id> … --note "<their words>"` (free). The builder reads verdict notes on the canvas as the artist's own judgement, its strongest evidence. `run-verdict` needs a skill run; decisions about other work (an image edit, a generation) travel only in `--instructions`.
 
 If they point to an earlier session ("like we did yesterday"), ask which canvas it was: the canvas keeps every step and verdict. Use what they say or show you about it. Don't go looking through old chat logs.
 

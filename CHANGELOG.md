@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.49
+
+- The bundled skill asks **Keep** / **Not right** after a result, the same words the AssetHub canvas now shows on the Use skill node (it used to say Looks right / Needs changes). The recorded values are unchanged: `run-verdict --verdict keep|not-right`.
+
 ## CLI 0.1.48
 
 - The bundled skill always reads the staff-shared skills (`GET /workspace-skills/shares`) alongside `skills list --runnable` before saying no skill fits. It used to read them only after `api search staff` found the share operations, so agents skipped them and told staff there was no skill. A refused call (a key that is not staff) is passed over silently.

@@ -231,7 +231,7 @@ it('resumes the same run with more credits and points a paused run back at resum
   expect(await readdir(dir)).not.toContain('result.figure-clay.png')
 })
 
-it('records Needs changes as not_right with the note', async () => {
+it('records Not right as not_right with the note', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
   seen.length = 0
   const result = await cli(
