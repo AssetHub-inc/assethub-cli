@@ -306,13 +306,13 @@ When the person asks to "share it with staff" or "publish it to the team":
 3. Share it. It is free. Sharing a newer revision later moves the share to that revision. Write `skill.json` as `{"skillId": "<skill-id>"}` and `share.json` as `{"revision": <n>, "contentSha256": "<sha256>"}`, then:
 
 ```bash
-assethub api call "PUT /workspace-skills/{skillId}/staff-share" --path-json "@skill.json" --input-json "@share.json"
+assethub api call "PUT /workspace-skills/{skillId}/staff-share" --path-json "@skill.json" --input-json "@share.json" --operation-id <a new UUID you write out>
 ```
 
-409 `WORKSPACE_SKILL_CONFLICT` means the skill changed since you read it: read it again and ask again. Never retry with a new hash on your own.
+Every change here (share, stop) needs its own `--operation-id`; after an unclear answer, repeat the same command with the same ID. 409 `WORKSPACE_SKILL_CONFLICT` means the skill changed since you read it: read it again and ask again. Never retry with a new hash on your own.
 
 - Check what is shared: `assethub api call "GET /workspace-skills/{skillId}/staff-share" --path-json "@skill.json"` (`revision` is `null` when it is not shared).
-- Stop sharing ("stop sharing it", "unshare"): `assethub api call "POST /workspace-skills/{skillId}/staff-share/stop" --path-json "@skill.json"`. Staff can then no longer start or resume runs of it. Results they already have stay.
+- Stop sharing ("stop sharing it", "unshare"): `assethub api call "POST /workspace-skills/{skillId}/staff-share/stop" --path-json "@skill.json" --operation-id <a new UUID you write out>`. Staff can then no longer start or resume runs of it. Results they already have stay.
 
 **Staff running a skill someone shared.** Shared skills are not in `skills list`, so step 1 of "Before any work" also reads `assethub api call "GET /workspace-skills/shares"` for staff; the person never has to name one. On a canvas, staff pick them in the Use skill node. From the CLI, ask the same one round (skill and limit), put the image on a canvas (`assethub canvas import --canvas <id> --file <image>` returns its `assetId`), then start the run with a new operation ID. Write `share-id.json` as `{"shareId": "<share-id>"}` and `run.json` as `{"clientOperationId": "<uuid>", "canvasId": <id>, "sourceImageAssetId": "<asset-id>", "budgetCredits": <n>}`, then:
 

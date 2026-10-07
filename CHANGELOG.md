@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.45
+
+- The bundled skill leads with "say what you want": an "I want …" request that names no skill still checks the team's skills, asks once, then runs.
+- The bundled skill shares a skill revision with AssetHub staff (staff accounts only), checks and stops a share, and lets staff find and run skills other staff shared. Share and stop pass an `--operation-id`, as every `api call` mutation must.
+
 ## CLI 0.1.43
 
 - `assethub skills run-list` finds a skill run again from a new session: a closed window or a laptop that slept no longer needs the operation id the old window printed. It lists the runs started from this folder (or `--file <image>`, or `--all`), newest first, with each run's live status and the next command. Free; it only reads.
