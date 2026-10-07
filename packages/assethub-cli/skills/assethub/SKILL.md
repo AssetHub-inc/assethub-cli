@@ -301,7 +301,7 @@ assethub skills build --goal "<goal>" --canvas <id> --task-kind <kind> --instruc
 - Change one part: `assethub skills build-enhance <build-id> --section <section> --current "@current.json" --note "<what to change>"` (write the section's current JSON to `current.json` first) returns a suggestion only; the CLI cannot apply it to the draft. Show it, then ask: **Save now and edit that part on the skill's page in AssetHub** / **Build again with the change in the instructions** (a new paid build).
 - Discard: `assethub skills build-discard <build-id>`.
 
-After it is saved, offer to try it on another image right away (back to "Run it").
+After it is saved, ask in one round what to do next: **Try it on another image (Recommended)** (back to "Run it"), **Share it with AssetHub staff** (only for a staff account, and only once a result has been marked keep; see step 5), or **That's all**. The person should never have to know that sharing exists or type it themselves.
 
 - `TASK_KIND_NOT_SUPPORTED`: this account can only build part-separation skills for now. Say so plainly. Never rebuild the same idea as part separation to get around it.
 - 403: an editor of the workspace has to build it.
@@ -310,7 +310,7 @@ After it is saved, offer to try it on another image right away (back to "Run it"
 
 This is only for AssetHub staff accounts. If `assethub api search staff` finds nothing, this key cannot share; say so and stop. Sharing lets every staff member run one tested revision in their own workspace, and each run is charged to the workspace it runs in. Only an editor of the skill's workspace can share it (for a personal skill, its artist). Official skills and customized copies of them cannot be shared (422 `SKILL_NOT_SHAREABLE`).
 
-When the person asks to "share it with staff" or "publish it to the team":
+Offer this yourself: after a skill is saved, and again after its first result is marked keep ("Your team can use this now. Share it with all AssetHub staff too?"). Also do it when the person asks ("share it with staff", "publish it to the team"):
 
 1. `assethub skills get <skill-id>` gives the `revision` and `contentSha256`. Share a revision that already has a result marked keep, not a draft nobody has tried. If it has none, offer to try it on an image first.
 2. Ask once: **Share revision N with AssetHub staff (Recommended)** / **Try it on an image first** / **Not now**. Name the skill and the revision, and say that staff run it at their own cost.
