@@ -427,4 +427,66 @@ describe('saveSkillRunAttempts: which AI check belongs to which try', () => {
     })
     expect(saved.map(item => [item.assetId, item.check])).toEqual([['img_1', 'passed'], ['img_2', 'rejected']])
   })
+
+  it('labels each part of a multi-part run from its final and its retries, as a real Pluffy run recorded them', async () => {
+    const dir = await tempDir()
+    const image = (part: string, attempt: number, id: string, assetId?: string) => ({
+      stepId: 'isolate', stage: 'image', attempt, status: assetId ? 'succeeded' : 'pending', artifactId: id, part, ...(assetId ? {assetId} : {}),
+    })
+    const {saved} = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        status: 'budget_exhausted',
+        steps: [
+          image('pants', 1, 'p1', 'img_p1'), image('helmet', 1, 'h1', 'img_h1'), image('jacket', 1, 'j1', 'img_j1'),
+          image('pants', 2, 'p2', 'img_p2'), image('helmet', 2, 'h2', 'img_h2'),
+          image('pants', 3, 'p3'),
+        ],
+        // The review verdicts name no part, and come back in another order than the parts.
+        verdicts: [
+          {stepId: 'review', attempt: 1, pass: false, by: 'ai', reason: 'off-centre'},
+          {stepId: 'review', attempt: 1, pass: true, by: 'ai', reason: null},
+          {stepId: 'review', attempt: 1, pass: false, by: 'ai', reason: 'invented 2D'},
+          {stepId: 'review', attempt: 2, pass: false, by: 'ai', reason: 'invented 2D again'},
+          {stepId: 'review', attempt: 2, pass: true, by: 'ai', reason: null},
+        ],
+        parts: [
+          {id: 'helmet', key: 'helmet', note: '', status: 'completed', finals: ['h2'], reason: ''},
+          {id: 'jacket', key: 'jacket', note: '', status: 'completed', finals: ['j1'], reason: ''},
+          {id: 'pants', key: 'pants', note: '', status: 'running', finals: [], reason: ''},
+        ],
+      }),
+      skillTitle: 'X',
+      outDir: dir,
+      fetchImpl,
+    })
+    expect(saved.map(item => [item.part, item.attempt, item.check])).toEqual([
+      ['pants', 1, 'rejected'],
+      ['helmet', 1, 'rejected'],
+      ['jacket', 1, 'passed'],
+      ['pants', 2, 'rejected'],
+      ['helmet', 2, 'passed'],
+    ])
+  })
+
+  it('takes the reason from a verdict that names its part', async () => {
+    const dir = await tempDir()
+    const {saved} = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        steps: [
+          {stepId: 'isolate', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a1', assetId: 'img_1', part: 'Hat'},
+          {stepId: 'isolate', stage: 'image', attempt: 1, status: 'succeeded', artifactId: 'a2', assetId: 'img_2', part: 'Bag'},
+        ],
+        verdicts: [
+          {stepId: 'review', attempt: 1, pass: false, by: 'ai', reason: 'strap cut off', part: 'Bag'},
+          {stepId: 'review', attempt: 1, pass: true, by: 'ai', reason: null, part: 'Hat'},
+        ] as never,
+      }),
+      skillTitle: 'X',
+      outDir: dir,
+      fetchImpl,
+    })
+    expect(saved.map(item => [item.part, item.check, item.reason])).toEqual([['Hat', 'passed', undefined], ['Bag', 'rejected', 'strap cut off']])
+  })
 })
