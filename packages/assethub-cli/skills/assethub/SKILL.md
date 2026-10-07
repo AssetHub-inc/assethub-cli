@@ -206,8 +206,8 @@ Recording is not open to every account yet, and each person records one answer p
   > - **Generate again from the original image**: a new run of the skill with its own limit
   > - **Stop for now**
 
-  Recommend **Generate again** instead when most of the image is wrong (the wrong subject, pose or outfit overall), since an edit cannot rescue that.
-  - **Fix it here:** follow steps 4 to 6 of "When the AI check says no", starting from the saved result instead of a rejected try, with the person's note as the reason. The same limit applies: at most two local fixes, each a new file next to the original.
+  Offer **Fix it here** only for an image result: it is an image edit, so for a mesh or any other file leave it out and offer the other two. Recommend **Generate again** instead when most of the image is wrong (the wrong subject, pose or outfit overall), since an edit cannot rescue that.
+  - **Fix it here:** follow steps 4 and 5 of "When the AI check says no", starting from the saved result instead of a rejected try, with the person's note as the reason. Then show the fix and ask whether it looks right, but don't record it with `run-verdict`: this result already has its answer, and a second one is ignored. The same limit applies: at most two local fixes, each a new file next to the original.
   - **Generate again:** say "The next generation will use: “…”" with the new instructions (they replace the old ones), then start a new paid run with its own limit, passing them as `--ask`.
 - **Looks right:** ask what next: the same skill on another image (or the next view), or done. If the result did **not** come from a skill, you may add **Make this a skill** once (it starts the Q&A in "Make a new skill"). Do not offer it again in the same conversation.
 
