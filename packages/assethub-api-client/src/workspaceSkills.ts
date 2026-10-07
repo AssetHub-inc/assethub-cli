@@ -955,7 +955,7 @@ export type WorkspaceSkillRun = {
     finals: string[]
     reason: string
   }[]
-  /** Present only where the Looks right / Needs changes gate is on. */
+  /** Present only where the Keep / Not right gate is on. */
   humanVerdict?: unknown
 }
 

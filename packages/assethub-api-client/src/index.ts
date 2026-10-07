@@ -2610,7 +2610,7 @@ export class AssetHubClient {
         )
       ).data,
 
-    /** Looks right (`keep`) / Needs changes (`not_right`). Free; changes neither the skill nor the run. */
+    /** Keep (`keep`) / Not right (`not_right`). Free; changes neither the skill nor the run. */
     recordWorkspaceSkillRunVerdict: async (
       skillId: string,
       runId: string,
