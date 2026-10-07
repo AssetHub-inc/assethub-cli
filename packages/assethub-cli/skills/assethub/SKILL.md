@@ -30,7 +30,7 @@ description: |
 >
 > - "What skills does our workspace have?"
 > - "Make a side view of `~/Desktop/hero.png`." (the assistant checks whether your team has a skill for it)
-> - 「このキャラ画像を3D用に前処理して。上限は50クレジットで。」
+> - 「このキャラ画像を3D用に前処理して。上限は500クレジットで。」
 > - "That looks great. Make a skill from this so the team can use it." (it asks you a few questions first)
 > - "Share that skill with staff." (AssetHub staff only; it asks first)
 > - "Turn `crate.png` into a 3D model and download it to `./out`."
@@ -163,7 +163,7 @@ When the person asks you to **make or change** something (an image, a view, part
    > - **Do it without a skill**
    >
    > **Spending limit?** Charged to **Personal**. Automatic corrections count toward it.
-   > - **50 credits (Recommended)** · **100 credits** · **30 credits**
+   > - **500 credits (Recommended)** · **750 credits** · **1000 credits**
 
 4. **Nothing fits:** say it once ("Your team doesn't have a skill for this yet, so I'll do it directly.") and continue with the normal work below, still asking before anything paid.
 
@@ -173,13 +173,14 @@ A skill that is `off` cannot run. Say an editor of the workspace can turn it on,
 
 Running skills is not open to every account yet. If `skills run` answers `Running skills is not available on this account yet.`, tell the person exactly that and stop. Do not try other routes.
 
-There is no up-front price for a skill run; never invent one. Suggest **50 credits** (the canvas "Use skill" default) unless the person names a limit. The run always needs one, and it is their decision.
+There is no up-front price for a skill run; never invent one. Offer **500 credits (Recommended)**, **750** or **1000** unless the person names a limit: a skill corrects itself and retries each part, and lower limits (150 to 200) ran out halfway through real part-separation runs. It only spends what the run uses. The run always needs one, and it is their decision.
 
 ```bash
-assethub skills run <skill-id> --file ./hero.png --budget 50 --revision <n> --content-sha256 <sha256> --wait
+assethub skills run <skill-id> --file ./hero.png --budget 500 --revision <n> --content-sha256 <sha256>
 ```
 
 - `--file` uploads a picture from this computer to the canvas first; `--image-asset <asset-id>` uses one already in AssetHub instead. Exactly one of the two. With `--image-asset` there is no original folder, so also pass `--out-dir <folder>` (it is created if missing); without it the results stay on the canvas only.
+- Without `--wait` it returns as soon as the run starts; then follow it as in "Keep the person posted" below.
 - `--revision` / `--content-sha256` come from `skills get`: the version the person approved. If the skill was edited since, the run is refused instead of charged; read it again and ask again.
 - `--ask "<text>"` passes the person's own instructions ("keep the scarf"). `--canvas <id>` picks the canvas; without it, the CLI uses one canvas per folder.
 - The first stderr line shows the operation ID. **If the command is interrupted, run the identical command again with `--operation-id <that id>`.** It reconnects to the same run; it never starts a second one.
@@ -195,13 +196,13 @@ assethub skills run <skill-id> --file ./hero.png --budget 50 --revision <n> --co
 
 **Paused at the limit** (`budget_exhausted`, exit 0). Nothing is lost. Ask with exactly two options:
 
-> - **Raise the limit by 20 and continue (Recommended)**: new limit 70, same run
+> - **Raise the limit by 250 and continue (Recommended)**: new limit 750, same run
 > - **Keep what's done and stop**
 
 Base the amount on what one step cost so far (`budget.spentCredits`, `budget.remainingCredits`); never quote a number you cannot back. On yes, continue the **same** run:
 
 ```bash
-assethub skills run-resume <skill-id> <run-id> --add-credits 20 --wait --out-dir <folder of the original>
+assethub skills run-resume <skill-id> <run-id> --add-credits 250 --out-dir <folder of the original>
 ```
 
 **Failed:** say why in one sentence from `outcome.reason`, and how many credits were used. If the JSON has `rejected` (the run's AI check said no to its last try), go to **When the AI check says no** below. Otherwise ask: **Try again with an extra instruction** (a new run, with its own limit) / **Use another skill** / **Stop for now**. Never retry on your own.
