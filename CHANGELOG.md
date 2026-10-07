@@ -2,6 +2,8 @@
 
 ## CLI 0.1.47
 
+- `skills run-status --out-dir` / `--attempts` saves the result of a skill shared to staff. It used to fail with 403 `WORKSPACE_SKILL_FORBIDDEN`, because naming the files read the skill from the runner's own workspace; it now takes the title from the shares list.
+- The bundled skill starts a staff-shared run with `executionContext`, so the run shows in the canvas history, and says how to make a canvas when there is none.
 - The bundled skill asks which workspace to use before the first paid call when the key can use more than one, or when none is selected (`No workspace selected` / `WORKSPACE_REQUIRED`). It lists them with `workspace list`, asks with the question tool, selects the answer with `workspace use`, and names that workspace in every later price question. It never switches workspace on its own.
 
 ## CLI 0.1.46

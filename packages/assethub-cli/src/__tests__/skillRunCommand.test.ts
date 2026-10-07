@@ -80,6 +80,23 @@ const server = createServer(async (req, res) => {
       runId,
       humanVerdict: {verdict: 'not_right', note: 'arms too thin', by: 'human:u'},
     })
+  // A skill shared to staff: its definition lives in the owner's workspace.
+  if (path === '/api/v2/workspace-skills/shared-pluffy' || path.startsWith('/api/v2/workspace-skills/shared-pluffy?'))
+    return send(403, {success: false, error: {code: 'WORKSPACE_SKILL_FORBIDDEN', message: 'Workspace Skill access is denied'}})
+  if (path === '/api/v2/workspace-skills/shares')
+    return send(200, {items: [{shareId: 's-1', skillId: 'shared-pluffy', revision: 7, title: 'Pluffy Part Separation', workspace: 'Personal Space'}]})
+  if (path === `/api/v2/workspace-skills/shared-pluffy/runs/${runId}`)
+    return send(200, {
+      runId,
+      skillId: 'shared-pluffy',
+      status: 'completed',
+      budget: {credits: 150, spentCredits: 90, remainingCredits: 60},
+      steps: [{stepId: 's', stage: 'image', attempt: 1, status: 'completed', artifactId: 'a'}],
+      verdicts: [{stepId: 's', attempt: 1, pass: true, by: 'ai', reason: null}],
+      outputs: [{artifactId: 'a', stepId: 's', kind: 'image', assetId: 'img_9', verified: true}],
+      outcome: {status: 'completed'},
+      parts: [],
+    })
   if (path === '/api/v2/assets/img_9')
     return send(200, {assetId: 'img_9', url: `${baseUrl}/files/img_9.png`, expiresAt: 'x'})
   send(404, {success: false, error: {code: 'NOT_FOUND', message: path}})
@@ -285,4 +302,12 @@ it('saves the rejected try and points the assistant at fixing it here when the A
     rejectedRun = false
     runStatus = 'completed'
   }
+})
+
+it('saves a staff-shared run although the skill itself belongs to another workspace', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  const result = await cli(['run-status', 'shared-pluffy', runId, '--out-dir', dir], dir)
+  expect(result.code).toBe(0)
+  expect(result.json.saved).toEqual([{assetId: 'img_9', path: join(dir, 'result.pluffy-part-separation.png')}])
+  expect(await readFile(join(dir, 'result.pluffy-part-separation.png'))).toEqual(png)
 })
