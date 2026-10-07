@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.46
+
+- The bundled skill offers sharing with AssetHub staff itself: right after a skill is saved ("What next?": try it on another image, share it with staff, or that's all), and again after its first kept result. Staff accounts only. Nobody has to know to type "share it with staff".
+
 ## CLI 0.1.45
 
 - The bundled skill leads with "say what you want": an "I want …" request that names no skill still checks the team's skills, asks once, then runs.
