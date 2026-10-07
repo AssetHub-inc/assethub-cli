@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.47
+
+- The bundled skill asks which workspace to use before the first paid call when the key can use more than one, or when none is selected (`No workspace selected` / `WORKSPACE_REQUIRED`). It lists them with `workspace list`, asks with the question tool, selects the answer with `workspace use`, and names that workspace in every later price question. It never switches workspace on its own.
+
 ## CLI 0.1.46
 
 - The bundled skill offers sharing with AssetHub staff itself: right after a skill is saved ("What next?": try it on another image, share it with staff, or that's all), and again after its first kept result. Staff accounts only. Nobody has to know to type "share it with staff".

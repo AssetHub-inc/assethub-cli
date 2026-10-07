@@ -92,7 +92,34 @@ Auto-update is on by default, so this usually says `up_to_date`. A stderr line `
 assethub capabilities
 ```
 
-Lists the operations, models, and history features this key allows. A missing-key error means the person needs `assethub auth login --api-key-stdin` (never put a key in a command argument) or `ASSETHUB_API_KEY` in the environment. A personal key also needs `assethub workspace use <workspace-id>`.
+Lists the operations, models, and history features this key allows. A missing-key error means the person needs `assethub auth login --api-key-stdin` (never put a key in a command argument) or `ASSETHUB_API_KEY` in the environment. A personal key also needs a workspace: see the next step.
+
+### 3. Pick the workspace with the person (free)
+
+Every credit is charged to the selected workspace, so the person chooses it, not you.
+
+```bash
+assethub workspace get     # the selected one, if any
+assethub workspace list    # every workspace this key can use
+```
+
+- **None selected** (`No workspace selected`, or any `WORKSPACE_REQUIRED` error later): ask before anything else.
+- **One selected, more exist**: ask once per session, before the first paid call. Never switch on your own, and never assume a team workspace is fine because it is selected.
+- **Only one exists**: select it if needed and name it once ("Using your Personal workspace."); no question.
+
+Ask with the question tool, one option per workspace, by name and kind, with the selected or personal one first:
+
+> **Which workspace should I use? It pays for everything in this session.**
+> - **Personal (Recommended)**: your own credits
+> - **Studio X team**: shared team credits
+
+Then select it and name it in every later price question ("charged to Studio X team"):
+
+```bash
+assethub workspace use <workspace-id>
+```
+
+`workspace use` is the default for this key on this computer until it is changed again. Say so if you switch away from what was selected before.
 
 ## Asking the person
 
@@ -413,6 +440,7 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> --report 
 | A skill run refused because the version changed | `skills get` again, describe what changed, ask again before running. |
 | `budget_exhausted` | Offer "Raise the limit by x and continue" or "Keep this try and stop"; resume the same run. |
 | Missing key / 401 | `assethub auth login --api-key-stdin`, or set `ASSETHUB_API_KEY`. Personal key: `assethub workspace use <id>`. |
+| `WORKSPACE_REQUIRED` / `No workspace selected` | Ask which workspace ("Pick the workspace with the person"), then `assethub workspace use <id>`, then run the same command again. |
 | "The mesh has extra limbs" and similar | Usually the input: stray lines, shadows, inconsistent views. Clean the image first (`image generate --file <image> --prompt "remove stray lines and shadows, plain background"`, or `parts compare --preprocess-prompt <text>`) before switching models. |
 | Anything else unclear | `assethub doctor --mcp` (free) checks the key, workspace, and MCP; exit 2 names the failed check and the fix. |
 
