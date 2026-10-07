@@ -87,28 +87,22 @@ assethub update --check
 
 Auto-update is on by default, so this usually says `up_to_date`. A stderr line `updated itself from … to …` means the same as an update: re-read this file after that command. Never turn auto-update off for the person.
 
-### 2. Check what this key can do (free)
+### 2. Pick the workspace with the person (free)
+
+Every credit is charged to the selected workspace, so the person chooses it, not you. Do this before `capabilities`: with no workspace selected, every workspace call (`capabilities` included) fails with `WORKSPACE_REQUIRED`.
 
 ```bash
-assethub capabilities
+assethub workspace get                  # the selected one, if any
+assethub workspace list --limit 100     # every workspace this key can use
 ```
 
-Lists the operations, models, and history features this key allows. A missing-key error means the person needs `assethub auth login --api-key-stdin` (never put a key in a command argument) or `ASSETHUB_API_KEY` in the environment. A personal key also needs a workspace: see the next step.
+`workspace list` is paged: while its JSON has a `nextCursor`, run it again with `--cursor <nextCursor>`, so the person never chooses from a cut-off list. A missing-key error here means the person needs `assethub auth login --api-key-stdin` (never put a key in a command argument) or `ASSETHUB_API_KEY` in the environment.
 
-### 3. Pick the workspace with the person (free)
+- **Only one workspace exists**: select it if needed and name it once ("Using your Personal workspace."). No question, whether or not one was selected.
+- **Several exist, none selected** (`No workspace selected`, or a `WORKSPACE_REQUIRED` error later): ask before anything else.
+- **Several exist, one selected**: ask once per session, before the first paid call. Never switch on your own, and never assume a team workspace is fine because it is selected.
 
-Every credit is charged to the selected workspace, so the person chooses it, not you.
-
-```bash
-assethub workspace get     # the selected one, if any
-assethub workspace list    # every workspace this key can use
-```
-
-- **None selected** (`No workspace selected`, or any `WORKSPACE_REQUIRED` error later): ask before anything else.
-- **One selected, more exist**: ask once per session, before the first paid call. Never switch on your own, and never assume a team workspace is fine because it is selected.
-- **Only one exists**: select it if needed and name it once ("Using your Personal workspace."); no question.
-
-Ask with the question tool, one option per workspace, by name and kind, with the selected or personal one first:
+Ask with the question tool, by name and kind. The tool takes at most 4 options, so offer the selected one, the personal one, and the most likely team ones, and put the selected or personal one first. With more than 4, name the rest in the question ("Also: Studio Y, Studio Z. Type a name to pick one."); the tool's free answer takes it, and `assethub workspace list --query <name>` finds its id.
 
 > **Which workspace should I use? It pays for everything in this session.**
 > - **Personal (Recommended)**: your own credits
@@ -121,6 +115,14 @@ assethub workspace use <workspace-id>
 ```
 
 `workspace use` is the default for this key on this computer until it is changed again. Say so if you switch away from what was selected before.
+
+### 3. Check what this key can do (free)
+
+```bash
+assethub capabilities
+```
+
+Lists the operations, models, and history features this key allows in the selected workspace.
 
 ## Asking the person
 
