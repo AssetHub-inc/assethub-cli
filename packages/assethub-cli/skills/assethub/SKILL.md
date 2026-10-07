@@ -55,7 +55,7 @@ description: |
 3. **Never overwrite the person's files.** Save results as new files next to the originals.
 4. **Read before you call.** Use `api describe` for the exact input. Never guess parameter names or invent ids, prices, or commands.
 5. **Talk like the person talks.** Answer in their language. For artists, no commands, ids, revision numbers, or JSON in the reply; one plain sentence per step.
-6. **Check the team's skills before you work.** A request to make or change something starts with `skills list --runnable` (free). The team's method beats one you invent.
+6. **Check the team's skills before you work.** A request to make or change something starts with `skills list --runnable` and always the staff-shared skills (`GET /workspace-skills/shares`; both free, see "Before any work"). The team's method beats one you invent.
 7. **Ask, don't assume.** Every choice goes through your question tool (see "Asking the person"), with your recommendation first.
 8. **A new skill always starts with an interview.** However the request is worded, and however much it already says, ask the rounds in "Make a new skill" and read the answers back before anything is built.
 9. **Make every image through AssetHub.** Never draw, generate or edit the person's pictures with your own image tool, a built-in generator, or code, even when that looks faster. Work done in AssetHub is checked, repeatable by the rest of the team, and kept on the canvas. If AssetHub cannot do what was asked, say so and ask what to do.
@@ -146,14 +146,18 @@ assethub skills get <skill-id>       # free
 
 - `list --runnable` returns only the skills that can run on an image (the same ones the canvas "Use skill" node offers): `skillId`, `summary` (title, then goal), `revision`, `mode`. Plain `skills list` shows everything, including older skills that only guide production runs and cannot run on an image.
 - A row with `sameSummaryAs` has a look-alike with the same title. Name both, say how they differ (read both with `get`), and ask which one. Never guess.
-- `items` empty: tell the person the `hint`, in plain words.
+- `items` empty: check the staff-shared skills first (step 1 below) before saying there is none; then tell the person the `hint`, in plain words.
 - `get` gives the full method: its goal, when to use it, steps, the checks the result is judged against, and the `revision` and `contentSha256` you will pin.
 
 ### 1. Before any work, check for a skill
 
 When the person asks you to **make or change** something (an image, a view, parts, a cleanup), look for a team skill first, before planning the work yourself. Skip this only when they already named a skill or only asked a question.
 
-1. `skills list --runnable`, then match their request and their image against each title and summary. For an AssetHub staff account (`assethub api search staff` finds the share operations), also read `assethub api call "GET /workspace-skills/shares"`: skills other staff shared are candidates too (run them as in step 5).
+1. **Always** read both lists of candidates, every time, before you decide anything fits or nothing does. Both are free:
+   - `assethub skills list --runnable`: the workspace's own skills.
+   - `assethub api call "GET /workspace-skills/shares"`: skills AssetHub staff shared (run them as in step 5). Shared skills are **never** in `skills list`, so an empty `skills list --runnable` does not mean there is no skill. Never skip this call. If it is refused (the key is not a staff account), carry on with the workspace's own skills and don't mention the error.
+
+   Then match their request and their image against each title and summary, from both lists.
 2. `skills get` the best one to three candidates. Check that the image fits the skill's "when to use" and that its goal is what they asked for.
 3. **One or more fit:** ask (the skill and the limit can share one round):
 
@@ -165,7 +169,7 @@ When the person asks you to **make or change** something (an image, a view, part
    > **Spending limit?** Charged to **Personal**. Automatic corrections count toward it.
    > - **500 credits (Recommended)** · **750 credits** · **1000 credits**
 
-4. **Nothing fits:** say it once ("Your team doesn't have a skill for this yet, so I'll do it directly.") and continue with the normal work below, still asking before anything paid.
+4. **Nothing fits** (in the workspace's skills or the staff-shared ones): say it once ("Your team doesn't have a skill for this yet, so I'll do it directly.") and continue with the normal work below, still asking before anything paid.
 
 A skill that is `off` cannot run. Say an editor of the workspace can turn it on, and offer the closest runnable one. Never switch a skill on yourself. If the person picks a skill you did not recommend, run it, but say: "Not the recommended skill for this image. Check the result carefully."
 
@@ -359,7 +363,7 @@ Every change here (share, stop) needs its own `--operation-id`; after an unclear
 - Check what is shared: `assethub api call "GET /workspace-skills/{skillId}/staff-share" --path-json "@skill.json"` (`revision` is `null` when it is not shared).
 - Stop sharing ("stop sharing it", "unshare"): `assethub api call "POST /workspace-skills/{skillId}/staff-share/stop" --path-json "@skill.json" --operation-id <a new UUID you write out>`. Staff can then no longer start or resume runs of it. Results they already have stay.
 
-**Staff running a skill someone shared.** Shared skills are not in `skills list`, so step 1 of "Before any work" also reads `assethub api call "GET /workspace-skills/shares"` for staff; the person never has to name one. On a canvas, staff pick them in the Use skill node. From the CLI, ask the same one round (skill and limit), put the image on a canvas of this workspace (`assethub canvas import --canvas <id> --file <image>` returns its `assetId`; with no canvas yet, make one with `assethub api call "POST /canvases" --input-json "@canvas.json" --operation-id <uuid>`, where `canvas.json` is `{"name": "<name>", "clientOperationId": "<that uuid>"}`), then start the run with a new operation ID. Write `share-id.json` as `{"shareId": "<share-id>"}` and `run.json` as `{"clientOperationId": "<uuid>", "canvasId": <id>, "sourceImageAssetId": "<asset-id>", "budgetCredits": <n>, "executionContext": {"canvasId": <id>, "clientOperationId": "<the same uuid>", "source": "cli"}}`. Always send `executionContext`: without it the run never appears in the canvas's history, and the person sees an empty canvas. Give the person the canvas link (`https://app.assethub.io/workflow/<canvasId>`) as soon as it starts. Then:
+**Staff running a skill someone shared.** Shared skills are not in `skills list`, so step 1 of "Before any work" always reads `assethub api call "GET /workspace-skills/shares"` too; the person never has to name one. On a canvas, staff pick them in the Use skill node. From the CLI, ask the same one round (skill and limit), put the image on a canvas of this workspace (`assethub canvas import --canvas <id> --file <image>` returns its `assetId`; with no canvas yet, make one with `assethub api call "POST /canvases" --input-json "@canvas.json" --operation-id <uuid>`, where `canvas.json` is `{"name": "<name>", "clientOperationId": "<that uuid>"}`), then start the run with a new operation ID. Write `share-id.json` as `{"shareId": "<share-id>"}` and `run.json` as `{"clientOperationId": "<uuid>", "canvasId": <id>, "sourceImageAssetId": "<asset-id>", "budgetCredits": <n>, "executionContext": {"canvasId": <id>, "clientOperationId": "<the same uuid>", "source": "cli"}}`. Always send `executionContext`: without it the run never appears in the canvas's history, and the person sees an empty canvas. Give the person the canvas link (`https://app.assethub.io/workflow/<canvasId>`) as soon as it starts. Then:
 
 ```bash
 assethub api call "POST /workspace-skills/shares/{shareId}/runs" --path-json "@share-id.json" --input-json "@run.json" --operation-id <the same uuid>

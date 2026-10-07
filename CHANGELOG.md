@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.48
+
+- The bundled skill always reads the staff-shared skills (`GET /workspace-skills/shares`) alongside `skills list --runnable` before saying no skill fits. It used to read them only after `api search staff` found the share operations, so agents skipped them and told staff there was no skill. A refused call (a key that is not staff) is passed over silently.
+
 ## CLI 0.1.47
 
 - `skills run-status --out-dir` / `--attempts` saves the result of a skill shared to staff. It used to fail with 403 `WORKSPACE_SKILL_FORBIDDEN`, because naming the files read the skill from the runner's own workspace; it now takes the title from the shares list.
