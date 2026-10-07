@@ -7415,8 +7415,10 @@ const finishSkillRun = async (
         ),
         timedOut: false,
       }
+  // A failed fan-out run still carries verified outputs: the parts that
+  // passed their own review. Keep them; only verified outputs are saved.
   const files =
-    run.status === 'completed' && input.outDir
+    (run.status === 'completed' || run.status === 'failed') && input.outDir
       ? await saveSkillRunOutputs({
           client: ctx.client,
           run,
