@@ -7358,6 +7358,31 @@ const operationIdFlag = (flags: Flags): string => {
 }
 
 /**
+ * The title saved files are named after. A skill shared to staff lives in its
+ * owner's workspace, so the staff member who ran it is refused its definition
+ * (403); read the title from the shares list instead, else use the skill id.
+ */
+const skillRunTitle = async (ctx: CommandContext, skillId: string) => {
+  try {
+    return (await ctx.client.v2.getWorkspaceSkill(skillId)).skill.title
+  } catch (error) {
+    if (
+      !(error instanceof AssetHubApiError) ||
+      (error.status !== 403 && error.status !== 404)
+    )
+      throw error
+    const shares = await ctx.client
+      .request<{items: {skillId: string; title: string}[]}>(
+        'v2',
+        '/workspace-skills/shares',
+        {method: 'GET'},
+      )
+      .catch(() => undefined)
+    return shares?.data.items.find(share => share.skillId === skillId)?.title ?? skillId
+  }
+}
+
+/**
  * Wait for a skill run, saying each change in one plain line on stderr, then
  * save what it made (when there is a folder to save into) and print the end
  * state with the next command to run.
@@ -7397,9 +7422,7 @@ const finishSkillRun = async (
           run,
           outDir: input.outDir,
           sourceFileName: input.sourceFileName,
-          skillTitle:
-            input.skillTitle ??
-            (await ctx.client.v2.getWorkspaceSkill(input.skillId)).skill.title,
+          skillTitle: input.skillTitle ?? (await skillRunTitle(ctx, input.skillId)),
         })
       : undefined
   for (const file of files?.saved ?? [])
@@ -7411,9 +7434,7 @@ const finishSkillRun = async (
           run,
           outDir: input.outDir,
           sourceFileName: input.sourceFileName,
-          skillTitle:
-            input.skillTitle ??
-            (await ctx.client.v2.getWorkspaceSkill(input.skillId)).skill.title,
+          skillTitle: input.skillTitle ?? (await skillRunTitle(ctx, input.skillId)),
         })
       : undefined
   for (const file of tries?.saved ?? [])

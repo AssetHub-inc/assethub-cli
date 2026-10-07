@@ -314,23 +314,38 @@ export const saveSkillRunAttempts = async (input: {
   const failed: {assetId: string; error: string}[] = []
   const seen = new Set<string>()
   const images = input.run.steps.filter(step => step.stage === 'image')
-  const checked = input.run.verdicts.filter(v => v.pass !== null)
+  // A verdict may name its part; older servers send none.
+  const checked = (input.run.verdicts as (WorkspaceSkillRun['verdicts'][number] & {part?: string})[])
+    .filter(v => v.pass !== null)
   // A verdict names its review step ("review"), not the image it judged
   // ("isolate"), so the try is matched by attempt. Only when that is
   // unambiguous: with several images per try (one per part) the checks cannot
   // be told apart, and a wrong "rejected" would send the person after the
-  // wrong image, so those stay "unchecked".
+  // wrong image, so those are settled by the run's own record below instead.
   const verdictFor = (step: (typeof images)[number]) =>
-    checked.find(v => v.stepId === step.stepId && v.attempt === step.attempt) ??
+    checked.find(v => v.stepId === step.stepId && v.attempt === step.attempt && (v.part ?? step.part) === step.part) ??
+    (step.part ? checked.find(v => v.part === step.part && v.attempt === step.attempt) : undefined) ??
     (images.filter(other => other.attempt === step.attempt).length === 1 &&
     checked.filter(v => v.attempt === step.attempt).length === 1
       ? checked.find(v => v.attempt === step.attempt)
       : undefined)
+  // Without a verdict that names the part: a part's final passed its check,
+  // and a try the same part was retried after was rejected (a part is only
+  // retried after its check says no). The reason stays unknown then.
+  const finals = new Set(input.run.parts.flatMap(part => part.finals))
+  const checkOf = (step: (typeof images)[number]) => {
+    const verdict = verdictFor(step)
+    if (verdict) return {check: verdict.pass ? 'passed' : 'rejected', reason: verdict.reason} as const
+    if (!step.part) return {check: 'unchecked'} as const
+    if (finals.has(step.artifactId)) return {check: 'passed'} as const
+    if (images.some(other => other.part === step.part && other.attempt > step.attempt))
+      return {check: 'rejected'} as const
+    return {check: 'unchecked'} as const
+  }
   for (const step of images) {
     if (!step.assetId || seen.has(step.assetId)) continue
     seen.add(step.assetId)
-    const verdict = verdictFor(step)
-    const check = verdict ? (verdict.pass ? 'passed' : 'rejected') : 'unchecked'
+    const {check, reason} = checkOf(step)
     const part = step.part ? `-${slug(step.part)}` : ''
     try {
       const path = await downloadAsset({
@@ -343,7 +358,7 @@ export const saveSkillRunAttempts = async (input: {
         assetId: step.assetId,
         attempt: step.attempt,
         check,
-        ...(check === 'rejected' && verdict?.reason ? {reason: verdict.reason} : {}),
+        ...(check === 'rejected' && reason ? {reason} : {}),
         ...(step.part ? {part: step.part} : {}),
         path,
       })
