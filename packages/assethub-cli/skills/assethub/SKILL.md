@@ -167,7 +167,7 @@ When the person asks you to **make or change** something (an image, a view, part
    > - **Do it without a skill**
    >
    > **Spending limit?** Charged to **Personal**. Automatic corrections count toward it.
-   > - **500 credits (Recommended)** · **750 credits** · **1000 credits**
+   > - **170 credits (Recommended)** · **250 credits** · **330 credits**
 
 4. **Nothing fits** (in the workspace's skills or the staff-shared ones): say it once ("Your team doesn't have a skill for this yet, so I'll do it directly.") and continue with the normal work below, still asking before anything paid.
 
@@ -177,10 +177,10 @@ A skill that is `off` cannot run. Say an editor of the workspace can turn it on,
 
 Running skills is not open to every account yet. If `skills run` answers `Running skills is not available on this account yet.`, tell the person exactly that and stop. Do not try other routes.
 
-There is no up-front price for a skill run; never invent one. Offer **500 credits (Recommended)**, **750** or **1000** unless the person names a limit: a skill corrects itself and retries each part, and lower limits (150 to 200) ran out halfway through real part-separation runs. It only spends what the run uses. The run always needs one, and it is their decision.
+There is no up-front price for a skill run; never invent one. Offer **170 credits (Recommended)**, **250** or **330** unless the person names a limit: a skill corrects itself and retries each part, and a 7-part part-separation run uses about 110. These match the canvas "Use skill" default. It only spends what the run uses. The run always needs one, and it is their decision.
 
 ```bash
-assethub skills run <skill-id> --file ./hero.png --budget 500 --revision <n> --content-sha256 <sha256>
+assethub skills run <skill-id> --file ./hero.png --budget 170 --revision <n> --content-sha256 <sha256>
 ```
 
 - `--file` uploads a picture from this computer to the canvas first; `--image-asset <asset-id>` uses one already in AssetHub instead. Exactly one of the two. With `--image-asset` there is no original folder, so also pass `--out-dir <folder>` (it is created if missing); without it the results stay on the canvas only.
@@ -200,13 +200,13 @@ assethub skills run <skill-id> --file ./hero.png --budget 500 --revision <n> --c
 
 **Paused at the limit** (`budget_exhausted`, exit 0). Nothing is lost. Ask with exactly two options:
 
-> - **Raise the limit by 250 and continue (Recommended)**: new limit 750, same run
+> - **Raise the limit by 80 and continue (Recommended)**: new limit = the current limit + 80, same run
 > - **Keep what's done and stop**
 
 Base the amount on what one step cost so far (`budget.spentCredits`, `budget.remainingCredits`); never quote a number you cannot back. On yes, continue the **same** run:
 
 ```bash
-assethub skills run-resume <skill-id> <run-id> --add-credits 250 --out-dir <folder of the original>
+assethub skills run-resume <skill-id> <run-id> --add-credits 80 --out-dir <folder of the original>
 ```
 
 **Failed:** say why in one sentence from `outcome.reason`, and how many credits were used. If the JSON has `rejected` (the run's AI check said no to its last try), go to **When the AI check says no** below. Otherwise ask: **Try again with an extra instruction** (a new run, with its own limit) / **Use another skill** / **Stop for now**. Never retry on your own.
