@@ -200,7 +200,7 @@ assethub skills run <skill-id> --file ./hero.png --budget 170 --revision <n> --c
 
 **Paused at the limit** (`budget_exhausted`, exit 0). Nothing is lost. Ask with exactly two options:
 
-> - **Raise the limit by 80 and continue (Recommended)**: new limit 250, same run
+> - **Raise the limit by 80 and continue (Recommended)**: new limit = the current limit + 80, same run
 > - **Keep what's done and stop**
 
 Base the amount on what one step cost so far (`budget.spentCredits`, `budget.remainingCredits`); never quote a number you cannot back. On yes, continue the **same** run:
