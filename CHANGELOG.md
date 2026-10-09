@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The bundled skill suggests 170 credits (Recommended), 250 or 330 as a skill run's spending limit, down from 500 / 750 / 1000, and raises a paused run by 80 instead of 250. Skill run steps cost about a third of before (assethub-web #8444), so a 7-part part-separation run now uses about 110 credits. Matches the canvas "Use skill" default of 170.
+
 ## CLI 0.1.49
 
 - `skills run --wait` and `skills run-status` keep the parts that passed when another part fails the run: a split into parts where one part is still rejected after its retries now saves the passed parts next to the original instead of nothing (needs the matching web change, assethub-web #8392).
