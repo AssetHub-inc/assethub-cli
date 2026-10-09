@@ -111,6 +111,8 @@ export type {
   WorkspaceSkillRunOutput,
   WorkspaceSkillRunReference,
   WorkspaceSkillRunResumeInput,
+  WorkspaceSkillRunConfirmInput,
+  WorkspaceSkillRunQuote,
   WorkspaceSkillRunStartInput,
   WorkspaceSkillRunStarted,
   WorkspaceSkillRunStatus,
@@ -218,6 +220,8 @@ import type {
   WorkspaceSkillBuildDryRunResult,
   WorkspaceSkillRun,
   WorkspaceSkillRunResumeInput,
+  WorkspaceSkillRunConfirmInput,
+  WorkspaceSkillRunQuote,
   WorkspaceSkillRunStartInput,
   WorkspaceSkillRunStarted,
   WorkspaceSkillRunVerdictInput,
@@ -2600,6 +2604,26 @@ export class AssetHubClient {
         await this.request<WorkspaceSkillRun>(
           'v2',
           `/workspace-skills/${encodeURIComponent(skillId)}/runs/${encodeURIComponent(runId)}/resume`,
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+            ...idempotencyRequestInit({
+              idempotencyKey: body.clientOperationId,
+            }),
+          },
+        )
+      ).data,
+
+    /** Accept a flat-priced run's quote: holds its total once, then the run continues. PAID. */
+    confirmWorkspaceSkillRun: async (
+      skillId: string,
+      runId: string,
+      body: WorkspaceSkillRunConfirmInput,
+    ): Promise<WorkspaceSkillRun> =>
+      (
+        await this.request<WorkspaceSkillRun>(
+          'v2',
+          `/workspace-skills/${encodeURIComponent(skillId)}/runs/${encodeURIComponent(runId)}/confirm`,
           {
             method: 'POST',
             body: JSON.stringify(body),

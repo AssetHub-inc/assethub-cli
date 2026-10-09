@@ -16,6 +16,7 @@ const seen: Seen[] = []
 let runStatus = 'completed'
 let baseUrl = ''
 let runsDisabled = false
+let awaiting = false
 let rejectedRun = false
 
 const server = createServer(async (req, res) => {
@@ -61,6 +62,35 @@ const server = createServer(async (req, res) => {
       status: 'running',
     })
   }
+  if (path === `/api/v2/workspace-skills/figure-clay/runs/${runId}/confirm`) {
+    awaiting = false
+    return send(202, {runId, skillId: 'figure-clay', status: 'running'})
+  }
+  if (path === `/api/v2/workspace-skills/figure-clay/runs/${runId}` && awaiting)
+    return send(200, {
+      runId,
+      skillId: 'figure-clay',
+      status: 'awaiting_confirmation',
+      budget: {credits: 20, spentCredits: 2, remainingCredits: 18},
+      steps: [],
+      verdicts: [],
+      outputs: [],
+      outcome: null,
+      parts: [],
+      pricing: 'flat',
+      quote: {
+        base: 2,
+        perPart: 12,
+        parts: 2,
+        total: 26,
+        lines: [],
+        items: [
+          {id: 'wheel', key: 'wheel', note: 'front left'},
+          {id: 'door', key: 'door', note: ''},
+        ],
+      },
+      charge: null,
+    })
   if (path === `/api/v2/workspace-skills/figure-clay/runs/${runId}`)
     return send(200, {
       runId,
@@ -324,3 +354,61 @@ it('saves a staff-shared run although the skill itself belongs to another worksp
   expect(result.json.saved).toEqual([{assetId: 'img_9', path: join(dir, 'result.pluffy-part-separation.png')}])
   expect(await readFile(join(dir, 'result.pluffy-part-separation.png'))).toEqual(png)
 })
+
+it('stops at a flat run\'s price and says how to confirm it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  seen.length = 0
+  awaiting = true
+  try {
+    const result = await cli(
+      ['run', 'figure-clay', '--image-asset', 'img_1', '--canvas', '42', '--budget', '170', '--wait', '--operation-id', operationId],
+      dir,
+    )
+    expect(result.code).toBe(3)
+    expect(result.json.status).toBe('awaiting_confirmation')
+    expect(result.stderr).toContain('Found 2 parts: wheel, door. 26 credits')
+    expect(result.json.next).toContain(`run-confirm figure-clay ${runId} --total 26`)
+    expect(seen.some(r => r.path.endsWith('/confirm'))).toBe(false)
+  } finally {
+    awaiting = false
+  }
+})
+
+it('confirms on its own only at or under --yes-up-to', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  awaiting = true
+  seen.length = 0
+  try {
+    const over = await cli(
+      ['run', 'figure-clay', '--image-asset', 'img_1', '--canvas', '42', '--budget', '170', '--wait', '--yes-up-to', '20', '--operation-id', operationId],
+      dir,
+    )
+    expect(over.code).toBe(3)
+    expect(seen.some(r => r.path.endsWith('/confirm'))).toBe(false)
+    runStatus = 'completed'
+    const under = await cli(
+      ['run', 'figure-clay', '--image-asset', 'img_1', '--canvas', '42', '--budget', '170', '--wait', '--yes-up-to', '30', '--operation-id', operationId],
+      dir,
+    )
+    const confirm = seen.find(r => r.path.endsWith('/confirm'))!
+    expect(confirm.body).toMatchObject({expectedTotal: 26})
+    expect(confirm.key).toBe(confirm.body.clientOperationId)
+    expect(under.json.status).toBe('completed')
+  } finally {
+    awaiting = false
+  }
+})
+
+it('confirms the parts the person chose at the total they saw', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  seen.length = 0
+  const result = await cli(
+    ['run-confirm', 'figure-clay', runId, '--total', '14', '--parts', 'wheel', '--operation-id', operationId],
+    dir,
+  )
+  expect(result.code).toBe(0)
+  const confirm = seen.find(r => r.path.endsWith('/confirm'))!
+  expect(confirm.key).toBe(operationId)
+  expect(confirm.body).toEqual({clientOperationId: operationId, expectedTotal: 14, parts: ['wheel']})
+})
+

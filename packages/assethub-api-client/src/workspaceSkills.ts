@@ -871,6 +871,8 @@ export type WorkspaceSkillRunStatus =
   | 'failed'
   | 'budget_exhausted'
   | 'cancelled'
+  /** A flat-priced run found its parts and waits for POST .../confirm with its quote's total. */
+  | 'awaiting_confirmation'
 
 export const TERMINAL_WORKSPACE_SKILL_RUN_STATUSES: readonly WorkspaceSkillRunStatus[] =
   ['completed', 'failed', 'cancelled']
@@ -957,6 +959,28 @@ export type WorkspaceSkillRun = {
   }[]
   /** Present only where the Looks right / Needs changes gate is on. */
   humanVerdict?: unknown
+  /** flat: one confirmed price (retries included, failed parts refunded). */
+  pricing?: 'flat' | 'metered'
+  /** A flat run at awaiting_confirmation: the price of the parts its free part check found. */
+  quote?: WorkspaceSkillRunQuote | null
+  /** A confirmed flat run: credits held, and once it ended, charged and refunded. */
+  charge?: {quoted: number; charged: number | null; refundedParts: string[]} | null
+}
+
+export type WorkspaceSkillRunQuote = {
+  base: number
+  perPart: number
+  parts: number
+  total: number
+  items: {id: string; key: string; note: string}[]
+}
+
+export type WorkspaceSkillRunConfirmInput = {
+  clientOperationId: string
+  /** The total the person saw; a different current price answers 409 QUOTE_CHANGED. */
+  expectedTotal: number
+  /** Part ids from quote.items; omitted = every part found. */
+  parts?: string[]
 }
 
 export type WorkspaceSkillRunResumeInput = {
