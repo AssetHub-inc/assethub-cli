@@ -198,6 +198,13 @@ assethub skills run <skill-id> --file ./hero.png --budget 170 --revision <n> --c
 
 **Lost track of a run?** A new session, a closed window or a laptop that slept knows no run ID. Run `assethub skills run-list` (free): it lists the skill runs started from this folder, newest first, each with its status and the next command. `--file <image>` narrows it to one picture; `--all` shows every folder on this computer. Continue the one the person means with `assethub skills run-status <skill-id> <run-id> --wait` (results are saved next to the original) or `skills run-resume`. Never start a new run for work that may still be running.
 
+**Flat price** (`awaiting_confirmation`, exit 3). Some skills have one fixed price instead of a spending limit: the run first finds the parts for free, then stops and prints them with the price (`quote`). Nothing has been charged yet. Show the parts and the price and ask once:
+
+> **Found 7 parts: wheel, door, … · 86 credits.** Retries are included and failed parts are refunded.
+> - **Start (Recommended)** · **Choose parts** · **Cancel**
+
+On Start, confirm with the total you showed: `assethub skills run-confirm <skill-id> <run-id> --total 86 --wait --out-dir <folder of the original>`. With Choose parts, pass `--parts <id,id>` and `--total` = `quote.base` + `quote.perPart` × the number of parts. A `QUOTE_CHANGED` error means the price moved: show the new total and ask again. Use `--yes-up-to <credits>` on `skills run` only when the person named a price they accept in advance. The `--budget` you pass still caps a single-image flat skill: one priced above it is refused with its price, never charged.
+
 **Paused at the limit** (`budget_exhausted`, exit 0). Nothing is lost. Ask with exactly two options:
 
 > - **Raise the limit by 80 and continue (Recommended)**: new limit 250, same run

@@ -137,6 +137,7 @@ import {
   type ProductionAutomationResult,
   type ProductionAutomationBatchStatusResult,
   type MeshComposerPart,
+  type WorkspaceSkillRun,
   createAssetHubClient,
 } from '@assethub/api-client'
 
@@ -578,10 +579,11 @@ Usage:
   assethub skills build-enhance <build-id> --section <section> --current <json|@file|@-> [--note <text>]   (a suggestion only; nothing is written)
   assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
   assethub skills build-discard <build-id>
-  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to --budget)
+  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--yes-up-to <credits>] [--out-dir <dir>]   (PAID, up to --budget; a flat-priced skill stops at its price, exit 3)
   assethub skills run-list [--file <image>] [--all] [--limit <n>]   (runs started from this folder, newest first, with their status)
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
   assethub skills run-resume <skill-id> <run-id> --add-credits <n> [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to the new limit)
+  assethub skills run-confirm <skill-id> <run-id> --total <credits> [--parts <id,id>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, the confirmed price once; failed parts refunded)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
   assethub skills official list
   assethub skills official install <skill-id> --revision <n> --content-sha256 <sha256> [--expected-revision <n>] [--expected-grant-revision <n>]
@@ -7399,22 +7401,62 @@ const finishSkillRun = async (
     extra?: Record<string, unknown>
     /** Also save every image try, checked or not (`run-status --attempts`). */
     attempts?: boolean
+    /** `--yes-up-to`: confirm a flat run's price on its own when it is at or under this. */
+    confirmUpTo?: number
   },
 ) => {
-  const {run, timedOut} = input.wait
-    ? await waitForSkillRun({
+  let {run, timedOut} = await readOrWaitSkillRun(ctx, input)
+  if (
+    input.wait &&
+    input.confirmUpTo !== undefined &&
+    run.status === 'awaiting_confirmation' &&
+    run.quote &&
+    run.quote.total <= input.confirmUpTo
+  ) {
+    // A stable key per run and price: a retried command confirms once.
+    const confirmId = deriveConfirmOperationId(run.runId, run.quote.total)
+    stderr.write(`Confirming ${run.quote.total} credits (at or under --yes-up-to ${input.confirmUpTo}).\n`)
+    await ctx.client.v2.confirmWorkspaceSkillRun(input.skillId, input.runId, {
+      clientOperationId: confirmId,
+      expectedTotal: run.quote.total,
+    })
+    ;({run, timedOut} = await readOrWaitSkillRun(ctx, input))
+  }
+  return reportSkillRun(ctx, input, run, timedOut)
+}
+
+/** A UUID-shaped id that is the same for the same text (a v5-style hash). */
+const uuidv5ForCli = (text: string) => {
+  const hex = createHash('sha1').update(text).digest('hex')
+  const variant = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16)
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+const deriveConfirmOperationId = (runId: string, total: number) =>
+  uuidv5ForCli(`assethub.cli.skill-run-confirm/${runId}/${total}`)
+
+const readOrWaitSkillRun = async (
+  ctx: CommandContext,
+  input: {skillId: string; runId: string; wait: boolean},
+) =>
+  input.wait
+    ? waitForSkillRun({
         client: ctx.client,
         skillId: input.skillId,
         runId: input.runId,
         onProgress: line => stderr.write(`${line}\n`),
       })
     : {
-        run: await ctx.client.v2.getWorkspaceSkillRun(
-          input.skillId,
-          input.runId,
-        ),
+        run: await ctx.client.v2.getWorkspaceSkillRun(input.skillId, input.runId),
         timedOut: false,
       }
+
+const reportSkillRun = async (
+  ctx: CommandContext,
+  input: Parameters<typeof finishSkillRun>[1],
+  run: WorkspaceSkillRun,
+  timedOut: boolean,
+) => {
   // A failed fan-out run still carries verified outputs: the parts that
   // passed their own review. Keep them; only verified outputs are saved.
   const files =
@@ -7459,7 +7501,8 @@ const finishSkillRun = async (
       ? `The AI check rejected try ${rejected.attempt}. Offer to fix it here: assethub skills run-status ${run.skillId} ${run.runId} --attempts${input.outDir ? '' : ' --out-dir <folder of the original>'}, then follow "When the AI check says no" in the assethub skill.`
       : nextSkillRunAction(run),
   })
-  if (timedOut) process.exitCode = 3
+  // A flat run waiting for its price to be confirmed needs the person: exit 3.
+  if (timedOut || run.status === 'awaiting_confirmation') process.exitCode = 3
   else if (
     run.status === 'failed' ||
     run.status === 'cancelled' ||
@@ -7567,6 +7610,9 @@ const commandSkillRun = async (
         sourceFileName: filePath ? basename(filePath) : undefined,
         skillTitle: pin.title,
         extra: {operationId, canvasId: canvas.id, pin: started.pin},
+        ...(hasFlag(ctx.flags, 'yes-up-to')
+          ? {confirmUpTo: parsePositiveIntegerFlag(ctx.flags, 'yes-up-to', 1)}
+          : {}),
       })
       return
     }
@@ -7597,6 +7643,18 @@ const commandSkillRun = async (
         ...saveTo,
         extra: {operationId},
       })
+      return
+    }
+    if (subcommand === 'run-confirm') {
+      requireFlag(ctx.flags, 'total')
+      const operationId = operationIdFlag(ctx.flags)
+      const parts = getFlag(ctx.flags, 'parts')
+      await ctx.client.v2.confirmWorkspaceSkillRun(skillId, runId, {
+        clientOperationId: operationId,
+        expectedTotal: parseNonNegativeIntegerFlag(ctx.flags, 'total')!,
+        ...(parts ? {parts: parts.split(',').map(part => part.trim()).filter(Boolean)} : {}),
+      })
+      await finishSkillRun(ctx, {skillId, runId, wait, ...saveTo, extra: {operationId}})
       return
     }
     if (subcommand === 'run-verdict') {
@@ -7636,7 +7694,7 @@ const commandSkillRun = async (
     }
     throw error
   }
-  throw new Error('Use skills run|run-status|run-resume|run-verdict')
+  throw new Error('Use skills run|run-status|run-resume|run-confirm|run-verdict')
 }
 
 /**
@@ -7699,6 +7757,7 @@ export const commandSkills = async (
     subcommand === 'run' ||
     subcommand === 'run-status' ||
     subcommand === 'run-resume' ||
+    subcommand === 'run-confirm' ||
     subcommand === 'run-verdict'
   ) {
     await commandSkillRun(subcommand, positionals, ctx)

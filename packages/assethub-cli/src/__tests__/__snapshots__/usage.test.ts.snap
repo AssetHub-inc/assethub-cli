@@ -133,10 +133,11 @@ Usage:
   assethub skills build-enhance <build-id> --section <section> --current <json|@file|@-> [--note <text>]   (a suggestion only; nothing is written)
   assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
   assethub skills build-discard <build-id>
-  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to --budget)
+  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--yes-up-to <credits>] [--out-dir <dir>]   (PAID, up to --budget; a flat-priced skill stops at its price, exit 3)
   assethub skills run-list [--file <image>] [--all] [--limit <n>]   (runs started from this folder, newest first, with their status)
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
   assethub skills run-resume <skill-id> <run-id> --add-credits <n> [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to the new limit)
+  assethub skills run-confirm <skill-id> <run-id> --total <credits> [--parts <id,id>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, the confirmed price once; failed parts refunded)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
   assethub skills official list
   assethub skills official install <skill-id> --revision <n> --content-sha256 <sha256> [--expected-revision <n>] [--expected-grant-revision <n>]

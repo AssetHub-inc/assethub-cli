@@ -116,6 +116,8 @@ export const describeSkillRunProgress = (
     )
   }
   if (previous?.status !== next.status) {
+    if (next.status === 'awaiting_confirmation' && next.quote)
+      lines.push(describeSkillRunQuote(next.quote))
     if (next.status === 'budget_exhausted')
       lines.push(
         `Paused: the spending limit is reached (${next.budget.spentCredits} of ${next.budget.credits} credits used).`,
@@ -130,9 +132,16 @@ export const describeSkillRunProgress = (
   return lines
 }
 
-/** A run stops moving at a terminal status, and also when paused at its limit. */
+/** One plain line for a flat run's price, to pass to the person as it is. */
+export const describeSkillRunQuote = (quote: NonNullable<WorkspaceSkillRun['quote']>) =>
+  `Found ${quote.items.length} ${quote.items.length === 1 ? 'part' : 'parts'}: ${quote.items
+    .map(item => item.key)
+    .join(', ')}. ${quote.total} credits (${quote.base} + ${quote.perPart} per part), retries included, failed parts are refunded.`
+
+/** A run stops moving at a terminal status, when paused at its limit, and when it waits for its price to be confirmed. */
 export const isSkillRunSettled = (run: WorkspaceSkillRun) =>
   run.status === 'budget_exhausted' ||
+  run.status === 'awaiting_confirmation' ||
   TERMINAL_WORKSPACE_SKILL_RUN_STATUSES.includes(run.status)
 
 /** The read's answer, or undefined when it took longer than `ms`. */
@@ -375,6 +384,8 @@ export const nextSkillRunAction = (
 ): string | undefined => {
   if (run.status === 'budget_exhausted')
     return `Ask before spending more, then: assethub skills run-resume ${run.skillId} ${run.runId} --add-credits <n> --wait`
+  if (run.status === 'awaiting_confirmation')
+    return `Show the parts and the price and ask once, then: assethub skills run-confirm ${run.skillId} ${run.runId} --total ${run.quote?.total ?? '<total>'} [--parts <id,id>] --wait (with --parts, --total is ${run.quote ? `${run.quote.base} + ${run.quote.perPart} per part` : 'the base plus the per-part price for each'})`
   if (run.status === 'running')
     return `Still running on the server. Check again with: assethub skills run-status ${run.skillId} ${run.runId} --wait`
   if (run.status === 'completed')
