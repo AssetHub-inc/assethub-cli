@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url'
 import {afterEach, describe, expect, it} from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../../dist/index.js', import.meta.url))
-const v4 = 'ah_agent_graph_harpy_assembly_v2'
+const v4 = 'ah_agent_graph_harpy_assembly_v4_legacy'
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map(fn => fn()))
@@ -149,19 +149,27 @@ const tempDir = async () => {
 }
 
 describe('production batch', () => {
-  // @testdoc Built CLI sends every part-count choice with preserved V5 JSON for analyze and graph split/compare requests.
-  it.each(['few', 'default', 'detailed'])('forwards %s without overwriting V5 switches', async partCount => {
+  // @testdoc Both V4 and V5 aliases send every part-count choice; V5 JSON switches stay explicit and unchanged.
+  it.each(['few', 'default', 'detailed'])('forwards %s for V4 and V5', async partCount => {
     const dir = await tempDir()
     const {baseUrl, posted} = await startServer()
-    for (const command of [['production', 'analyze'], ['parts', 'split'], ['parts', 'compare']]) {
-      const result = await cli(baseUrl, dir, [
-        ...command, '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v4',
-        '--part-count', partCount, '--assembly-experiment', '{"v5Assembler":true,"v5Start":"placement"}',
-      ])
-      expect(result.code, result.stderr).toBe(0)
-      expect(posted.at(-1)?.body.assemblyExperiment).toEqual({partCount, v5Assembler: true, v5Start: 'placement'})
+    for (const extractor of ['v4', 'v5']) {
+      const experiment = extractor === 'v5'
+        ? {partCount, v5Assembler: true, v5Start: 'placement'}
+        : {partCount}
+      for (const command of [['production', 'analyze'], ['parts', 'split'], ['parts', 'compare']]) {
+        const result = await cli(baseUrl, dir, [
+          ...command, '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', extractor,
+          '--part-count', partCount, '--assembly-experiment', JSON.stringify(experiment),
+        ])
+        expect(result.code, result.stderr).toBe(0)
+        expect(posted.at(-1)?.body).toMatchObject({
+          agentVersion: extractor === 'v4' ? v4 : 'ah_agent_graph_harpy_assembly_v2',
+          assemblyExperiment: experiment,
+        })
+      }
     }
-    expect(posted).toHaveLength(3)
+    expect(posted).toHaveLength(6)
   })
 
   // @testdoc Invalid, repeated, conflicting and incompatible part-count flags fail without any paid dispatch.

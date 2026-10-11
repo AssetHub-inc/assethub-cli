@@ -463,7 +463,7 @@ Actors admitted to V4/V5 (Internal users and named V4 testers) can choose the sa
 `--part-count few|default|detailed`: Few targets 3–4 groups, Standard (`default`)
 5–6, and Detailed 8–12, including the base body. These are planner targets, not
 exact output guarantees. The flag works on `production analyze`, `production batch`,
-and new V4 `parts split` / `parts compare` runs; other agents and resumed orders
+and new V4/V5 `parts split` / `parts compare` runs; other agents and resumed orders
 are rejected before dispatch. It sends `assemblyExperiment.partCount` without
 changing the assembler, body mode, or mesh settings. Omit it to preserve the API's
 existing behavior. An explicit JSON `partCount` is also accepted; conflicting JSON
@@ -474,7 +474,7 @@ internal-only. Requires the matching API update (assethub-web #8495).
 ```sh
 assethub production analyze --file ./concept.png --part-extractor v4 --part-count few --wait
 # Preserve other V5 experiment switches while selecting Standard:
-assethub production analyze --file ./concept.png --part-extractor v4 --part-count default \
+assethub production analyze --file ./concept.png --part-extractor v5 --part-count default \
   --assembly-experiment '{"v5Assembler":true,"v5Start":"placement"}' --wait
 ```
 
