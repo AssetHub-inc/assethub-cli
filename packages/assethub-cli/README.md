@@ -459,6 +459,30 @@ contract is in `docs/api-character-assembly-progress.md`.
 
 ### Batch runs: many images, or one image many times
 
+Actors admitted to V4/V5 (Internal users and named V4 testers) can choose the same part count as the canvas with
+`--part-count few|default|detailed`: Few targets 3–4 groups, Standard (`default`)
+5–6, and Detailed 8–12, including the base body. These are planner targets, not
+exact output guarantees. The flag works on `production analyze`, `production batch`,
+and new V4/V5 `parts split` / `parts compare` runs; other agents and resumed orders
+are rejected before dispatch. It sends `assemblyExperiment.partCount` without
+changing the assembler, body mode, or mesh settings. Omit it to preserve the API's
+existing behavior. An explicit JSON `partCount` is also accepted; conflicting JSON
+and flag values or repeated flags are rejected before any request. A part-count-only
+request follows existing V4 tester admission; other experiment switches remain
+internal-only. Requires the matching API update (assethub-web #8495).
+
+```sh
+assethub production analyze --file ./concept.png --part-extractor v4 --part-count few --wait
+# Preserve other V5 experiment switches while selecting Standard:
+assethub production analyze --file ./concept.png --part-extractor v5 --part-count default \
+  --assembly-experiment '{"v5Assembler":true,"v5Start":"placement"}' --wait
+```
+
+Internal actors can also supply `--assembly-experiment <json|@file>` to preserve
+V5 switches such as `v5Assembler` and `v5Start` (`placement` or `fit`). The JSON
+accepts known garment-fit flags and model roles; `--garment-fit a,b` enables known
+flags and merges them into that JSON. Unknown keys are rejected client-side.
+
 V4 actors with the mesh-quality rollout (internal and named V4 testers) can choose the
 mesh quality and the models the run may use, like the canvas start card. The whole run
 uses one quality; fallback never leaves the listed models:

@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.52 · SDK 0.1.20
+
+- V4/V5 Character Assembly accepts `--part-count few|default|detailed` on `production analyze`, `production batch`, and new V4/V5 `parts split` / `parts compare` runs. Few targets 3–4 groups, Standard (`default`) 5–6, Detailed 8–12, including the base body; these are planner targets, not exact output guarantees. Invalid, repeated, conflicting and incompatible selections fail before paid dispatch. Omission preserves existing behavior.
+- Internal V4 experiment JSON (`--assembly-experiment`) preserves V5 assembler settings while selecting a part count. SDK types include the matching optional `assemblyExperiment` field. Requires the matching production API acceptance change (assethub-web #8495); part-count-only follows existing V4 tester admission while other experiment switches remain internal-only. Publish SDK 0.1.20 before CLI 0.1.52.
+
 ## CLI 0.1.51
 
 - Character Assembly selections now distinguish `v4` (the independently pinned coded assembler) from `v5` (the existing V5 rollout). Both retain graph execution, long-run polling and mesh preferences. Requires the matching AssetHub Web model registration (#8496); existing canonical IDs and recorded run receipts stay unchanged.

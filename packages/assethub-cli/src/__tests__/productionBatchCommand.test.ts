@@ -72,8 +72,10 @@ const startServer = async (options: {limitedKeys?: Set<string>; progress?: strin
   const posted: Array<{key: string; body: Body; status: number}> = []
   const refused = new Set<string>()
   const reads = new Map<string, number>()
+  const requests: string[] = []
   const server = createServer(async (req, res) => {
     const path = req.url!
+    requests.push(path)
     const host = `http://${req.headers.host}`
     const canvas = {id: 42, name: 'Batch', ownerId: 'org-a', url: `${host}/workflow/42`}
     const execution = (runId: string, status: string) => ({
@@ -137,7 +139,7 @@ const startServer = async (options: {limitedKeys?: Set<string>; progress?: strin
   cleanup.push(() => new Promise<void>(closed => server.close(() => closed())))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Missing server address')
-  return {baseUrl: `http://127.0.0.1:${address.port}`, posted}
+  return {baseUrl: `http://127.0.0.1:${address.port}`, posted, requests}
 }
 
 const tempDir = async () => {
@@ -147,6 +149,101 @@ const tempDir = async () => {
 }
 
 describe('production batch', () => {
+  // @testdoc Both V4 and V5 aliases send every part-count choice; V5 JSON switches stay explicit and unchanged.
+  it.each(['few', 'default', 'detailed'])('forwards %s for V4 and V5', async partCount => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    for (const extractor of ['v4', 'v5']) {
+      const experiment = extractor === 'v5'
+        ? {partCount, v5Assembler: true, v5Start: 'placement'}
+        : {partCount}
+      for (const command of [['production', 'analyze'], ['parts', 'split'], ['parts', 'compare']]) {
+        const result = await cli(baseUrl, dir, [
+          ...command, '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', extractor,
+          '--part-count', partCount, '--assembly-experiment', JSON.stringify(experiment),
+        ])
+        expect(result.code, result.stderr).toBe(0)
+        expect(posted.at(-1)?.body).toMatchObject({
+          agentVersion: extractor === 'v4' ? v4 : 'ah_agent_graph_harpy_assembly_v2',
+          assemblyExperiment: experiment,
+        })
+      }
+    }
+    expect(posted).toHaveLength(6)
+  })
+
+  // @testdoc Invalid, repeated, conflicting and incompatible part-count flags fail without any paid dispatch.
+  it.each([
+    ['production', 'analyze', '--part-extractor', 'v4', '--part-count', 'lots'],
+    ['production', 'analyze', '--part-extractor', 'v4', '--part-count'],
+    ['production', 'analyze', '--part-extractor', 'v4', '--part-count', 'few', '--part-count', 'default'],
+    ['production', 'analyze', '--part-extractor', 'v4', '--part-count', 'few', '--assembly-experiment', '{"partCount":"detailed"}'],
+    ['production', 'analyze', '--part-extractor', 'V1.5', '--part-count', 'few'],
+    ['parts', 'split', '--part-extractor', 'V1.5', '--part-count', 'few'],
+    ['parts', 'split', '--order-id', 'existing-order', '--part-count', 'few'],
+    ['production', 'automation', '--input-json', '{"images":[{"imageAssetId":"image-asset"}],"agentVersion":"V1.5"}', '--part-count', 'few'],
+  ].map(args => ({args})))('rejects unsupported input $args', async ({args}) => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    const result = await cli(baseUrl, dir, [...args, '--canvas', '42', ...(args.includes('--order-id') ? [] : ['--source-id', 'image-asset'])])
+    expect(result.code).not.toBe(0)
+    expect(result.json.error.message).toMatch(/part-count/)
+    expect(posted).toHaveLength(0)
+  })
+
+  // @testdoc Every assembly flag fails before any HTTP request when the command or an existing order cannot apply it.
+  it.each([
+    {flag: '--part-count', value: 'few'},
+    {flag: '--assembly-experiment', value: '{"partCount":"few"}'},
+    {flag: '--garment-fit', value: 'wearGraph'},
+  ])('refuses ignored $flag on unsupported entry points', async ({flag, value}) => {
+    const dir = await tempDir()
+    const {baseUrl, posted, requests} = await startServer()
+    for (const args of [
+      ['parts', 'split', '--order-id', 'existing-order'],
+      ['production', 'automation', '--input-json', '{"images":[{"imageAssetId":"image-asset"}],"agentVersion":"V1.5"}'],
+      ['production', 'run', '--image', 'image-asset'],
+    ]) {
+      const result = await cli(baseUrl, dir, [...args, flag, value, '--canvas', '42'])
+      expect(result.code).not.toBe(0)
+      expect(result.json.error.message).toContain(flag)
+      expect(requests).toEqual([])
+      expect(posted).toEqual([])
+    }
+  })
+
+  // @testdoc The widened refusal guard still sends explicit garment flags on supported graph entry points.
+  it('preserves garment flags on supported commands', async () => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    for (const command of [['production', 'analyze'], ['parts', 'split'], ['parts', 'compare']]) {
+      const result = await cli(baseUrl, dir, [...command, '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v4', '--garment-fit', 'wearGraph'])
+      expect(result.code, result.stderr).toBe(0)
+      expect(posted.at(-1)?.body.assemblyExperiment).toEqual({garmentFit: {wearGraph: true}})
+    }
+    expect(posted).toHaveLength(3)
+  })
+
+  // @testdoc Explicit JSON part-count input reaches the API unchanged when no shorthand flag is given.
+  it('preserves a JSON-only experiment', async () => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    const json = {partCount: 'detailed', v5Assembler: true, v5Start: 'fit', garmentFit: {wearGraph: false}}
+    const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v4', '--assembly-experiment', JSON.stringify(json)])
+    expect(result.code, result.stderr).toBe(0)
+    expect(posted[0]?.body.assemblyExperiment).toEqual(json)
+  })
+
+  // @testdoc Omitting part-count retains classic API requests without an assemblyExperiment field.
+  it('does not stamp a part-count default', async () => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'V1.5'])
+    expect(result.code, result.stderr).toBe(0)
+    expect(posted[0]?.body).not.toHaveProperty('assemblyExperiment')
+  })
+
+
   it('starts one run per image and repeat, resumes without starting any again, and pins its inputs', async () => {
     const dir = await tempDir()
     const {baseUrl, posted} = await startServer()
@@ -156,6 +253,7 @@ describe('production batch', () => {
       '--source-id', 'harpy', '--source-id', 'satyr',
       '--repeat', '2', '--part-extractor', 'v4', '--name', 'Consistency',
       '--canvas', '42', '--operation-id', operationId, '--yes',
+      '--part-count', 'few',
     ]
 
     const first = await cli(baseUrl, dir, args)
@@ -174,6 +272,7 @@ describe('production batch', () => {
       expect(request!.body).toMatchObject({
         imageAssetId,
         agentVersion: v4,
+        assemblyExperiment: {partCount: 'few'},
         name,
         executionContext: {canvasId: 42, clientOperationId: id, source: 'cli'},
       })
