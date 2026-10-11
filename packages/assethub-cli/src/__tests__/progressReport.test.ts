@@ -114,6 +114,38 @@ describe('failureText', () => {
 })
 
 describe('runReporter', () => {
+  it.each(['mesh.compose', 'mesh.refine'])('keeps %s worker prose private and prints only status changes', operation => {
+    const {lines, write} = sink()
+    const report = runReporter({write, now: clock().now})
+    const receipt = (status: CanvasExecution['status'], detail: string) => run(status, {
+      operation,
+      progress: progress({
+        summary: detail,
+        headline: detail,
+        outcome: {accepted: false, outcome: 'stopped', detail},
+        parts: [part(detail, 'failed', detail)],
+      }),
+      error: {code: 'COMPOSER_FAILED', message: detail},
+      history: {status: 'recorded', error: detail},
+    })
+    report(receipt('queued', 'private prompt'))
+    report(receipt('running', 'private prompt'))
+    report(receipt('running', 'private tool command'))
+    report(receipt('needs_review', 'private reviewer reasoning'))
+    report(receipt('failed', 'private exception stack'))
+    report(receipt('failed', 'private changed exception'))
+    expect(lines).toEqual([
+      '19:41  run 4e9acd99  Composition queued',
+      '19:41  run 4e9acd99  Composing parts',
+      '19:41  run 4e9acd99  ⚠ needs review · Review the resulting mesh before accepting it.',
+      '19:41  run 4e9acd99  ✗ FAILED · Composition stopped. Check the run status before retrying.',
+    ])
+    for (const status of ['completed', 'partial', 'cancelled'] as const) {
+      expect(stepText(receipt(status, 'private terminal prose'))).not.toContain('private')
+      expect(failureText(receipt(status, 'private terminal prose'))).not.toContain('private')
+    }
+  })
+
   it('prints a line only when the step, the ready count or the status changes, not when parts flicker', () => {
     const {lines, write} = sink()
     const time = clock()

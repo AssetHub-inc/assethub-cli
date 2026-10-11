@@ -342,6 +342,8 @@ Agent completion returns an editable scene as `needs_review`; it does not export
 a new combined mesh until the user reviews and exports it.
 Native node actions require the server's `api_canvas_native_nodes` feature gate.
 
+Composer and mesh refinement progress uses fixed public status messages and prints only when the status changes. Worker summaries, reviewer notes and internal errors are excluded from these progress lines. Final JSON receipts depend on the server's public projection; use the current AssetHub service for protected Composer receipts.
+
 stdout contains final JSON; stderr contains progress. Exceptions: `--version` prints the version, and `mcp config` prints the requested configuration. Exit codes are 0 for accepted/
 completed, 1 for terminal failure/partial, 2 for input/auth/capability/budget errors,
 3 for timeout/history pending/needs review, and 130 for Ctrl-C. Timeout and Ctrl-C
