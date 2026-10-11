@@ -22,6 +22,17 @@ const pad2 = (value: number) => String(value).padStart(2, '0')
 const clockTime = (date: Date) =>
   `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
 const shortId = (id: string) => id.slice(0, 8)
+const isComposer = (execution: CanvasExecution) =>
+  execution.operation === 'mesh.compose' || execution.operation === 'mesh.refine'
+const composerStatus: Record<CanvasExecution['status'], string> = {
+  queued: 'Composition queued',
+  running: 'Composing parts',
+  completed: 'Composition completed',
+  needs_review: 'Review the resulting mesh before accepting it.',
+  partial: 'Some parts need review.',
+  failed: 'Composition stopped. Check the run status before retrying.',
+  cancelled: 'Composition cancelled',
+}
 const duration = (ms: number) => {
   const minutes = Math.max(0, Math.round(ms / 60_000))
   return minutes < 60
@@ -31,9 +42,11 @@ const duration = (ms: number) => {
 
 /** Where the run is: the summary with `Step 3 of 4` shortened to `3/4`. */
 export const stepText = (execution: CanvasExecution): string =>
-  execution.progress
-    ? execution.progress.summary.replace(/^Step (\d+) of (\d+) · /, '$1/$2 ')
-    : execution.status
+  isComposer(execution)
+    ? composerStatus[execution.status] ?? 'Check the composition run status.'
+    : execution.progress
+      ? execution.progress.summary.replace(/^Step (\d+) of (\d+) · /, '$1/$2 ')
+      : execution.status
 
 /**
  * Why a run stopped, in plain words. The backend sends V4 findings as a
@@ -41,12 +54,14 @@ export const stepText = (execution: CanvasExecution): string =>
  * `message (code)`.
  */
 export const failureText = (execution: CanvasExecution): string =>
-  plainError(
-    execution.error?.message ??
-      execution.progress?.outcome?.detail ??
-      execution.history.error ??
-      execution.status,
-  )
+  isComposer(execution)
+    ? composerStatus[execution.status] ?? 'Check the composition run status.'
+    : plainError(
+        execution.error?.message ??
+          execution.progress?.outcome?.detail ??
+          execution.history.error ??
+          execution.status,
+      )
 const plainError = (message: string, code?: string): string => {
   const findings = [...message.matchAll(/\{([^{}]*)\}/g)].flatMap(
     ([, body]) => {
@@ -86,13 +101,17 @@ const isTerminal = (status: string) =>
   !['queued', 'running', 'dispatched'].includes(status)
 /** The step a still-working run is on, to say later where it stopped. */
 const workingStep = (execution: CanvasExecution, status: string) =>
-  !isTerminal(status) ? execution.progress?.step : undefined
+  !isComposer(execution) && !isTerminal(status)
+    ? execution.progress?.step
+    : undefined
 
 /** Parts that became kept-with-an-issue or failed since the last report. */
 const newIssues = (
   previous: CanvasExecution | undefined,
   next: CanvasExecution,
 ) => {
+  // Composer worker prose belongs in private diagnostics, never progress output.
+  if (isComposer(next)) return []
   const before = new Map(
     previous?.progress?.parts.map(part => [part.label, part.state]),
   )

@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.50
+
+- Composer and mesh refinement progress prints fixed public status messages once per status change. Worker summaries, reviewer notes, internal errors and part diagnostics are never copied into progress lines, including `runs watch` and resumed waits. Final JSON receipts use the server's public projection (assethub-web #8470); run IDs, outputs and recovery stay available.
+- Update the MCP SDK to the patched 1.x line and refresh vulnerable runtime dependencies.
+
 ## CLI 0.1.49
 
 - `skills run --wait` and `skills run-status` keep the parts that passed when another part fails the run: a split into parts where one part is still rejected after its retries now saves the passed parts next to the original instead of nothing (needs the matching web change, assethub-web #8392).
