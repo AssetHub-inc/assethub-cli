@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.51
+
+- Character Assembly selections now distinguish `v4` (the independently pinned coded assembler) from `v5` (the existing V5 rollout). Both retain graph execution, long-run polling and mesh preferences. Requires the matching AssetHub Web model registration (#8496); existing canonical IDs and recorded run receipts stay unchanged.
+
 ## CLI 0.1.50
 
 - Composer and mesh refinement progress prints fixed public status messages once per status change. Worker summaries, reviewer notes, internal errors and part diagnostics are never copied into progress lines, including `runs watch` and resumed waits. Final JSON receipts use the server's public projection (assethub-web #8470); run IDs, outputs and recovery stay available.
