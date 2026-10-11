@@ -1131,6 +1131,28 @@ export type ProductionAnalyzeRequest = RequireAtLeastOne<
     baseBodyAssetId?: string
     pipelineDepth?: 'parts' | 'mesh' | 'composition'
     assemblyPolicy?: 'concept-to-character-v1'
+    /** V4 part count follows agent admission; other experiment switches are internal-only. */
+    assemblyExperiment?: {
+      garmentFit?: Partial<
+        Record<
+          | 'wearGraph'
+          | 'proportionLock'
+          | 'measuredGates'
+          | 'penetrationRepair'
+          | 'protectDetail'
+          | 'depthGate'
+          | 'armatureFit'
+          | 'disableRingFit',
+          boolean
+        >
+      >
+      models?: Partial<
+        Record<'planner' | 'review' | 'qaEscalation', string>
+      >
+      partCount?: 'few' | 'default' | 'detailed'
+      v5Assembler?: boolean
+      v5Start?: 'placement' | 'fit'
+    }
     skillSelection?: ProductionWorkspaceSkillSelection
     skillPlannerModel?:
       | 'openai/gpt-5.6-sol'

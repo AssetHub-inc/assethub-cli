@@ -13,6 +13,7 @@ import {
   type WorkspaceSkillBuild,
 } from '@assethub/api-client'
 import {setTimeout as delay} from 'node:timers/promises'
+import {buildAssemblyExperiment} from './assemblyExperiment.js'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
 import {AGENT_IDS, parseAgentIds, syncInstalledSkill, type AgentId} from './agentSetup.js'
 import {
@@ -541,7 +542,7 @@ Usage:
   assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
   assethub jobs get <job-id> [--download --out-dir <dir>]
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
-  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--name <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--assembly-experiment <json|@file>] [--garment-fit <flag,flag>] [--name <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
     Production graph options: --pipeline-depth parts|mesh|composition [--assembly-policy concept-to-character-v1] [--mesh-generation-json <json|@file>]
     V4 mesh options: [--mesh-quality low|high] [--mesh-model <model-id>...] (the run only uses these models; default low = meshGen.tripo_p2_preview)
   assethub production batch (--file <path>... | --files-dir <dir> | --source-id <id>... | --source-url <url>...) --part-extractor <name> [--repeat <n>] [--yes] [--canvas <id>] [--operation-id <uuid>] [--wait [--concurrency <n>]] [--download --out-dir <dir>]
@@ -557,8 +558,8 @@ Usage:
   assethub production interventions <order-id>
   assethub production resume <run-id|order-id> [--expected-resume-count <n>] [--wait] [--timeout-ms <ms>] [--download --out-dir <dir>]   (after a fix, pick a stopped or stalled graph run back up; no new charge)
   assethub runs upload <path> [--graph-id <id>] [--stream-id <id>] [--rev <n>] [--description <text>] [--tag <tag>...] [--skip-register] [--dry-run]
-  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
-  assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
+  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
+  assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--part-count few|default|detailed] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
@@ -5090,6 +5091,32 @@ const resolveV4MeshPreferences = (flags: Flags, agentVersion: string) => {
   return {modelId: chosen[0]!, preferences}
 }
 
+const resolveProductionAssemblyExperiment = async (
+  ctx: CommandContext,
+  agentVersion: string,
+) => {
+  if (getFlagValues(ctx.flags, 'part-count').length > 1)
+    throw new Error('--part-count must be specified once')
+  const assemblyExperimentJson = getFlag(ctx.flags, 'assembly-experiment')
+  const assemblyExperiment = buildAssemblyExperiment({
+    ...(assemblyExperimentJson === undefined
+      ? {}
+      : {
+          json: await readJsonArgument(
+            assemblyExperimentJson,
+            '--assembly-experiment',
+          ),
+        }),
+    garmentFit: getFlag(ctx.flags, 'garment-fit'),
+    partCount: getFlag(ctx.flags, 'part-count'),
+  })
+  if (assemblyExperiment !== undefined && agentVersion !== 'ah_agent_graph_harpy_assembly_v2')
+    throw new Error(
+      '--assembly-experiment, --garment-fit and --part-count require --part-extractor v4',
+    )
+  return assemblyExperiment
+}
+
 /**
  * Everything `production analyze` sends besides the image source; shared with
  * `production batch` so a batch item is the same request.
@@ -5097,6 +5124,7 @@ const resolveV4MeshPreferences = (flags: Flags, agentVersion: string) => {
 const resolveProductionAnalyzeOptions = async (ctx: CommandContext) => {
     const agentVersion = resolvePartExtractorForAnalyze(ctx.flags)
     const baseBodyAssetId = resolveProductionBaseBody(ctx.flags)
+    const assemblyExperiment = await resolveProductionAssemblyExperiment(ctx, agentVersion)
     const skillPlannerModel = resolveSkillPlannerModel(ctx.flags)
     const autoRepair = parseBooleanFlag(ctx.flags, 'auto-repair')
     const skillSelection = resolveProductionSkillSelection(
@@ -5158,6 +5186,7 @@ const resolveProductionAnalyzeOptions = async (ctx: CommandContext) => {
       agentVersion,
       name: getFlag(ctx.flags, 'name'),
       ...(baseBodyAssetId === undefined ? {} : {baseBodyAssetId}),
+      ...(assemblyExperiment === undefined ? {} : {assemblyExperiment}),
       ...(skillPlannerModel === undefined ? {} : {skillPlannerModel}),
       ...(autoRepair === undefined ? {} : {autoRepair}),
       ...(skillSelection == null ? {} : {skillSelection}),
@@ -5558,6 +5587,11 @@ const commandParts = async (
           `--order-id is not supported with ${publicName}; use runs resume <operation-id> to resume a graph split`,
         )
     }
+    if (orderId != null && hasFlag(ctx.flags, 'part-count'))
+      throw new Error('--part-count can only be set when starting a new production run')
+    const assemblyExperiment = orderId == null
+      ? await resolveProductionAssemblyExperiment(ctx, requestedAgentVersion!)
+      : undefined
     const session = await productionSession(
       ctx,
       orderId == null ? 'production.analyze' : 'production.execute',
@@ -5573,6 +5607,7 @@ const commandParts = async (
           ...(source ?? (await resolveProductionAnalyzeSource(ctx))),
           agentVersion: resolvePartExtractorForAnalyze(ctx.flags),
           name: getFlag(ctx.flags, 'name'),
+          ...(assemblyExperiment === undefined ? {} : {assemblyExperiment}),
           ...(baseBodyAssetId === undefined ? {} : {baseBodyAssetId}),
           ...(skillPlannerModel === undefined ? {} : {skillPlannerModel}),
           ...(autoRepair === undefined ? {} : {autoRepair}),
@@ -8314,6 +8349,8 @@ const run = async (): Promise<void> => {
     print(report)
     return
   }
+  if (hasFlag(parsed.flags, 'part-count') && !((command === 'production' && ['analyze', 'batch'].includes(subcommand ?? '')) || (command === 'parts' && ['split', 'compare'].includes(subcommand ?? ''))))
+    throw new Error('--part-count is supported by production analyze/batch and parts split/compare only')
   if (command === 'doctor') {
     stderr.write('Checking AssetHub connection…\n')
     const diagnosed = await diagnose({
