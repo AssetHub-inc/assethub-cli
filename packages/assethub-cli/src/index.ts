@@ -399,8 +399,13 @@ const partExtractorOptions = [
   },
   {
     publicName: 'V4 Character Assembly',
-    apiValue: 'ah_agent_graph_harpy_assembly_v2',
+    apiValue: 'ah_agent_graph_harpy_assembly_v4_legacy',
     aliases: ['v4', '4', 'v4 character assembly', 'character assembly'],
+  },
+  {
+    publicName: 'V5 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v2',
+    aliases: ['v5', '5', 'v5 character assembly'],
   },
 ] as const satisfies readonly PartExtractorOption[]
 
@@ -2846,7 +2851,8 @@ const defaultWaitMs = (flags: Flags): number => {
     extractor == null
       ? undefined
       : partExtractorByInput.get(normalizePartExtractorName(extractor))
-  return option?.apiValue === 'ah_agent_graph_harpy_assembly_v2'
+  return option?.apiValue === 'ah_agent_graph_harpy_assembly_v2' ||
+    option?.apiValue === 'ah_agent_graph_harpy_assembly_v4_legacy'
     ? harpyAssemblyV2WaitMs
     : 900000
 }
@@ -5074,7 +5080,8 @@ const resolveV4MeshPreferences = (flags: Flags, agentVersion: string) => {
     id.startsWith('meshGen.') ? id : `meshGen.${id}`,
   )
   if (quality === undefined && models.length === 0) return undefined
-  if (agentVersion !== 'ah_agent_graph_harpy_assembly_v2')
+  if (agentVersion !== 'ah_agent_graph_harpy_assembly_v2' &&
+      agentVersion !== 'ah_agent_graph_harpy_assembly_v4_legacy')
     throw new Error('--mesh-quality and --mesh-model require --part-extractor v4')
   if (quality !== undefined && quality !== 'low' && quality !== 'high')
     throw new Error('--mesh-quality must be low or high')

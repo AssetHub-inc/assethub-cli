@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url'
 import {afterEach, describe, expect, it} from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../../dist/index.js', import.meta.url))
-const v4 = 'ah_agent_graph_harpy_assembly_v2'
+const v4 = 'ah_agent_graph_harpy_assembly_v4_legacy'
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map(fn => fn()))
