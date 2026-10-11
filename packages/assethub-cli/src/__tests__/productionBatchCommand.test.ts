@@ -72,8 +72,10 @@ const startServer = async (options: {limitedKeys?: Set<string>; progress?: strin
   const posted: Array<{key: string; body: Body; status: number}> = []
   const refused = new Set<string>()
   const reads = new Map<string, number>()
+  const requests: string[] = []
   const server = createServer(async (req, res) => {
     const path = req.url!
+    requests.push(path)
     const host = `http://${req.headers.host}`
     const canvas = {id: 42, name: 'Batch', ownerId: 'org-a', url: `${host}/workflow/42`}
     const execution = (runId: string, status: string) => ({
@@ -137,7 +139,7 @@ const startServer = async (options: {limitedKeys?: Set<string>; progress?: strin
   cleanup.push(() => new Promise<void>(closed => server.close(() => closed())))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Missing server address')
-  return {baseUrl: `http://127.0.0.1:${address.port}`, posted}
+  return {baseUrl: `http://127.0.0.1:${address.port}`, posted, requests}
 }
 
 const tempDir = async () => {
@@ -179,6 +181,39 @@ describe('production batch', () => {
     expect(result.code).not.toBe(0)
     expect(result.json.error.message).toMatch(/part-count/)
     expect(posted).toHaveLength(0)
+  })
+
+  // @testdoc Every assembly flag fails before any HTTP request when the command or an existing order cannot apply it.
+  it.each([
+    {flag: '--part-count', value: 'few'},
+    {flag: '--assembly-experiment', value: '{"partCount":"few"}'},
+    {flag: '--garment-fit', value: 'wearGraph'},
+  ])('refuses ignored $flag on unsupported entry points', async ({flag, value}) => {
+    const dir = await tempDir()
+    const {baseUrl, posted, requests} = await startServer()
+    for (const args of [
+      ['parts', 'split', '--order-id', 'existing-order'],
+      ['production', 'automation', '--input-json', '{"images":[{"imageAssetId":"image-asset"}],"agentVersion":"V1.5"}'],
+      ['production', 'run', '--image', 'image-asset'],
+    ]) {
+      const result = await cli(baseUrl, dir, [...args, flag, value, '--canvas', '42'])
+      expect(result.code).not.toBe(0)
+      expect(result.json.error.message).toContain(flag)
+      expect(requests).toEqual([])
+      expect(posted).toEqual([])
+    }
+  })
+
+  // @testdoc The widened refusal guard still sends explicit garment flags on supported graph entry points.
+  it('preserves garment flags on supported commands', async () => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    for (const command of [['production', 'analyze'], ['parts', 'split'], ['parts', 'compare']]) {
+      const result = await cli(baseUrl, dir, [...command, '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v4', '--garment-fit', 'wearGraph'])
+      expect(result.code, result.stderr).toBe(0)
+      expect(posted.at(-1)?.body.assemblyExperiment).toEqual({garmentFit: {wearGraph: true}})
+    }
+    expect(posted).toHaveLength(3)
   })
 
   // @testdoc Explicit JSON part-count input reaches the API unchanged when no shorthand flag is given.

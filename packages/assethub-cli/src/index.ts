@@ -5587,8 +5587,11 @@ const commandParts = async (
           `--order-id is not supported with ${publicName}; use runs resume <operation-id> to resume a graph split`,
         )
     }
-    if (orderId != null && hasFlag(ctx.flags, 'part-count'))
-      throw new Error('--part-count can only be set when starting a new production run')
+    if (
+      orderId != null &&
+      ['part-count', 'assembly-experiment', 'garment-fit'].some(flag => hasFlag(ctx.flags, flag))
+    )
+      throw new Error('--assembly-experiment, --garment-fit and --part-count can only be set when starting a new production run')
     const assemblyExperiment = orderId == null
       ? await resolveProductionAssemblyExperiment(ctx, requestedAgentVersion!)
       : undefined
@@ -8349,8 +8352,12 @@ const run = async (): Promise<void> => {
     print(report)
     return
   }
-  if (hasFlag(parsed.flags, 'part-count') && !((command === 'production' && ['analyze', 'batch'].includes(subcommand ?? '')) || (command === 'parts' && ['split', 'compare'].includes(subcommand ?? ''))))
-    throw new Error('--part-count is supported by production analyze/batch and parts split/compare only')
+  if (
+    ['part-count', 'assembly-experiment', 'garment-fit'].some(flag => hasFlag(parsed.flags, flag)) &&
+    !((command === 'production' && ['analyze', 'batch'].includes(subcommand ?? '')) ||
+      (command === 'parts' && ['split', 'compare'].includes(subcommand ?? '')))
+  )
+    throw new Error('--assembly-experiment, --garment-fit and --part-count are supported by production analyze/batch and parts split/compare only')
   if (command === 'doctor') {
     stderr.write('Checking AssetHub connection…\n')
     const diagnosed = await diagnose({
