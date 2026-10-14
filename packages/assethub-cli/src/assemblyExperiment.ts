@@ -22,6 +22,7 @@ export const PART_COUNT_VALUES = ['few', 'default', 'detailed'] as const
 export const V5_START_VALUES = ['placement', 'fit'] as const
 
 export type AssemblyExperimentInput = {
+  headBodyFirst?: boolean
   partCount?: (typeof PART_COUNT_VALUES)[number]
   v5Assembler?: boolean
   v5Start?: (typeof V5_START_VALUES)[number]
@@ -49,10 +50,24 @@ const validate = (json: unknown): AssemblyExperimentInput => {
     throw new Error('--assembly-experiment must be a JSON object')
   assertKeys(
     json,
-    ['garmentFit', 'models', 'v5Assembler', 'v5Start', 'partCount'],
+    [
+      'garmentFit',
+      'models',
+      'v5Assembler',
+      'v5Start',
+      'partCount',
+      'headBodyFirst',
+    ],
     'the root object',
   )
   const out: AssemblyExperimentInput = {}
+  if (json.headBodyFirst !== undefined) {
+    if (typeof json.headBodyFirst !== 'boolean')
+      throw new Error(
+        '--assembly-experiment: headBodyFirst must be true or false',
+      )
+    out.headBodyFirst = json.headBodyFirst
+  }
   if (json.garmentFit !== undefined) {
     if (!isRecord(json.garmentFit))
       throw new Error('--assembly-experiment: garmentFit must be an object')
@@ -108,19 +123,26 @@ const validate = (json: unknown): AssemblyExperimentInput => {
 /**
  * Combine `--assembly-experiment <json>` and `--garment-fit a,b` (sugar for
  * `{garmentFit: {a: true, b: true}}`). The sugar wins on a per-flag conflict.
- * `--part-count` must agree with any explicit JSON partCount.
+ * `--part-count` and `--split-head-body` must agree with their explicit JSON values.
  * Returns undefined when no input is given so the request stays byte-identical.
  */
 export const buildAssemblyExperiment = ({
   json,
   garmentFit,
   partCount,
+  headBodyFirst,
 }: {
   json?: unknown
   garmentFit?: string
   partCount?: string
+  headBodyFirst?: string
 }): AssemblyExperimentInput | undefined => {
-  if (json === undefined && garmentFit === undefined && partCount === undefined)
+  if (
+    json === undefined &&
+    garmentFit === undefined &&
+    partCount === undefined &&
+    headBodyFirst === undefined
+  )
     return undefined
   const base = json === undefined ? {} : validate(json)
   if (partCount !== undefined) {
@@ -133,6 +155,16 @@ export const buildAssemblyExperiment = ({
         '--part-count conflicts with --assembly-experiment partCount',
       )
     base.partCount = partCount as (typeof PART_COUNT_VALUES)[number]
+  }
+  if (headBodyFirst !== undefined) {
+    if (headBodyFirst !== 'true' && headBodyFirst !== 'false')
+      throw new Error('--split-head-body must be true or false')
+    const value = headBodyFirst === 'true'
+    if (base.headBodyFirst !== undefined && base.headBodyFirst !== value)
+      throw new Error(
+        '--split-head-body conflicts with --assembly-experiment headBodyFirst',
+      )
+    base.headBodyFirst = value
   }
   if (garmentFit === undefined) return base
   const names = garmentFit

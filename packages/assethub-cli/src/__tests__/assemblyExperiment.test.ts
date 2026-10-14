@@ -3,6 +3,25 @@ import {describe, expect, it} from 'vitest'
 import {buildAssemblyExperiment} from '../assemblyExperiment.js'
 
 describe('buildAssemblyExperiment', () => {
+  // @testdoc Split-head-body switch preserves both booleans and merges with agreeing V5 JSON.
+  it.each([true, false])('accepts split-head-body=%s', value => {
+    const headBodyFirst = String(value)
+    const json = {v5Assembler: true, v5Start: 'placement', headBodyFirst: value}
+    expect(buildAssemblyExperiment({headBodyFirst})).toEqual({headBodyFirst: value})
+    expect(buildAssemblyExperiment({json, headBodyFirst})).toEqual(json)
+    expect(buildAssemblyExperiment({json})).toEqual(json)
+  })
+
+  // @testdoc Invalid shorthand and conflicts in either direction fail before dispatch.
+  it.each([
+    [{headBodyFirst: 'yes'}, '--split-head-body must be true or false'],
+    [{headBodyFirst: ''}, '--split-head-body must be true or false'],
+    [{headBodyFirst: 'true', json: {headBodyFirst: false}}, '--split-head-body conflicts with --assembly-experiment headBodyFirst'],
+    [{headBodyFirst: 'false', json: {headBodyFirst: true}}, '--split-head-body conflicts with --assembly-experiment headBodyFirst'],
+  ] as const)('rejects invalid split-head-body input %j', (input, message) => {
+    expect(() => buildAssemblyExperiment(input)).toThrow(message)
+  })
+
   it('returns undefined when neither input is given', () => {
     expect(buildAssemblyExperiment({})).toBeUndefined()
   })
@@ -73,6 +92,7 @@ describe('buildAssemblyExperiment', () => {
     ['unknown model role', {json: {models: {judge: 'x'}}}, /judge/],
     ['empty model id', {json: {models: {planner: ''}}}, /planner/],
     ['unknown v5Start value', {json: {v5Start: 'both'}}, /v5Start/],
+    ['non-boolean headBodyFirst', {json: {headBodyFirst: 'true'}}, /headBodyFirst/],
     ['non-boolean v5Assembler', {json: {v5Assembler: 'yes'}}, /v5Assembler/],
     ['unknown --garment-fit name', {garmentFit: 'wearGraph,bogus'}, /bogus/],
     ['empty --garment-fit', {garmentFit: ' , '}, /garment-fit/],

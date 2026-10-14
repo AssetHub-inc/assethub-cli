@@ -547,7 +547,7 @@ Usage:
   assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
   assethub jobs get <job-id> [--download --out-dir <dir>]
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
-  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--assembly-experiment <json|@file>] [--garment-fit <flag,flag>] [--name <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--split-head-body] [--assembly-experiment <json|@file>] [--garment-fit <flag,flag>] [--name <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
     Production graph options: --pipeline-depth parts|mesh|composition [--assembly-policy concept-to-character-v1] [--mesh-generation-json <json|@file>]
     V4 mesh options: [--mesh-quality low|high] [--mesh-model <model-id>...] (the run only uses these models; default low = meshGen.tripo_p2_preview)
   assethub production batch (--file <path>... | --files-dir <dir> | --source-id <id>... | --source-url <url>...) --part-extractor <name> [--repeat <n>] [--yes] [--canvas <id>] [--operation-id <uuid>] [--wait [--concurrency <n>]] [--download --out-dir <dir>]
@@ -563,8 +563,8 @@ Usage:
   assethub production interventions <order-id>
   assethub production resume <run-id|order-id> [--expected-resume-count <n>] [--wait] [--timeout-ms <ms>] [--download --out-dir <dir>]   (after a fix, pick a stopped or stalled graph run back up; no new charge)
   assethub runs upload <path> [--graph-id <id>] [--stream-id <id>] [--rev <n>] [--description <text>] [--tag <tag>...] [--skip-register] [--dry-run]
-  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
-  assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--part-count few|default|detailed] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
+  assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--split-head-body] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
+  assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--part-count few|default|detailed] [--split-head-body] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
@@ -5104,6 +5104,8 @@ const resolveProductionAssemblyExperiment = async (
 ) => {
   if (getFlagValues(ctx.flags, 'part-count').length > 1)
     throw new Error('--part-count must be specified once')
+  if (getFlagValues(ctx.flags, 'split-head-body').length > 1)
+    throw new Error('--split-head-body must be specified once')
   const assemblyExperimentJson = getFlag(ctx.flags, 'assembly-experiment')
   const assemblyExperiment = buildAssemblyExperiment({
     ...(assemblyExperimentJson === undefined
@@ -5116,6 +5118,7 @@ const resolveProductionAssemblyExperiment = async (
         }),
     garmentFit: getFlag(ctx.flags, 'garment-fit'),
     partCount: getFlag(ctx.flags, 'part-count'),
+    headBodyFirst: getFlag(ctx.flags, 'split-head-body'),
   })
   if (
     assemblyExperiment !== undefined &&
@@ -5123,8 +5126,10 @@ const resolveProductionAssemblyExperiment = async (
     agentVersion !== 'ah_agent_graph_harpy_assembly_v4_legacy'
   )
     throw new Error(
-      '--assembly-experiment, --garment-fit and --part-count require --part-extractor v4 or v5',
+      '--assembly-experiment, --garment-fit, --part-count and --split-head-body require --part-extractor v4 or v5',
     )
+  if (assemblyExperiment?.headBodyFirst === true && agentVersion !== 'ah_agent_graph_harpy_assembly_v2')
+    throw new Error('--split-head-body requires --part-extractor v5')
   return assemblyExperiment
 }
 
@@ -5600,9 +5605,9 @@ const commandParts = async (
     }
     if (
       orderId != null &&
-      ['part-count', 'assembly-experiment', 'garment-fit'].some(flag => hasFlag(ctx.flags, flag))
+      ['part-count', 'split-head-body', 'assembly-experiment', 'garment-fit'].some(flag => hasFlag(ctx.flags, flag))
     )
-      throw new Error('--assembly-experiment, --garment-fit and --part-count can only be set when starting a new production run')
+      throw new Error('--assembly-experiment, --garment-fit, --part-count and --split-head-body can only be set when starting a new production run')
     const assemblyExperiment = orderId == null
       ? await resolveProductionAssemblyExperiment(ctx, requestedAgentVersion!)
       : undefined
@@ -8364,11 +8369,11 @@ const run = async (): Promise<void> => {
     return
   }
   if (
-    ['part-count', 'assembly-experiment', 'garment-fit'].some(flag => hasFlag(parsed.flags, flag)) &&
+    ['part-count', 'split-head-body', 'assembly-experiment', 'garment-fit'].some(flag => hasFlag(parsed.flags, flag)) &&
     !((command === 'production' && ['analyze', 'batch'].includes(subcommand ?? '')) ||
       (command === 'parts' && ['split', 'compare'].includes(subcommand ?? '')))
   )
-    throw new Error('--assembly-experiment, --garment-fit and --part-count are supported by production analyze/batch and parts split/compare only')
+    throw new Error('--assembly-experiment, --garment-fit, --part-count and --split-head-body are supported by production analyze/batch and parts split/compare only')
   if (command === 'doctor') {
     stderr.write('Checking AssetHub connection…\n')
     const diagnosed = await diagnose({
