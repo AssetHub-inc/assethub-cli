@@ -172,6 +172,52 @@ describe('production batch', () => {
     expect(posted).toHaveLength(6)
   })
 
+  // @testdoc Split-head-body switch merges with V5 JSON on analyze, batch, split and compare.
+  it.each([
+    {flags: ['--split-head-body'], headBodyFirst: true},
+    {flags: ['--split-head-body', 'true'], headBodyFirst: true},
+    {flags: ['--split-head-body', 'false'], headBodyFirst: false},
+  ])('forwards split-head-body $headBodyFirst with V5 switches', async ({flags, headBodyFirst}) => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    for (const command of [['production', 'analyze'], ['production', 'batch', '--yes'], ['parts', 'split'], ['parts', 'compare']]) {
+      const result = await cli(baseUrl, dir, [
+        ...command, '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v5',
+        ...flags, '--assembly-experiment', '{"v5Assembler":true,"v5Start":"placement"}',
+      ])
+      expect(result.code, result.stderr).toBe(0)
+      expect(posted.at(-1)?.body.assemblyExperiment).toEqual({headBodyFirst, v5Assembler: true, v5Start: 'placement'})
+    }
+    expect(posted).toHaveLength(4)
+  })
+
+  // @testdoc Invalid, repeated and conflicting split-head-body flags fail without any paid dispatch.
+  it.each([
+    {flags: ['--split-head-body', '--split-head-body'], message: '--split-head-body must be specified once'},
+    {flags: ['--split-head-body', 'yes'], message: '--split-head-body must be true or false'},
+    {flags: ['--split-head-body', 'true', '--split-head-body', 'false'], message: '--split-head-body must be specified once'},
+    {flags: ['--split-head-body', 'true', '--assembly-experiment', '{"headBodyFirst":false}'], message: '--split-head-body conflicts with --assembly-experiment headBodyFirst'},
+  ])('rejects split-head-body input $flags', async ({flags, message}) => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    for (const command of [['production', 'analyze'], ['production', 'batch', '--yes'], ['parts', 'split'], ['parts', 'compare']]) {
+      const result = await cli(baseUrl, dir, [...command, '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v4', ...flags])
+      expect(result.code).not.toBe(0)
+      expect(result.json.error.message).toBe(message)
+    }
+    expect(posted).toHaveLength(0)
+  })
+
+  // @testdoc V4 rejects head/body-first from the switch or JSON before any paid dispatch.
+  it.each([['--split-head-body'], ['--assembly-experiment', '{"headBodyFirst":true}']])('rejects head/body-first on V4 via %s', async (...flags) => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v4', ...flags])
+    expect(result.code).not.toBe(0)
+    expect(result.json.error.message).toBe('--split-head-body requires --part-extractor v5')
+    expect(posted).toHaveLength(0)
+  })
+
   // @testdoc Invalid, repeated, conflicting and incompatible part-count flags fail without any paid dispatch.
   it.each([
     ['production', 'analyze', '--part-extractor', 'v4', '--part-count', 'lots'],
@@ -194,6 +240,7 @@ describe('production batch', () => {
   // @testdoc Every assembly flag fails before any HTTP request when the command or an existing order cannot apply it.
   it.each([
     {flag: '--part-count', value: 'few'},
+    {flag: '--split-head-body', value: 'true'},
     {flag: '--assembly-experiment', value: '{"partCount":"few"}'},
     {flag: '--garment-fit', value: 'wearGraph'},
   ])('refuses ignored $flag on unsupported entry points', async ({flag, value}) => {

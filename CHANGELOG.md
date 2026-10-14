@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Character Assembly accepts `--split-head-body` (or explicit `true|false`) on `production analyze`, `production batch`, and new `parts split` / `parts compare` runs. It must agree with `--assembly-experiment` JSON `headBodyFirst`; enabling it requires `--part-extractor v5`. Invalid, repeated, conflicting and incompatible selections fail before paid dispatch. Requires server-side head/body-first access (assethub-web #8608); ports the web CLI change (assethub-web #8647).
+
 ## CLI 0.1.52 · SDK 0.1.20
 
 - V4/V5 Character Assembly accepts `--part-count few|default|detailed` on `production analyze`, `production batch`, and new V4/V5 `parts split` / `parts compare` runs. Few targets 3–4 groups, Standard (`default`) 5–6, Detailed 8–12, including the base body; these are planner targets, not exact output guarantees. Invalid, repeated, conflicting and incompatible selections fail before paid dispatch. Omission preserves existing behavior.
