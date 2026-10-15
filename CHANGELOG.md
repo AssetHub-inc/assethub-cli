@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.53
+
+- `production resume` now explains the Internal-only endpoint when public accounts receive `NOT_FOUND: No such endpoint`. The original error code is retained and the command does not retry or start another run.
+- Help and recovery documentation no longer promise a free restart. Resume has no new start fee; new generation uses credits, and settled V5 reservations cannot fund another attempt.
+
 ## CLI 0.1.52 · SDK 0.1.20
 
 - V4/V5 Character Assembly accepts `--part-count few|default|detailed` on `production analyze`, `production batch`, and new V4/V5 `parts split` / `parts compare` runs. Few targets 3–4 groups, Standard (`default`) 5–6, Detailed 8–12, including the base body; these are planner targets, not exact output guarantees. Invalid, repeated, conflicting and incompatible selections fail before paid dispatch. Omission preserves existing behavior.

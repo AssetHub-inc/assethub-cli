@@ -445,12 +445,17 @@ assethub runs get <run-id> --download --out-dir ./character  # save the assemble
 A finished run keeps its `progress`. A failed one also carries
 `error.code: CHARACTER_ASSEMBLY_NOT_ACCEPTED` with the reason it stopped.
 
-Pick a stopped run back up (no new charge) with its run ID; `--wait`
+Pick a stopped run back up (internal, no new start fee; new generation uses credits) with its run ID; `--wait`
 follows the same run until the resumed attempt finishes:
 
 ```sh
 assethub production resume <run-id> --wait --download --out-dir ./character
 ```
+
+This endpoint is currently Internal-only. Public accounts receive `NOT_FOUND` /
+`No such endpoint`; contact support with the run or order ID to check recovery.
+The command does not grant a free restart: V5 provider work requires the original
+credit reservation to remain pending. A settled run cannot use that reservation again.
 
 `runs get <run-id>` then reads it as `running` again, and its result is replaced
 by the resumed run's own when it finishes. An order ID still works without

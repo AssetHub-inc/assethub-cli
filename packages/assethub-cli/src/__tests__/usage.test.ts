@@ -45,6 +45,9 @@ describe('CLI usage / --help', () => {
     expect(usage).toContain(
       'assethub production resume <run-id|order-id> [--expected-resume-count <n>] [--wait]',
     )
+    expect(usage).toContain('internal: after a fix')
+    expect(usage).toContain('no new start fee; new generation uses credits')
+    expect(usage).not.toContain('no new charge')
   })
 
   // --dry-run is documented alongside the command rather than buried in a

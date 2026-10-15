@@ -81,7 +81,7 @@ const progress = (partsReady: number) => ({
 })
 
 const resumes: string[] = []
-const serve = async (responses: unknown[]) => {
+const serve = async (responses: unknown[], resumeError?: {code: string; message: string}) => {
   resumes.length = 0
   const stateDir = await mkdtemp(join(tmpdir(), 'assethub-runs-progress-cli-'))
   let reads = 0
@@ -123,6 +123,11 @@ const serve = async (responses: unknown[]) => {
       req.url === '/api/v2/production/order-1/resume'
     ) {
       resumes.push('order-1')
+      if (resumeError) {
+        res.writeHead(404, {'content-type': 'application/json'})
+        res.end(JSON.stringify({success: false, error: resumeError}))
+        return
+      }
       res.writeHead(200, {'content-type': 'application/json'})
       res.end(
         JSON.stringify({
@@ -290,4 +295,27 @@ test('production resume <order-id> still resumes when the run lookup is refused'
   expect(JSON.parse(result.stdout)).toMatchObject({
     orderId: 'order-no-run-access',
   })
+})
+
+// @testdoc A hidden resume endpoint explains the Internal restriction, retains the API error code, and makes only one resume request.
+test('production resume explains an endpoint hidden from a public actor', async () => {
+  const {baseUrl, stateDir} = await serve([run('failed')], {
+    code: 'NOT_FOUND', message: 'No such endpoint',
+  })
+  await expect(cli(baseUrl, stateDir, ['production', 'resume', 'run-1'])).rejects.toMatchObject({
+    stderr: expect.stringContaining('production resume is currently Internal-only'),
+    stdout: expect.stringContaining('"code": "NOT_FOUND"'),
+  })
+  expect(resumes).toEqual(['order-1'])
+})
+
+// @testdoc A missing owned production keeps its resource error instead of being misreported as an Internal restriction.
+test('production resume preserves an ordinary resource-not-found error', async () => {
+  const {baseUrl, stateDir} = await serve([run('failed')], {
+    code: 'NOT_FOUND', message: 'Production graph not found',
+  })
+  await expect(cli(baseUrl, stateDir, ['production', 'resume', 'run-1'])).rejects.toMatchObject({
+    stderr: expect.stringContaining('Production graph not found'),
+  })
+  expect(resumes).toEqual(['order-1'])
 })
