@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.54
+
+- Recognize the complete production unknown-endpoint response, including its OpenAPI help URL, when explaining Internal-only production resume.
+
 ## CLI 0.1.53
 
 - `production resume` now explains the Internal-only endpoint when public accounts receive `NOT_FOUND: No such endpoint`. The original error code is retained and the command does not retry or start another run.

@@ -298,9 +298,9 @@ test('production resume <order-id> still resumes when the run lookup is refused'
 })
 
 // @testdoc A hidden resume endpoint explains the Internal restriction, retains the API error code, and makes only one resume request.
-test('production resume explains an endpoint hidden from a public actor', async () => {
+test.each(['No such endpoint', 'No such endpoint. See https://app.assethub.io/api/v2/openapi.json for the available operations.'])('production resume explains the hidden endpoint response: %s', async message => {
   const {baseUrl, stateDir} = await serve([run('failed')], {
-    code: 'NOT_FOUND', message: 'No such endpoint',
+    code: 'NOT_FOUND', message,
   })
   await expect(cli(baseUrl, stateDir, ['production', 'resume', 'run-1'])).rejects.toMatchObject({
     stderr: expect.stringContaining('production resume is currently Internal-only'),

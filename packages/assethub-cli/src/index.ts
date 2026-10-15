@@ -5443,7 +5443,7 @@ const commandProduction = async (
         error instanceof AssetHubApiError &&
         error.status === 404 &&
         error.code === 'NOT_FOUND' &&
-        error.message === 'No such endpoint'
+        error.message.startsWith('No such endpoint')
       ) {
         error.message = 'production resume is currently Internal-only. Contact AssetHub support with the run or order ID to check recovery. No resume was performed.'
       }
