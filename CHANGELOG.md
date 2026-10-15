@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## CLI 0.1.53
 
 - `production resume` now explains the Internal-only endpoint when public accounts receive `NOT_FOUND: No such endpoint`. The original error code is retained and the command does not retry or start another run.
 - Help and recovery documentation no longer promise a free restart. Resume has no new start fee; new generation uses credits, and settled V5 reservations cannot fund another attempt.
