@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.55
+
+- Publish production resume for authenticated workspace users alongside the server rollout.
+- Remove the Internal-only help and preserve the server's actual error and credit eligibility response.
+
 ## CLI 0.1.54
 
 - Recognize the complete production unknown-endpoint response, including its OpenAPI help URL, when explaining Internal-only production resume.
