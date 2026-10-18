@@ -182,6 +182,16 @@ describe('production batch', () => {
     expect(posted[0]?.body.assemblyExperiment).toEqual({partImageModel})
   })
 
+  // @testdoc The public V5.3 alias forwards its explicit Pro pin and part count; arbitrary internal IDs remain rejected.
+  it('forwards V5.3 model selection through the public alias', async () => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v5.3', '--part-count', 'few', '--assembly-experiment', JSON.stringify({partImageModel: 'google/gemini-3-pro-image'})])
+    expect(result.code, result.stderr).toBe(0)
+    expect(posted).toHaveLength(1)
+    expect(posted[0]?.body).toMatchObject({agentVersion: 'ah_agent_graph_harpy_assembly_v5_3', assemblyExperiment: {partImageModel: 'google/gemini-3-pro-image', partCount: 'few'}})
+  })
+
   // @testdoc Invalid, repeated, conflicting and incompatible part-count flags fail without any paid dispatch.
   it.each([
     ['production', 'analyze', '--part-extractor', 'v4', '--part-count', 'lots'],

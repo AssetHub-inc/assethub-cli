@@ -409,6 +409,11 @@ const partExtractorOptions = [
     apiValue: 'ah_agent_graph_harpy_assembly_v2',
     aliases: ['v5', '5', 'v5 character assembly'],
   },
+  {
+    publicName: 'V5.3 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_3',
+    aliases: ['v5.3', '5.3', 'v5.3 character assembly'],
+  },
 ] as const satisfies readonly PartExtractorOption[]
 
 // A V4 Character Assembly run (image → parts → meshes → assembled character) takes
@@ -2885,7 +2890,8 @@ const defaultWaitMs = (flags: Flags): number => {
       ? undefined
       : partExtractorByInput.get(normalizePartExtractorName(extractor))
   return option?.apiValue === 'ah_agent_graph_harpy_assembly_v2' ||
-    option?.apiValue === 'ah_agent_graph_harpy_assembly_v4_legacy'
+    option?.apiValue === 'ah_agent_graph_harpy_assembly_v4_legacy' ||
+    option?.apiValue === 'ah_agent_graph_harpy_assembly_v5_3'
     ? harpyAssemblyV2WaitMs
     : 900000
 }
@@ -5152,10 +5158,11 @@ const resolveProductionAssemblyExperiment = async (
   if (
     assemblyExperiment !== undefined &&
     agentVersion !== 'ah_agent_graph_harpy_assembly_v2' &&
-    agentVersion !== 'ah_agent_graph_harpy_assembly_v4_legacy'
+    agentVersion !== 'ah_agent_graph_harpy_assembly_v4_legacy' &&
+    agentVersion !== 'ah_agent_graph_harpy_assembly_v5_3'
   )
     throw new Error(
-      '--assembly-experiment, --garment-fit and --part-count require --part-extractor v4 or v5',
+      '--assembly-experiment, --garment-fit and --part-count require --part-extractor v4, v5 or v5.3',
     )
   return assemblyExperiment
 }
