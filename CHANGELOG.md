@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.57
+
+- Accept the existing production `partImageModel` pin and replace retired Nano Banana Pro pins with GPT Image 2.5 Sunburst before dispatch. Server authorization, pricing, operation IDs and recovery remain authoritative.
+
 ## CLI 0.1.56
 
 - Add Internal model routing, server-discovered preset adoption, role-specific model changes, dry-run and rollback using the existing production API and revision checks.

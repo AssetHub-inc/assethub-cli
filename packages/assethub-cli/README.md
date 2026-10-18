@@ -485,7 +485,11 @@ assethub production analyze --file ./concept.png --part-extractor v5 --part-coun
 Internal actors can also supply `--assembly-experiment <json|@file>` to preserve
 V5 switches such as `v5Assembler` and `v5Start` (`placement` or `fit`). The JSON
 accepts known garment-fit flags and model roles; `--garment-fit a,b` enables known
-flags and merges them into that JSON. Unknown keys are rejected client-side.
+flags and merges them into that JSON. Unknown keys are rejected client-side. The existing
+`partImageModel` pin accepts `openai/gpt-image-2.5-sunburst` or
+`google/gemini-3.1-flash-image`. Saved `google/gemini-3-pro-image` and
+`-preview` pins are replaced with GPT Image 2.5 Sunburst before dispatch.
+Nano Banana Pro is retired; the server enforces the replacement's access and pricing.
 
 V4 actors with the mesh-quality rollout (internal and named V4 testers) can choose the
 mesh quality and the models the run may use, like the canvas start card. The whole run

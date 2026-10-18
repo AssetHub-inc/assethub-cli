@@ -21,8 +21,11 @@ export const PART_COUNT_VALUES = ['few', 'default', 'detailed'] as const
 
 export const V5_START_VALUES = ['placement', 'fit'] as const
 
+export const PART_IMAGE_MODELS = ['google/gemini-3.1-flash-image', 'openai/gpt-image-2.5-sunburst'] as const
+
 export type AssemblyExperimentInput = {
   partCount?: (typeof PART_COUNT_VALUES)[number]
+  partImageModel?: (typeof PART_IMAGE_MODELS)[number]
   v5Assembler?: boolean
   v5Start?: (typeof V5_START_VALUES)[number]
   garmentFit?: Partial<Record<(typeof GARMENT_FIT_FLAGS)[number], boolean>>
@@ -49,7 +52,7 @@ const validate = (json: unknown): AssemblyExperimentInput => {
     throw new Error('--assembly-experiment must be a JSON object')
   assertKeys(
     json,
-    ['garmentFit', 'models', 'v5Assembler', 'v5Start', 'partCount'],
+    ['garmentFit', 'models', 'v5Assembler', 'v5Start', 'partCount', 'partImageModel'],
     'the root object',
   )
   const out: AssemblyExperimentInput = {}
@@ -101,6 +104,14 @@ const validate = (json: unknown): AssemblyExperimentInput => {
         `--assembly-experiment: partCount must be one of ${PART_COUNT_VALUES.join(', ')}`,
       )
     out.partCount = json.partCount as (typeof PART_COUNT_VALUES)[number]
+  }
+  if (json.partImageModel !== undefined) {
+    const model = typeof json.partImageModel === 'string' && /^google\/gemini-3(?:\.0)?-pro-image(?:-preview)?$/.test(json.partImageModel)
+      ? 'openai/gpt-image-2.5-sunburst'
+      : json.partImageModel
+    if (typeof model !== 'string' || !(PART_IMAGE_MODELS as readonly string[]).includes(model))
+      throw new Error(`--assembly-experiment: partImageModel must be one of ${PART_IMAGE_MODELS.join(', ')}`)
+    out.partImageModel = model as (typeof PART_IMAGE_MODELS)[number]
   }
   return out
 }

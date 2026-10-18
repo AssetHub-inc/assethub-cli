@@ -12,6 +12,21 @@ describe('buildAssemblyExperiment', () => {
     expect(buildAssemblyExperiment({json})).toEqual(json)
   })
 
+  // @testdoc Saved Pro pins normalize to GPT Image 2.5 before a remote request; the input remains immutable.
+  it.each(['google/gemini-3-pro-image', 'google/gemini-3-pro-image-preview', 'google/gemini-3.0-pro-image'])('replaces retired %s', partImageModel => {
+    const json = {partImageModel, v5Assembler: true}
+    expect(buildAssemblyExperiment({json})).toEqual({partImageModel: 'openai/gpt-image-2.5-sunburst', v5Assembler: true})
+    expect(json.partImageModel).toBe(partImageModel)
+  })
+
+  // @testdoc Supported existing pins survive validation; unknown providers fail locally before paid dispatch.
+  it.each(['google/gemini-3.1-flash-image', 'openai/gpt-image-2.5-sunburst'])('preserves supported %s', partImageModel => {
+    expect(buildAssemblyExperiment({json: {partImageModel}})).toEqual({partImageModel})
+  })
+  it.each(['unpriced/model', '', 42])('rejects unsupported partImageModel %s', partImageModel => {
+    expect(() => buildAssemblyExperiment({json: {partImageModel}})).toThrow('partImageModel must be one of')
+  })
+
   it('accepts depthGate in JSON and in the --garment-fit csv', () => {
     expect(buildAssemblyExperiment({json: {garmentFit: {depthGate: true}}})).toEqual({
       garmentFit: {depthGate: true},
