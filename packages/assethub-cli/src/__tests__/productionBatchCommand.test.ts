@@ -172,6 +172,16 @@ describe('production batch', () => {
     expect(posted).toHaveLength(6)
   })
 
+  // @testdoc Production commands send the normalized GPT pin exactly once and preserve server-owned authorization/billing.
+  it.each(['google/gemini-3-pro-image', 'google/gemini-3-pro-image-preview'])('sends the GPT replacement for retired %s', async partImageModel => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v5', '--assembly-experiment', JSON.stringify({partImageModel})])
+    expect(result.code, result.stderr).toBe(0)
+    expect(posted).toHaveLength(1)
+    expect(posted[0]?.body.assemblyExperiment).toEqual({partImageModel: 'openai/gpt-image-2.5-sunburst'})
+  })
+
   // @testdoc Invalid, repeated, conflicting and incompatible part-count flags fail without any paid dispatch.
   it.each([
     ['production', 'analyze', '--part-extractor', 'v4', '--part-count', 'lots'],
