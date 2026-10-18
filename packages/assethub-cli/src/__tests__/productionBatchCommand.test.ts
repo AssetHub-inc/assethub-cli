@@ -172,14 +172,24 @@ describe('production batch', () => {
     expect(posted).toHaveLength(6)
   })
 
-  // @testdoc Production commands send the normalized GPT pin exactly once and preserve server-owned authorization/billing.
-  it.each(['google/gemini-3-pro-image', 'google/gemini-3-pro-image-preview'])('sends the GPT replacement for retired %s', async partImageModel => {
+  // @testdoc Production commands send the explicit Pro pin exactly once and preserve server-owned authorization/billing.
+  it.each(['google/gemini-3-pro-image'])('sends the explicit %s', async partImageModel => {
     const dir = await tempDir()
     const {baseUrl, posted} = await startServer()
     const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v5', '--assembly-experiment', JSON.stringify({partImageModel})])
     expect(result.code, result.stderr).toBe(0)
     expect(posted).toHaveLength(1)
-    expect(posted[0]?.body.assemblyExperiment).toEqual({partImageModel: 'openai/gpt-image-2.5-sunburst'})
+    expect(posted[0]?.body.assemblyExperiment).toEqual({partImageModel})
+  })
+
+  // @testdoc The public V5.3 alias forwards its explicit Pro pin and part count; arbitrary internal IDs remain rejected.
+  it('forwards V5.3 model selection through the public alias', async () => {
+    const dir = await tempDir()
+    const {baseUrl, posted} = await startServer()
+    const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v5.3', '--part-count', 'few', '--assembly-experiment', JSON.stringify({partImageModel: 'google/gemini-3-pro-image', pipelineHarness: true, headBodyFirst: false})])
+    expect(result.code, result.stderr).toBe(0)
+    expect(posted).toHaveLength(1)
+    expect(posted[0]?.body).toMatchObject({agentVersion: 'ah_agent_graph_harpy_assembly_v5_3', assemblyExperiment: {partImageModel: 'google/gemini-3-pro-image', partCount: 'few', pipelineHarness: true, headBodyFirst: false}})
   })
 
   // @testdoc Invalid, repeated, conflicting and incompatible part-count flags fail without any paid dispatch.

@@ -295,6 +295,7 @@ describe('built recorded CLI', () => {
     ['Chibi Character (Pluffy) v3.1', 'ah_agent_graph_pluffy_v3_1', 'Chibi Character (Pluffy) v3.1', ['pluffy', 'pluffy v3.1', 'pluffy 3.1']],
     ['V3.7 Artist Skills', 'ah_agent_graph_v3_7', 'V3.7 Artist Skills', ['v3.7', '3.7', 'V3.0.7 Artist Skills', '3.0.7']],
     ['Humanoid Assembly', 'ah_agent_graph_humanoid_assembly_auto', 'Humanoid Assembly', ['Humanoid Assembly (internal)', 'humanoid-assembly', 'humanoid_assembly_auto']],
+    ['V5.3 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_3', 'V5.3 Character Assembly', ['v5.3', '5.3', 'v5.3 character assembly']],
     ['V5 Character Assembly', 'ah_agent_graph_harpy_assembly_v2', 'V5 Character Assembly', ['v5', '5', 'v5 character assembly']],
     ['V4 Character Assembly', 'ah_agent_graph_harpy_assembly_v4_legacy', 'V4 Character Assembly', ['v4', '4', 'v4 character assembly', 'character assembly']],
   ] as const)('splits and replays %s graphs', async (name, apiValue, label, aliases) => {

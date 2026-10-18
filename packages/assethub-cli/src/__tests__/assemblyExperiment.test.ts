@@ -12,10 +12,10 @@ describe('buildAssemblyExperiment', () => {
     expect(buildAssemblyExperiment({json})).toEqual(json)
   })
 
-  // @testdoc Saved Pro pins normalize to GPT Image 2.5 before a remote request; the input remains immutable.
-  it.each(['google/gemini-3-pro-image', 'google/gemini-3-pro-image-preview', 'google/gemini-3.0-pro-image'])('replaces retired %s', partImageModel => {
+  // @testdoc Explicit Pro pins remain unchanged before a remote request; unknown models fail locally.
+  it.each(['google/gemini-3-pro-image'])('preserves explicit %s', partImageModel => {
     const json = {partImageModel, v5Assembler: true}
-    expect(buildAssemblyExperiment({json})).toEqual({partImageModel: 'openai/gpt-image-2.5-sunburst', v5Assembler: true})
+    expect(buildAssemblyExperiment({json})).toEqual({partImageModel, v5Assembler: true})
     expect(json.partImageModel).toBe(partImageModel)
   })
 
@@ -94,4 +94,10 @@ describe('buildAssemblyExperiment', () => {
   ])('rejects %s', (_name, input, message) => {
     expect(() => buildAssemblyExperiment(input as never)).toThrow(message)
   })
+})
+
+// @testdoc Existing V5.3 containment booleans remain explicit and fail locally for non-booleans.
+it.each(['pipelineHarness', 'headBodyFirst'])('preserves %s containment controls', key => {
+  for (const value of [false, true]) expect(buildAssemblyExperiment({json: {[key]: value}})).toEqual({[key]: value})
+  expect(() => buildAssemblyExperiment({json: {[key]: 'true'}})).toThrow()
 })

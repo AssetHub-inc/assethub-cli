@@ -21,9 +21,15 @@ export const PART_COUNT_VALUES = ['few', 'default', 'detailed'] as const
 
 export const V5_START_VALUES = ['placement', 'fit'] as const
 
-export const PART_IMAGE_MODELS = ['google/gemini-3.1-flash-image', 'openai/gpt-image-2.5-sunburst'] as const
+export const PART_IMAGE_MODELS = [
+  'google/gemini-3-pro-image',
+  'google/gemini-3.1-flash-image',
+  'openai/gpt-image-2.5-sunburst',
+] as const
 
 export type AssemblyExperimentInput = {
+  pipelineHarness?: boolean
+  headBodyFirst?: boolean
   partCount?: (typeof PART_COUNT_VALUES)[number]
   partImageModel?: (typeof PART_IMAGE_MODELS)[number]
   v5Assembler?: boolean
@@ -52,7 +58,7 @@ const validate = (json: unknown): AssemblyExperimentInput => {
     throw new Error('--assembly-experiment must be a JSON object')
   assertKeys(
     json,
-    ['garmentFit', 'models', 'v5Assembler', 'v5Start', 'partCount', 'partImageModel'],
+    ['garmentFit', 'models', 'v5Assembler', 'v5Start', 'partCount', 'partImageModel', 'pipelineHarness', 'headBodyFirst'],
     'the root object',
   )
   const out: AssemblyExperimentInput = {}
@@ -105,10 +111,15 @@ const validate = (json: unknown): AssemblyExperimentInput => {
       )
     out.partCount = json.partCount as (typeof PART_COUNT_VALUES)[number]
   }
+  for (const key of ['pipelineHarness', 'headBodyFirst'] as const) {
+    if (json[key] !== undefined) {
+      if (typeof json[key] !== 'boolean')
+        throw new Error(`--assembly-experiment: ${key} must be true or false`)
+      out[key] = json[key]
+    }
+  }
   if (json.partImageModel !== undefined) {
-    const model = typeof json.partImageModel === 'string' && /^google\/gemini-3(?:\.0)?-pro-image(?:-preview)?$/.test(json.partImageModel)
-      ? 'openai/gpt-image-2.5-sunburst'
-      : json.partImageModel
+    const model = json.partImageModel
     if (typeof model !== 'string' || !(PART_IMAGE_MODELS as readonly string[]).includes(model))
       throw new Error(`--assembly-experiment: partImageModel must be one of ${PART_IMAGE_MODELS.join(', ')}`)
     out.partImageModel = model as (typeof PART_IMAGE_MODELS)[number]

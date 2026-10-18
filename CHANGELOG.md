@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.58
+
+- Add the existing public V5.3 Character Assembly alias (`--part-extractor v5.3`) with assembly model pins, part counts, and the existing `pipelineHarness` / `headBodyFirst` boolean controls.
+- Preserve explicit Nano Banana Pro assembly model selections. Unknown models still fail before dispatch; server defaults, provider policy and billing remain authoritative.
+
 ## CLI 0.1.57
 
 - Accept the existing production `partImageModel` pin and replace retired Nano Banana Pro pins with GPT Image 2.5 Sunburst before dispatch. Server authorization, pricing, operation IDs and recovery remain authoritative.
