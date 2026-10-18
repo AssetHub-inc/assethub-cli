@@ -2235,9 +2235,9 @@ const commandModels = async (
       id: subcommand === 'comparison' ? requirePositional(positionals, 2, 'id') : undefined,
       beforeSubmit: ({id, credits}) => stderr.write(`Comparison ${id}: ${credits} native credits total for two arms. Provider text/vision comparison; finished mesh quality is unverified. Reuse the same ID and input after an uncertain response.\n`),
     })
-    print(result)
     if (subcommand === 'compare' || subcommand === 'comparison')
       process.exitCode = routingComparisonExitCode(result)
+    print(result)
     return
   }
 
