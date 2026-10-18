@@ -95,3 +95,9 @@ describe('buildAssemblyExperiment', () => {
     expect(() => buildAssemblyExperiment(input as never)).toThrow(message)
   })
 })
+
+// @testdoc Existing V5.3 containment booleans remain explicit and fail locally for non-booleans.
+it.each(['pipelineHarness', 'headBodyFirst'])('preserves %s containment controls', key => {
+  for (const value of [false, true]) expect(buildAssemblyExperiment({json: {[key]: value}})).toEqual({[key]: value})
+  expect(() => buildAssemblyExperiment({json: {[key]: 'true'}})).toThrow()
+})

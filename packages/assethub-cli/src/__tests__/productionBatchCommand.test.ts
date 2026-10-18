@@ -186,10 +186,10 @@ describe('production batch', () => {
   it('forwards V5.3 model selection through the public alias', async () => {
     const dir = await tempDir()
     const {baseUrl, posted} = await startServer()
-    const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v5.3', '--part-count', 'few', '--assembly-experiment', JSON.stringify({partImageModel: 'google/gemini-3-pro-image'})])
+    const result = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', 'v5.3', '--part-count', 'few', '--assembly-experiment', JSON.stringify({partImageModel: 'google/gemini-3-pro-image', pipelineHarness: true, headBodyFirst: false})])
     expect(result.code, result.stderr).toBe(0)
     expect(posted).toHaveLength(1)
-    expect(posted[0]?.body).toMatchObject({agentVersion: 'ah_agent_graph_harpy_assembly_v5_3', assemblyExperiment: {partImageModel: 'google/gemini-3-pro-image', partCount: 'few'}})
+    expect(posted[0]?.body).toMatchObject({agentVersion: 'ah_agent_graph_harpy_assembly_v5_3', assemblyExperiment: {partImageModel: 'google/gemini-3-pro-image', partCount: 'few', pipelineHarness: true, headBodyFirst: false}})
   })
 
   // @testdoc Invalid, repeated, conflicting and incompatible part-count flags fail without any paid dispatch.

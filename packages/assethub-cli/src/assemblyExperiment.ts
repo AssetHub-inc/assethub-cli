@@ -28,6 +28,8 @@ export const PART_IMAGE_MODELS = [
 ] as const
 
 export type AssemblyExperimentInput = {
+  pipelineHarness?: boolean
+  headBodyFirst?: boolean
   partCount?: (typeof PART_COUNT_VALUES)[number]
   partImageModel?: (typeof PART_IMAGE_MODELS)[number]
   v5Assembler?: boolean
@@ -56,7 +58,7 @@ const validate = (json: unknown): AssemblyExperimentInput => {
     throw new Error('--assembly-experiment must be a JSON object')
   assertKeys(
     json,
-    ['garmentFit', 'models', 'v5Assembler', 'v5Start', 'partCount', 'partImageModel'],
+    ['garmentFit', 'models', 'v5Assembler', 'v5Start', 'partCount', 'partImageModel', 'pipelineHarness', 'headBodyFirst'],
     'the root object',
   )
   const out: AssemblyExperimentInput = {}
@@ -108,6 +110,13 @@ const validate = (json: unknown): AssemblyExperimentInput => {
         `--assembly-experiment: partCount must be one of ${PART_COUNT_VALUES.join(', ')}`,
       )
     out.partCount = json.partCount as (typeof PART_COUNT_VALUES)[number]
+  }
+  for (const key of ['pipelineHarness', 'headBodyFirst'] as const) {
+    if (json[key] !== undefined) {
+      if (typeof json[key] !== 'boolean')
+        throw new Error(`--assembly-experiment: ${key} must be true or false`)
+      out[key] = json[key]
+    }
   }
   if (json.partImageModel !== undefined) {
     const model = json.partImageModel
