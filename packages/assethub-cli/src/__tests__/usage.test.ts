@@ -2,6 +2,15 @@ import {describe, expect, it} from 'vitest'
 import {usage} from '../index.js'
 
 describe('CLI usage / --help', () => {
+  // @testdoc Routing changes have a preview and restore path, and comparison recovery preserves its original identity.
+  it('documents one-command model switching and comparison recovery', () => {
+    expect(usage).toContain('assethub models apply --preset <preset|legacy> [--dry-run]')
+    expect(usage).toContain('assethub models set <role> <model-id|default> [--dry-run]')
+    expect(usage).toContain('assethub models rollback [--dry-run]')
+    expect(usage).toContain('persist UUID id in input; reuse identical input to resume')
+    expect(usage).toContain('exit 0: both succeeded; 1: failed; 3: pending/uncertain')
+  })
+
   it('documents self-update', () => {
     expect(usage).toContain('assethub update [--check] [--dry-run] [--yes]')
   })

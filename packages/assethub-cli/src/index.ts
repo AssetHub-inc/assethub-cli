@@ -53,6 +53,7 @@ import {
   writeAutoUpdateSetting,
   writeUpdateCheck,
 } from './updateNotice.js'
+import {runModelRoutingCommand, routingComparisonExitCode} from './modelRouting.js'
 import {ingestProjectSources} from './projectSources.js'
 import {downloadCanvas} from './canvasDownload.js'
 import {downloadCanvasGraphZip} from './canvasGraphDownload.js'
@@ -496,6 +497,13 @@ Usage:
   assethub image generate --canvas <id> --context <id> [--context-version <n>] [--context-source <key>] [--moodboard-revision <uuid>] --prompt <text> --wait
   assethub models list [--domain <domain>] [--ids-only] [--limit <n>]
   assethub models get <model-id>
+  assethub models routing
+  assethub models apply --input-json <json|@file|@-> [--dry-run]
+  assethub models apply --preset <preset|legacy> [--dry-run]
+  assethub models set <role> <model-id|default> [--dry-run]
+  assethub models rollback [--dry-run]
+  assethub models compare --input-json <json|@file|@-> (persist UUID id in input; reuse identical input to resume)
+  assethub models comparison <id> (exit 0: both succeeded; 1: failed; 3: pending/uncertain)
   assethub files import <url> --media-type image|mesh
   assethub files upload <file> --media-type image|mesh
   assethub source create (--file <path> | --source-url <url> | --source-id <id> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) --media-type image|mesh [--file-name <name>] [--content-type <type>]
@@ -2210,7 +2218,31 @@ const commandModels = async (
     return
   }
 
-  throw new Error('Unknown models command. Use "models list" or "models get".')
+  if (subcommand && ['routing', 'apply', 'set', 'rollback', 'compare', 'comparison'].includes(subcommand)) {
+    if (hasFlag(ctx.flags, 'preset') && subcommand !== 'apply')
+      throw new Error('--preset is only supported for models apply')
+    const input = subcommand === 'compare' || (subcommand === 'apply' && hasFlag(ctx.flags, 'input-json'))
+      ? await readJsonArgument(requireFlag(ctx.flags, 'input-json'), '--input-json')
+      : undefined
+    const result = await runModelRoutingCommand({
+      client: ctx.client,
+      command: subcommand,
+      input,
+      preset: getFlag(ctx.flags, 'preset'),
+      role: subcommand === 'set' ? requirePositional(positionals, 2, 'role') : undefined,
+      model: subcommand === 'set' ? requirePositional(positionals, 3, 'model-id|default') : undefined,
+      dryRun: hasFlag(ctx.flags, 'dry-run'),
+      id: subcommand === 'comparison' ? requirePositional(positionals, 2, 'id') : undefined,
+      beforeSubmit: ({id, credits}) => stderr.write(`Comparison ${id}: ${credits} native credits total for two arms. Provider text/vision comparison; finished mesh quality is unverified. Reuse the same ID and input after an uncertain response.\n`),
+    })
+    print(result)
+    if (subcommand === 'compare' || subcommand === 'comparison')
+      process.exitCode = routingComparisonExitCode(result)
+    return
+  }
+
+  throw new Error('Unknown models command. Use models list|get|routing|apply|set|rollback|compare|comparison.')
+
 }
 
 const workspaceAuth = async (flags: Flags, allowPersonal = false) => {
