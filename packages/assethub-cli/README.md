@@ -1140,3 +1140,98 @@ and API credentials are not saved. Download failures retain the successful files
 and manifest and exit 1. Truncated exports exit 3. Individual files are limited to
 1 GiB, and bounded server traversal reports any omitted history. History warnings
 can remain even when all available files download successfully.
+
+### Internal product model routing
+
+Requires CLI 0.1.56+ and an actor admitted by `ai_model_routing_enabled`.
+This configuration is **shared across eligible Internal actors**, not scoped to
+one workspace. `--base-url` selects the API environment (production by default).
+It changes new operations only; active operations retain their frozen model pins.
+The public gate-off path retains its existing defaults.
+
+```sh
+# Read the production roles, live provider catalog, presets and revision.
+assethub models routing --base-url https://app.assethub.io > routing-before.json
+# Preview the exact revision-checked payload, without writing or generating.
+assethub models apply --preset deepseek --dry-run
+# One command adopts the server-owned DeepSeek editor / Gemini 4 judge preset.
+assethub models apply --preset deepseek
+# Change one role while preserving every other selection.
+assethub models set composer_v53_editor openai/gpt-6-astra
+# Return this role to its existing product default.
+assethub models set composer_v53_editor default
+# Restore the immediately previous profile, or clear all routing overrides.
+assethub models rollback
+assethub models apply --preset legacy
+```
+
+Apply and rollback use server compare-and-swap. A conflict is reported once;
+read the current configuration and decide again. An unchanged convenience
+selection does not write or replace rollback history. `rollback` restores one
+previous profile, not an arbitrary deployment history. Every actual intervening
+edit changes that previous profile. Keep `routing-before.json` when doing several
+edits. To restore that saved profile explicitly with a fresh revision:
+
+```sh
+assethub models routing > routing-current.json
+jq -n --slurpfile before routing-before.json --slurpfile current routing-current.json \
+  '{expectedRevision:$current[0].state.revision,models:$before[0].state.models}' > restore.json
+assethub models apply --input-json @restore.json
+```
+
+Model IDs, role capabilities and presets come from the server; no model list is
+bundled into the CLI. `models routing` also returns native two-arm credit totals.
+`--dry-run` previews an apply/set/rollback payload; server capability validation
+occurs on actual apply. Config changes do not run or charge a generation. The shared SDK can wait and
+reissue a pre-admission HTTP 429 up to five times (at most six wire attempts);
+this does not replay accepted provider work. An
+uncertain write is not retried: read `models routing` and reconcile its revision
+and model map before another mutation. Readback sees committed configuration;
+worker process caches can take up to five seconds to adopt it for new operations.
+
+For development and CI, save a comparison UUID in the input file **before**
+submitting it. Pin the same prompt, original owned image asset IDs, baseline
+model and candidate model; retain that file and every receipt, including failure.
+An input file has this shape (replace placeholders before submission):
+
+```json
+{
+  "id": "<persisted UUID>",
+  "role": "analysis",
+  "baselineModel": "openai/gpt-6-astra",
+  "candidateModel": "deepseek/deepseek-v4.1-flash-1017",
+  "prompt": "Describe the visible body and clothing ownership faithfully.",
+  "imageAssetIds": ["<owned immutable original image asset ID>"],
+  "maxTokens": 8192
+}
+```
+
+```sh
+assethub models compare --input-json @comparison.json > comparison-receipt.json
+# After interruption, read the original receipt without another submission.
+assethub models comparison <comparison-id> > comparison-recovered.json
+# If reconciliation requires it, explicitly resubmit the IDENTICAL saved input.
+assethub models compare --input-json @comparison.json
+```
+
+Both comparison commands exit **0** only when both provider calls succeeded,
+**1** on terminal failure, and **3** while pending or uncertain. Exit 0 proves
+provider completion, not quality equivalence or creator approval. Malformed
+receipts fail. There is no automatic polling, paid retry or routing adoption. Transport failures or
+HTTP 408/5xx after comparison submission exit 3 and retain the saved comparison ID;
+definite validation/auth/admission errors keep the usual input/API exit code.
+The command prints the native total before submission. Failed arms, unknown
+costs, operation IDs and provider job IDs stay in the receipt. The default/max
+budget is 8192 tokens per arm including reasoning for this text/vision comparison;
+product editor/judge token budgets are separate.
+
+Review the result, then explicitly run `models apply` or `models set` for an
+approved selection. This is a provider text/vision test, not a full Production /
+Composer tools or completed-3D comparison. Those require native product runs,
+immutable baseline/output hashes, source/mesh visual evidence and creator review.
+Never auto-promote a model from the CLI exit code alone.
+
+The same existing server operations are discoverable through `assethub api search
+routing`, MCP `operation_search` / `operation_describe` / `operation_call`, and
+hosted chat operation tools. They share admission, validation, billing and
+receipts; public actors cannot discover or call these Internal endpoints.

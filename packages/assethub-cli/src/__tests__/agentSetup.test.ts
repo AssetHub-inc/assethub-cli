@@ -197,7 +197,8 @@ describe('built entrypoint', () => {
 
   it('keeps init as a deprecated alias for agent wiring only', async () => {
     await mkdir(join(home, '.cursor'), {recursive: true})
-    const {stdout, stderr} = await cli(['init', '--dry-run', '--base-url', 'https://app.assethub.io'])
+    // @testdoc Pin the alias smoke-test agent; host-installed agents are covered by isolated detection tests.
+    const {stdout, stderr} = await cli(['init', '--agent', 'cursor', '--dry-run', '--base-url', 'https://app.assethub.io'])
     expect(stderr).toContain('`assethub init` is deprecated')
     const report = JSON.parse(stdout)
     expect(report.dryRun).toBe(true)
@@ -206,7 +207,7 @@ describe('built entrypoint', () => {
     // The fields init reported are still there.
     expect(report.version).toBe(await cliVersion())
     expect(report.scope).toBe('global')
-    expect(report.detected).toEqual(['cursor'])
+    expect(report.detected).toContain('cursor')
     expect(report.skill).toMatchObject({path: canonicalSkillDir(home), status: 'installed'})
     expect(report.steps.find((step: {name: string}) => step.name === 'cursor-mcp').path).toBe(join(home, '.cursor', 'mcp.json'))
     expect(await exists(join(home, '.cursor', 'mcp.json'))).toBe(false)

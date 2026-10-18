@@ -45,6 +45,13 @@ Usage:
   assethub image generate --canvas <id> --context <id> [--context-version <n>] [--context-source <key>] [--moodboard-revision <uuid>] --prompt <text> --wait
   assethub models list [--domain <domain>] [--ids-only] [--limit <n>]
   assethub models get <model-id>
+  assethub models routing
+  assethub models apply --input-json <json|@file|@-> [--dry-run]
+  assethub models apply --preset <preset|legacy> [--dry-run]
+  assethub models set <role> <model-id|default> [--dry-run]
+  assethub models rollback [--dry-run]
+  assethub models compare --input-json <json|@file|@-> (persist UUID id in input; reuse identical input to resume)
+  assethub models comparison <id> (exit 0: both succeeded; 1: failed; 3: pending/uncertain)
   assethub files import <url> --media-type image|mesh
   assethub files upload <file> --media-type image|mesh
   assethub source create (--file <path> | --source-url <url> | --source-id <id> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) --media-type image|mesh [--file-name <name>] [--content-type <type>]

@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.56
+
+- Add Internal model routing, server-discovered preset adoption, role-specific model changes, dry-run and rollback using the existing production API and revision checks.
+- Run or recover fixed-input text/vision A/B comparisons with stable IDs and native credit quotes; exit 0 only when both providers succeed, 1 for terminal failure, and 3 while pending or uncertain. No automatic retries or adoption.
+- Document the development-to-production model evaluation and rollback workflow in the bundled skill.
+
 ## CLI 0.1.55
 
 - Publish production resume for authenticated workspace users alongside the server rollout.

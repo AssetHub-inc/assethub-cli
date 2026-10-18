@@ -476,3 +476,32 @@ assethub --version
 ```
 
 `doctor` checks the key, the workspace, and MCP tool discovery without spending credits.
+
+## Internal model evaluation and production routing (CLI 0.1.56+)
+
+Use `assethub models routing` to discover roles, current revision, provider IDs,
+server presets and native A/B prices. Admission is Internal-only; the saved
+configuration is global across eligible actors. Select the intended API origin
+with `--base-url`; the default is production. Keep the gate's audience separate
+from routing changes.
+
+For a model change, save immutable comparison input with a UUID `id`, role,
+baselineModel, candidateModel, prompt and optional original owned imageAssetIds.
+Run `models compare --input-json @comparison.json` and retain the full JSON receipt.
+Exit 0 means both providers completed, 1 means terminal failure, 3 means pending
+or uncertain. Recover with `models comparison <id>`; explicit resume uses the
+identical saved input and ID. Never mint a replacement ID for uncertain work.
+No command polls, automatically retries paid work or adopts a model.
+
+Review quality separately, including native full-product outputs when needed.
+A/B here tests provider text/vision, not complete tool execution or final 3D.
+After authorized adoption, use `models apply --preset deepseek` or
+`models set <role> <provider/model-id>`; `--dry-run` previews either change.
+Server capability checks and revision CAS remain authoritative. `models set
+<role> default` removes one override, `models apply --preset legacy` clears all,
+and `models rollback` restores the immediately previous profile. Save the initial
+`models routing` JSON before multiple edits. Unchanged convenience selections
+preserve rollback history; conflicts and uncertain writes require a read, not
+an automatic retry. Existing operations retain their pins; new workers can take
+up to five seconds to observe a change. See the package README for exact saved
+profile restoration and the development workflow.
