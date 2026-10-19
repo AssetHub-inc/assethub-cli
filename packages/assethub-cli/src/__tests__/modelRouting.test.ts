@@ -13,7 +13,7 @@ const input = {
   candidateModel: 'new',
   prompt: 'Same input',
 }
-const setup = () => {
+const setup = (models: Record<string, string> = {prompt: 'new'}) => {
   const calls: {path: string; body?: unknown}[] = []
   const fetch = vi.fn(
     async (url: string | URL | Request, init?: RequestInit) => {
@@ -30,7 +30,7 @@ const setup = () => {
               ? {
                   state: {
                     revision: 'r2',
-                    models: {prompt: 'new'},
+                    models,
                     previousModels: {prompt: 'old'},
                   },
                   presets: {
@@ -169,6 +169,29 @@ it('applies the discovered preset with CAS', async () => {
     models: {prompt: 'candidate', final_judge: 'judge'},
   })
 })
+
+// @testdoc Text preset adoption retains the independent global image default in preview and mutation, using one current routing read.
+it.each([false, true])(
+  'preserves the image default when applying a text preset, dryRun=%s',
+  async dryRun => {
+    const imageDefault = 'google/gemini-3.1-flash-image'
+    const {client, calls} = setup({prompt: 'new', image_default: imageDefault})
+    const result = await runModelRoutingCommand({
+      client, command: 'apply', preset: 'deepseek', dryRun,
+    })
+    const update = {
+      expectedRevision: 'r2',
+      models: {prompt: 'candidate', final_judge: 'judge', image_default: imageDefault},
+    }
+    if (dryRun) {
+      expect(result).toEqual(update)
+      expect(calls).toHaveLength(1)
+    } else {
+      expect(calls).toHaveLength(2)
+      expect(calls[1]?.body).toEqual(update)
+    }
+  },
+)
 
 // @testdoc Editing one role retains every other selected role, including the independent judge.
 it('sets or clears a role without replacing the rest of the profile', async () => {
