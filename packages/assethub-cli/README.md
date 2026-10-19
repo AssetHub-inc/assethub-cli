@@ -1162,12 +1162,19 @@ assethub models apply --preset deepseek --dry-run
 assethub models apply --preset deepseek
 # Change one role while preserving every other selection.
 assethub models set composer_v53_editor openai/gpt-6-astra
+# Set the image default independently from text presets.
+assethub models set image_default google/gemini-nano-banana-2.1
 # Return this role to its existing product default.
 assethub models set composer_v53_editor default
 # Restore the immediately previous profile, or clear all routing overrides.
 assethub models rollback
 assethub models apply --preset legacy
 ```
+
+The server's `image_default` role selects the default for new generic image
+operations. Text presets preserve this independent role. Omit `--model-id` on
+`image generate` or `--preprocess-model-id` on `parts compare` to use the server
+default; explicit flags and JSON model selections remain pinned.
 
 Apply and rollback use server compare-and-swap. A conflict is reported once;
 read the current configuration and decide again. An unchanged convenience

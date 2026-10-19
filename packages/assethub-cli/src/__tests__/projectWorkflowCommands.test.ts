@@ -6,7 +6,7 @@ import {join, resolve} from 'node:path'
 import {promisify} from 'node:util'
 import {expect, test} from 'vitest'
 
-// Built CLI + HTTP boundary: verifies the standalone artifact, command wiring,
+// @testdoc Built CLI + HTTP boundary verifies the standalone artifact, server-owned image defaults, explicit pins,
 // context pinning, moodboard recovery and portable source/output review.
 test('runs the project workflow through the built standalone CLI', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'assethub-project-cli-'))
@@ -252,6 +252,21 @@ test('runs the project workflow through the built standalone CLI', async () => {
       moodboardRevisionId: 'revision-1',
       executionContext: {canvasId: 42},
     })
+    const defaultImageRequest = requests.find(request =>
+      request.path.endsWith('/image/generate'),
+    )
+    expect(defaultImageRequest?.body).not.toHaveProperty('modelId')
+    for (const flags of [
+      ['--prompt', 'Explicit model', '--model-id', 'imageGen.nanoBanana2.openrouter'],
+      ['--input-json', JSON.stringify({
+        prompt: 'Explicit JSON', modelId: 'imageGen.nanoBanana2.openrouter',
+      })],
+    ]) {
+      await cli('image', 'generate', '--canvas', '42', ...flags)
+      expect(
+        requests.filter(request => request.path.endsWith('/image/generate')).at(-1)?.body.modelId,
+      ).toBe('imageGen.nanoBanana2.openrouter')
+    }
     const comparisonPath = join(dir, 'review.html')
     await cli(
       'canvas',
@@ -305,7 +320,7 @@ test('runs the project workflow through the built standalone CLI', async () => {
     ).rejects.toThrow()
     expect(
       requests.filter(request => request.path.endsWith('/image/generate')),
-    ).toHaveLength(1)
+    ).toHaveLength(3)
   } finally {
     await new Promise<void>(done => server.close(() => done()))
     await rm(dir, {recursive: true, force: true})

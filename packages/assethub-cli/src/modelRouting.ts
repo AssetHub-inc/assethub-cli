@@ -95,7 +95,15 @@ export async function runModelRoutingCommand({
         throw new Error(
           `Unknown preset; available: legacy, ${Object.keys(presets).join(', ')}`,
         )
-      models = preset === 'legacy' ? {} : presets[preset]!
+      models =
+        preset === 'legacy'
+          ? {}
+          : {
+              ...presets[preset]!,
+              ...(state.models.image_default
+                ? {image_default: state.models.image_default}
+                : {}),
+            }
     }
     const update = {
       expectedRevision: state.revision,

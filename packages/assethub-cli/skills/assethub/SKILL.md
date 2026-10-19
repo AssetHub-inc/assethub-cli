@@ -497,8 +497,11 @@ Review quality separately, including native full-product outputs when needed.
 A/B here tests provider text/vision, not complete tool execution or final 3D.
 After authorized adoption, use `models apply --preset deepseek` or
 `models set <role> <provider/model-id>`; `--dry-run` previews either change.
-Server capability checks and revision CAS remain authoritative. `models set
-<role> default` removes one override, `models apply --preset legacy` clears all,
+Text presets preserve the independent `image_default` role. Omitted image and
+preprocessing model flags use the server default; explicit flags or JSON model
+selections stay pinned. Server capability checks and revision CAS remain
+authoritative. `models set <role> default` removes one override,
+`models apply --preset legacy` clears all,
 and `models rollback` restores the immediately previous profile. Save the initial
 `models routing` JSON before multiple edits. Unchanged convenience selections
 preserve rollback history; conflicts and uncertain writes require a read, not

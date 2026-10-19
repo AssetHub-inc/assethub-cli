@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.1.59
+
+- Let the server choose the current image default when `image generate --model-id` or `parts compare --preprocess-model-id` is omitted. Explicit flags and JSON model selections remain pinned.
+- Preserve the independent `image_default` role when applying server-discovered text presets such as DeepSeek. Legacy reset and rollback keep their existing semantics.
+
 ## CLI 0.1.58
 
 - Add the existing public V5.3 Character Assembly alias (`--part-extractor v5.3`) with assembly model pins, part counts, and the existing `pipelineHarness` / `headBodyFirst` boolean controls.

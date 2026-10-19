@@ -1031,6 +1031,18 @@ describe('built recorded CLI', () => {
     expect(failedComparison.json.preprocessed?.error.operationId).toMatch(
       /^[0-9a-f-]{36}$/,
     )
+    expect(
+      posted.filter(item => item.path.endsWith('/image/generate')).at(-1)?.body,
+    ).not.toHaveProperty('modelId')
+    const explicitPreprocess = await cli(baseUrl, dir, [
+      'parts', 'compare', '--source-id', 'image-asset', '--part-extractor', 'V1.5',
+      '--preprocess-prompt', 'clean up',
+      '--preprocess-model-id', 'imageGen.nanoBanana2.openrouter',
+    ])
+    expect(explicitPreprocess.code, explicitPreprocess.stderr).toBe(1)
+    expect(
+      posted.filter(item => item.path.endsWith('/image/generate')).at(-1)?.body.modelId,
+    ).toBe('imageGen.nanoBanana2.openrouter')
     stallStatuses = true
     const timedOut = await cli(baseUrl, dir, [
       'parts',

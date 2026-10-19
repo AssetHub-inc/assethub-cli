@@ -240,11 +240,6 @@ type SourceDescriptor =
     }
 
 const defaultBaseUrl = 'https://app.assethub.io'
-// Mirrors PUBLIC_IMAGE_GENERATE_DEFAULT_MODEL_ID in apps/frontend
-// (src/feature/imageGen/util/publicImageGenDefaultModel.ts). This package does
-// not depend on the app, so the value is duplicated: keep the two in step so
-// `assethub image generate` without --model matches the API's own default.
-const defaultImageModelId = 'imageGen.nanoBanana2.openrouter'
 const defaultMeshModelId = 'meshGen.hunyuan31'
 const defaultProfileName = 'default'
 const defaultPartExtractorName = 'V1.5'
@@ -3194,11 +3189,12 @@ const commandImage = async (
   )
     throw new Error('Canvas generation requires --api-version v2')
   const inputJson = getFlag(ctx.flags, 'input-json')
+  const selectedImageModelId = getFlag(ctx.flags, 'model-id')
   const input = inputJson
     ? await readJsonArgument(inputJson, '--input-json')
     : {
         prompt: requireFlag(ctx.flags, 'prompt'),
-        modelId: getFlag(ctx.flags, 'model-id') ?? defaultImageModelId,
+        ...(selectedImageModelId ? {modelId: selectedImageModelId} : {}),
         batchSize: parsePositiveIntegerFlag(ctx.flags, 'batch-size', 1),
         negativePrompt: getFlag(ctx.flags, 'negative-prompt'),
         seed:
@@ -5903,7 +5899,7 @@ const commandParts = async (
           {
             source: sourceFromProductionAnalyzeSource(durableInput),
             prompt: preprocessPrompt,
-            modelId: preprocessModelId ?? defaultImageModelId,
+            ...(preprocessModelId ? {modelId: preprocessModelId} : {}),
             batchSize: 1,
             negativePrompt: getFlag(ctx.flags, 'preprocess-negative-prompt'),
             seed:
