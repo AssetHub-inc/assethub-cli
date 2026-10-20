@@ -135,6 +135,9 @@ export const describeSkillRunProgress = (
 }
 
 /** A check's short name: the bold lead of its acceptance text. */
+// An answer option comes from the run, so it is quoted to be safe to paste into a shell.
+const shellArg = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`
+
 const checkName = (text: string) =>
   text.replace(/\*\*/g, '').split(':')[0].trim().slice(0, 80)
 
@@ -163,7 +166,7 @@ const describeGoalRunProgress = (
     if (goal.result === 'waiting' && goal.question) {
       const [first, ...rest] = goal.question.options
       lines.push(
-        `Needs your answer: ${goal.question.question} Answer with: assethub skills run-answer ${next.skillId} ${next.runId} --answer "${first ?? 'your answer'}"${rest.length ? ` (or ${rest.map(o => `"${o}"`).join(', ')})` : ''}`,
+        `Needs your answer: ${goal.question.question} Answer with: assethub skills run-answer ${next.skillId} ${next.runId} --answer ${shellArg(first ?? 'your answer')}${rest.length ? ` (or ${rest.map(shellArg).join(', ')})` : ''}`,
       )
     }
     if (goal.result === 'budget_exhausted')

@@ -43,3 +43,9 @@ describe('parseMeshReviewArgs concept comparison flags', () => {
     expect(() => run({'no-concept': 'x', reference: '/c/f.png'})).toThrow(/either/)
   })
 })
+
+// @testdoc A bare findings.json path names the asset after the folder it sits in, not the file.
+it('derives the sync asset key from the folder of a bare findings path', () => {
+  const parsed = parseMeshReviewArgs('sync', ['mesh-review', 'sync', 'findings.json'], flags({'dry-run': true}))
+  expect(parsed).toMatchObject({mode: 'sync', assetKey: expect.not.stringContaining('findings')})
+})

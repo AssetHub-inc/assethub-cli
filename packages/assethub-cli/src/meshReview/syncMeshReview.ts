@@ -11,7 +11,7 @@
 
 import {createHash} from 'node:crypto'
 import {readFile, realpath, stat, writeFile} from 'node:fs/promises'
-import {dirname, join, sep} from 'node:path'
+import {dirname, isAbsolute, join, relative} from 'node:path'
 
 export const MESH_REVIEW_API_PREFIX = '/api/v2/production/mesh-reviews'
 export const MESH_REVIEW_MAX_FINDINGS_BYTES = 4 * 1024 * 1024
@@ -284,7 +284,8 @@ const planRenders = async (findingsDir: string, doc: ComparisonDoc,
   for (const path of paths) {
     const file = join(findingsDir, path)
     const resolved = await realpath(file).catch(() => null)
-    if (resolved && !resolved.startsWith(`${root}${sep}`))
+    const inside = resolved && relative(root, resolved)
+    if (resolved && (!inside || inside.startsWith('..') || isAbsolute(inside)))
       throw new MeshReviewSyncError(
         'findings_invalid',
         `Render ${path} resolves outside the review directory.`,

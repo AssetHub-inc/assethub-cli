@@ -1,5 +1,5 @@
 // packages/assethub-cli/src/meshReview/args.ts
-import {basename} from 'node:path'
+import {basename, dirname, resolve} from 'node:path'
 
 type FlagValue = string | boolean | string[] | undefined
 type FlagsLike = Record<string, FlagValue>
@@ -107,7 +107,8 @@ export const parseMeshReviewArgs = (
       throw new Error('assethub mesh-review sync needs the path to a findings.json written by the engine.')
     }
     if (project == null && !dryRun) throw new Error('assethub mesh-review sync needs --project <name-or-id>.')
-    const parent = findingsPath.replace(/\/[^/]*$/, '') || '.'
+    // The folder holding findings.json names the asset, for bare and Windows paths too.
+    const parent = dirname(resolve(findingsPath))
     return {mode: 'sync', findingsPath, project, assetKey: resolveAsset(flags, parent), dryRun}
   }
   if (subcommand !== 'run') {

@@ -93,7 +93,7 @@ describe('goal run progress in the CLI', () => {
       {status: 'running'},
     )
     expect(describeSkillRunProgress(goal(), asked)).toContain(
-      `Needs your answer: The sheet has no side view. Answer with: assethub skills run-answer drecom-weapon-concept-to-3d ${runId} --answer "Add a side view" (or "Continue without it")`,
+      `Needs your answer: The sheet has no side view. Answer with: assethub skills run-answer drecom-weapon-concept-to-3d ${runId} --answer 'Add a side view' (or 'Continue without it')`,
     )
     expect(isSkillRunSettled(asked)).toBe(true)
   })

@@ -5,7 +5,11 @@ import {dirname, join, relative, sep} from 'node:path'
 const isHidden = (name: string) => name.startsWith('.')
 
 const listFiles = async (dir: string): Promise<string[]> => {
-  const entries = await readdir(dir, {withFileTypes: true}).catch(() => [])
+  // A skill without references/ is fine; any other read failure would drop files silently.
+  const entries = await readdir(dir, {withFileTypes: true}).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return []
+    throw error
+  })
   const nested = await Promise.all(
     entries
       .filter(entry => !isHidden(entry.name))
