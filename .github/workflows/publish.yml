@@ -60,7 +60,8 @@ jobs:
             cli)
               PACKAGE_DIR=packages/assethub-cli
               SDK_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('packages/assethub-api-client/package.json')).version")
-              if [ -z "$(npm view "@assethub/api-client@$SDK_VERSION" version 2>/dev/null)" ]; then
+              SDK_VIEW=$(npm view "@assethub/api-client@$SDK_VERSION" version 2>&1 >/dev/null || true)
+              if grep -q 'code E404' <<< "$SDK_VIEW"; then
                 echo "::error::@assethub/api-client@$SDK_VERSION is not on npm. Run this workflow with package api-client first, then cli. If it was published moments ago, rerun cli shortly." >&2
                 exit 1
               fi
