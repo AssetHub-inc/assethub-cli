@@ -6,7 +6,7 @@ import type {WorkspaceSkillRun} from '@assethub/api-client'
 import {
   describeSkillRunProgress,
   goalModelLimit,
-  isListedGoalSkill,
+  findRunnableSkill,
   listRunnableSkills,
   nextSkillRunAction,
   pinSkill,
@@ -335,6 +335,7 @@ describe('listRunnableSkills', () => {
       revision: 1,
       mode: 'manual',
       taskKind: 'concept_art',
+      source: 'workspace',
       sameSummaryAs: ['turn-b'],
     })
     expect(result.items[2]).not.toHaveProperty('sameSummaryAs')
@@ -611,13 +612,48 @@ describe('goal skills in the CLI', () => {
     ])
   })
 
-  it('treats a skill as a goal skill only when the workspace lists it as one', async () => {
-    const listPage = async () => ({
-      items: [row('drecom', 'ag.memory-skill.v8'), row('clay', 'ag.memory-skill.v7')],
-      nextCursor: 'next',
+  it('lists staff-shared and showcase skills in the same list, each with its source', async () => {
+    const listed = await listRunnableSkills(
+      async () => ({
+        items: [row('mine', 'ag.memory-skill.v7'), row('own-shared', 'ag.memory-skill.v7')],
+        nextCursor: null,
+        showcase: [
+          {skillId: 'assethub-clay', revision: 2, title: 'Clay', summary: 'Clay figure'},
+          {skillId: 'mine', revision: 1, title: 'Mine', summary: 'Installed already'},
+        ],
+      }),
+      async () => [
+        {shareId: 'share-1', skillId: 'pluffy', revision: 8, title: 'Pluffy part separation', workspace: 'Personal Space'},
+        {shareId: 'share-2', skillId: 'own-shared', revision: 1, title: 'Mine, shared', workspace: 'Here'},
+      ],
+    )
+    expect(listed.items.map(item => [item.skillId, item.source])).toEqual([
+      ['mine', 'workspace'],
+      ['own-shared', 'workspace'],
+      ['assethub-clay', 'showcase'],
+      ['pluffy', 'staff-share'],
+    ])
+    expect(listed.items[2]).toMatchObject({official: true, revision: 2})
+    expect(listed.items[3]).toMatchObject({shareId: 'share-1', sharedFrom: 'Personal Space', summary: 'Pluffy part separation'})
+  })
+
+  it('lists the rest when this key may not read staff shares', async () => {
+    const listed = await listRunnableSkills(
+      async () => ({items: [row('mine', 'ag.memory-skill.v7')], nextCursor: null}),
+      async () => null,
+    )
+    expect(listed.items.map(item => item.skillId)).toEqual(['mine'])
+  })
+
+  it('finds a runnable skill by its id or its share id, and nothing else', async () => {
+    const list = async () => ({
+      items: [
+        {skillId: 'drecom', summary: 'd', revision: 1, mode: 'manual', taskKind: null, source: 'workspace' as const, goal: true as const},
+        {skillId: 'pluffy', summary: 'p', revision: 8, mode: 'manual', taskKind: null, source: 'staff-share' as const, shareId: 'share-1'},
+      ],
     })
-    expect(await isListedGoalSkill(listPage, 'drecom')).toBe(true)
-    expect(await isListedGoalSkill(listPage, 'clay')).toBe(false)
-    expect(await isListedGoalSkill(listPage, 'typo-skill')).toBe(false)
+    expect((await findRunnableSkill(list, 'drecom'))?.goal).toBe(true)
+    expect((await findRunnableSkill(list, 'share-1'))?.skillId).toBe('pluffy')
+    expect(await findRunnableSkill(list, 'typo-skill')).toBeUndefined()
   })
 })

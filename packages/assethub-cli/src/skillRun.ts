@@ -486,20 +486,6 @@ const isRunnableRow = (row: SkillListRow) =>
     row.schemaVersion === GOAL_SCHEMA_VERSION) &&
   row.mode !== 'off'
 
-/**
- * Whether the workspace lists `skillId` as a goal skill. Goal skills come
- * ahead of the first page, so one page answers it.
- */
-export const isListedGoalSkill = async (
-  listPage: (
-    cursor: string | undefined,
-  ) => Promise<{items: SkillListRow[]; nextCursor: string | null}>,
-  skillId: string,
-) =>
-  (await listPage(undefined)).items.some(
-    row => row.skillId === skillId && row.schemaVersion === GOAL_SCHEMA_VERSION,
-  )
-
 export type SkillListRow = {
   skillId: string
   summary: string
@@ -507,10 +493,36 @@ export type SkillListRow = {
   mode: string
   revision: number
   taskKind: string | null
+  /** v7 rows: an installed official skill says `official`. */
+  origin?: string
   recommendedModels?: {image: string[]; mesh: string[]}
   official?: boolean
   staffOnly?: boolean
 }
+
+export type SkillListPage = {
+  items: SkillListRow[]
+  nextCursor: string | null
+  /** Official v7 skills runnable without installing first (first page). */
+  showcase?: {skillId: string; revision: number; title: string; summary: string}[]
+}
+
+export type StaffShareRow = {
+  shareId: string
+  skillId: string
+  revision: number
+  title: string
+  workspace: string
+}
+
+/**
+ * Where a runnable skill comes from, which decides how `skills run` starts it:
+ * `workspace` (this workspace's own or installed skills, V8 goal skills and
+ * official V8 releases included), `staff-share` (shared to AssetHub staff,
+ * started by its share) or `showcase` (an official v7 release installed on
+ * its first run).
+ */
+export type RunnableSkillSource = 'workspace' | 'staff-share' | 'showcase'
 
 export type RunnableSkill = {
   skillId: string
@@ -518,61 +530,108 @@ export type RunnableSkill = {
   revision: number
   mode: string
   taskKind: string | null
+  source: RunnableSkillSource
   /** Other runnable skills with the same summary: ask which one before running. */
   sameSummaryAs?: string[]
   /** A goal skill: it chooses its own models (`--image-model` / `--mesh-model` limit them). */
   goal?: true
   /** Goal skills: the catalog models the skill recommends, per kind. */
   recommendedModels?: {image: string[]; mesh: string[]}
-  /** Goal skills: an AssetHub official release (installs on its first run). */
+  /** An AssetHub official skill (installed, a live V8 release, or a showcase one). */
   official?: true
-  /** Goal skills: an official release only AssetHub staff can run so far. */
+  /** An official release only AssetHub staff can run so far. */
   staffOnly?: true
+  /** `staff-share`: the share `skills run` starts, and the workspace that shared it. */
+  shareId?: string
+  sharedFrom?: string
 }
 
 /**
- * The skills `skills run` accepts — v7 or a V8 goal skill, not switched off,
- * the same rule as the canvas "Use skill" node — across every page of the list. Look-alikes
- * are flagged so an agent asks instead of guessing by name.
+ * Every skill `skills run` accepts, from one list: the workspace's v7 and
+ * V8 goal skills that are not switched off (the same rule as the canvas
+ * "Use skill" node), official V8 releases this person can run, showcase
+ * skills, and, for staff, the skills shared to staff (which `skills list`
+ * itself never shows). Look-alikes are flagged so an agent asks instead of
+ * guessing by name.
  */
 export const listRunnableSkills = async (
-  listPage: (
-    cursor: string | undefined,
-  ) => Promise<{items: SkillListRow[]; nextCursor: string | null}>,
+  listPage: (cursor: string | undefined) => Promise<SkillListPage>,
+  /** Staff-shared skills, or null when this key may not read them. */
+  listShares: () => Promise<StaffShareRow[] | null> = async () => null,
 ) => {
   const rows: SkillListRow[] = []
+  let showcase: NonNullable<SkillListPage['showcase']> = []
   let cursor: string | undefined
+  const sharesRead = listShares()
   do {
     const page = await listPage(cursor)
     rows.push(...page.items)
+    if (cursor === undefined) showcase = page.showcase ?? []
     cursor = page.nextCursor ?? undefined
   } while (cursor)
+  const shares = (await sharesRead) ?? []
   const runnable = rows.filter(isRunnableRow)
-  const bySummary = new Map<string, string[]>()
-  for (const row of runnable)
-    bySummary.set(row.summary, [
-      ...(bySummary.get(row.summary) ?? []),
-      row.skillId,
-    ])
-  const items: RunnableSkill[] = runnable.map(row => {
-    const twins = bySummary.get(row.summary)!.filter(id => id !== row.skillId)
-    return {
+  const inWorkspace = new Set(rows.map(row => row.skillId))
+  const candidates: RunnableSkill[] = [
+    ...runnable.map(row => ({
       skillId: row.skillId,
       summary: row.summary,
       revision: row.revision,
       mode: row.mode,
       taskKind: row.taskKind,
-      ...(twins.length > 0 ? {sameSummaryAs: twins} : {}),
+      source: 'workspace' as const,
       ...(row.schemaVersion === GOAL_SCHEMA_VERSION
         ? {
             goal: true as const,
             ...(row.recommendedModels
               ? {recommendedModels: row.recommendedModels}
               : {}),
-            ...(row.official ? {official: true as const} : {}),
-            ...(row.staffOnly ? {staffOnly: true as const} : {}),
           }
         : {}),
+      ...(row.official || row.origin === 'official'
+        ? {official: true as const}
+        : {}),
+      ...(row.staffOnly ? {staffOnly: true as const} : {}),
+    })),
+    // An installed showcase skill is already listed as the workspace's own.
+    ...showcase
+      .filter(item => !inWorkspace.has(item.skillId))
+      .map(item => ({
+        skillId: item.skillId,
+        summary: item.summary,
+        revision: item.revision,
+        mode: 'manual',
+        taskKind: null,
+        source: 'showcase' as const,
+        official: true as const,
+      })),
+    // A share of this workspace's own skill runs as the workspace's own.
+    ...shares
+      .filter(share => !inWorkspace.has(share.skillId))
+      .map(share => ({
+        skillId: share.skillId,
+        summary: share.title,
+        revision: share.revision,
+        mode: 'manual',
+        taskKind: null,
+        source: 'staff-share' as const,
+        shareId: share.shareId,
+        sharedFrom: share.workspace,
+      })),
+  ]
+  const bySummary = new Map<string, string[]>()
+  for (const item of candidates)
+    bySummary.set(item.summary, [
+      ...(bySummary.get(item.summary) ?? []),
+      item.skillId,
+    ])
+  const items: RunnableSkill[] = candidates.map(item => {
+    const twins = bySummary.get(item.summary)!.filter(id => id !== item.skillId)
+    const {source, ...rest} = item
+    return {
+      ...rest,
+      source,
+      ...(twins.length > 0 ? {sameSummaryAs: twins} : {}),
     }
   })
   const off = rows.filter(
@@ -595,6 +654,19 @@ export const listRunnableSkills = async (
       : {}),
   }
 }
+
+/**
+ * How `skills run` starts a skill its step-skill read could not find: the
+ * entry of the runnable list with that id (or share id), or undefined.
+ */
+export const findRunnableSkill = async (
+  list: () => Promise<{items: RunnableSkill[]}>,
+  skillIdOrShareId: string,
+) =>
+  (await list()).items.find(
+    item =>
+      item.skillId === skillIdOrShareId || item.shareId === skillIdOrShareId,
+  )
 
 /**
  * `--image-model` / `--mesh-model` (repeatable) as a goal run's model limit,
