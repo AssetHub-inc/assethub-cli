@@ -86,12 +86,12 @@ import {
 } from './productionBatch.js'
 import {importCanvasAssetWithState} from './canvasAssetImport.js'
 import {
+  findRunnableSkill,
   goalModelLimit,
-  isListedGoalSkill,
   listRunnableSkills,
   nextSkillRunAction,
   pinSkill,
-  type SkillListRow,
+  type SkillListPage,
   saveSkillRunAttempts,
   saveSkillRunOutputs,
   waitForSkillRun,
@@ -642,7 +642,7 @@ Usage:
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
-  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: only skills that skills run accepts, every page; internal goal skills, AssetHub official ones included, are marked goal/official/staffOnly)
+  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: every skill skills run accepts, in one list: the workspace's own, official ones and, for staff, skills shared to staff; each row says its source)
   assethub skills get <skill-id> [--revision <n>]
   assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
   assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
@@ -658,7 +658,7 @@ Usage:
   assethub skills build-enhance <build-id> --section <section> --current <json|@file|@-> [--note <text>]   (a suggestion only; nothing is written)
   assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
   assethub skills build-discard <build-id>
-  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) [--budget <credits>] [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--image-model <id>]... [--mesh-model <id>]... [--wait] [--out-dir <dir>]   (PAID: pays what it uses; past the internal limit it pauses until run-resume. --budget only where the server still asks for one)
+  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) [--budget <credits>] [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--image-model <id>]... [--mesh-model <id>]... [--wait] [--out-dir <dir>]   (PAID: any skill skills list --runnable shows; pays what it uses; past the internal limit it pauses until run-resume. --budget only where the server still asks for one)
   assethub skills run-list [--file <image>] [--all] [--limit <n>]   (runs started from this folder, newest first, with their status)
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
   assethub skills run-resume <skill-id> <run-id> [--add-credits <n>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID: continues past the limit; --add-credits only where the server still asks for an amount)
@@ -8097,6 +8097,47 @@ const finishSkillRun = async (
  * read from the server and run there; nothing about it is stored locally
  * except the canvas import receipt for the source image.
  */
+/** How `skills run` starts the skill it was given; see `runnableSkillList`. */
+type RunPin = {
+  skillId: string
+  title: string
+  revision?: number
+  contentSha256?: string
+  goal?: true
+  shareId?: string
+  showcase?: true
+}
+
+/**
+ * The one list of skills `skills run` accepts: this workspace's, official
+ * ones and, for staff, the skills shared to staff. A key that may not read
+ * shares (not staff, or the share gate off) just gets the rest.
+ */
+const runnableSkillList = (ctx: CommandContext) =>
+  listRunnableSkills(
+    async cursor => {
+      const page = await ctx.client.v2.listWorkspaceSkills({cursor})
+      // The server sends schemaVersion and origin; the summary type predates them.
+      return {
+        items: page.items as unknown as SkillListPage['items'],
+        nextCursor: page.nextCursor,
+        showcase: page.showcase,
+      }
+    },
+    async () => {
+      try {
+        return (await ctx.client.v2.listStaffSharedWorkspaceSkills()).items
+      } catch (error) {
+        if (
+          error instanceof AssetHubApiError &&
+          (error.status === 403 || error.status === 404)
+        )
+          return null
+        throw error
+      }
+    },
+  )
+
 const commandSkillRun = async (
   subcommand: string,
   positionals: string[],
@@ -8131,30 +8172,49 @@ const commandSkillRun = async (
           : undefined,
         contentSha256: getFlag(ctx.flags, 'content-sha256'),
       }
-      // A V8 goal skill (`skills import-goal`) is pinned by the server at
-      // start. The step-skill read does not know goal skills, so a skill it
-      // cannot find is started as a goal skill only when the workspace lists
-      // it as one; anything else stays a 404 before an upload (`--goal` skips
-      // the read).
-      const goalPin = {skillId, title: skillId, ...expected}
-      const pin = goal
+      // The step-skill read knows this workspace's step skills. Anything it
+      // cannot find (404), or may not read (403 WORKSPACE_SKILL_FORBIDDEN, an
+      // official V8 release not installed yet or a skill shared to staff), is
+      // looked up in the one runnable list `skills list --runnable` prints and
+      // started the way its source needs: a goal skill is pinned by the
+      // server, a staff share by its share, a showcase skill by its release.
+      // Anything else keeps its error before an upload (`--goal` skips the read).
+      const goalPin: RunPin = {skillId, title: skillId, ...expected}
+      const pin: RunPin = goal
         ? goalPin
         : await pinSkill(ctx.client, skillId, expected).catch(async error => {
             if (
-              error instanceof AssetHubApiError &&
-              error.status === 404 &&
-              (await isListedGoalSkill(async cursor => {
-                const page = await ctx.client.v2.listWorkspaceSkills({cursor})
-                return {
-                  items: page.items as unknown as SkillListRow[],
-                  nextCursor: page.nextCursor,
-                }
-              }, skillId))
+              !(error instanceof AssetHubApiError) ||
+              !(
+                error.status === 404 ||
+                (error.status === 403 &&
+                  error.code === 'WORKSPACE_SKILL_FORBIDDEN')
+              )
             )
-              return {...goalPin, goal: true as const}
+              throw error
+            const listed = await findRunnableSkill(
+              () => runnableSkillList(ctx),
+              skillId,
+            )
+            if (listed?.source === 'staff-share')
+              return {
+                skillId: listed.skillId,
+                title: listed.summary,
+                revision: expected.revision ?? listed.revision,
+                contentSha256: expected.contentSha256,
+                shareId: listed.shareId,
+              }
+            if (listed?.source === 'showcase')
+              return {
+                skillId: listed.skillId,
+                title: listed.summary,
+                revision: listed.revision,
+                showcase: true as const,
+              }
+            if (listed?.goal) return {...goalPin, goal: true as const}
             throw error
           })
-      const stepSkill = !goal && !('goal' in pin)
+      const stepSkill = !goal && !pin.goal
       // Same as the Use skill card: a step skill picks its models in its steps.
       if (stepSkill && modelLimit.models)
         throw new Error(
@@ -8183,7 +8243,7 @@ const commandSkillRun = async (
             ? `Models: image ${modelLimit.models.image?.join(', ') ?? 'auto'}; 3D ${modelLimit.models.mesh?.join(', ') ?? 'auto'}.\n`
             : ''),
       )
-      const started = await ctx.client.v2.startWorkspaceSkillRun(skillId, {
+      const startBody = {
         clientOperationId: operationId,
         canvasId: canvas.id,
         sourceImageAssetId,
@@ -8199,9 +8259,24 @@ const commandSkillRun = async (
         executionContext: {
           canvasId: canvas.id,
           clientOperationId: operationId,
-          source: 'cli',
+          source: 'cli' as const,
         },
-      })
+      }
+      const started = pin.shareId
+        ? await ctx.client.v2.startStaffSharedWorkspaceSkillRun(
+            pin.shareId,
+            startBody,
+          )
+        : pin.showcase
+          ? await ctx.client.v2.startShowcaseWorkspaceSkillRun(pin.skillId, {
+              ...startBody,
+              expectedRevision: undefined,
+              revision: pin.revision!,
+            })
+          : await ctx.client.v2.startWorkspaceSkillRun(skillId, startBody)
+      // Read, resume and verdict use the skill id the start answered (a staff
+      // share may have been named by its share id).
+      const runSkillId = started.skillId ?? pin.skillId
       const outDir = outDirFlag
         ? resolve(outDirFlag)
         : filePath
@@ -8213,7 +8288,7 @@ const commandSkillRun = async (
         schemaVersion: 'assethub.skill-run.v1',
         baseUrl: ctx.client.baseUrl,
         ownerId: canvas.ownerId,
-        skillId,
+        skillId: runSkillId,
         skillTitle: pin.title,
         // A goal run is pinned by the server; the start answer carries it.
         revision: pin.revision ?? started.pin.revision,
@@ -8230,7 +8305,7 @@ const commandSkillRun = async (
         ),
       )
       await finishSkillRun(ctx, {
-        skillId,
+        skillId: runSkillId,
         runId: started.runId,
         wait,
         outDir,
@@ -8417,16 +8492,7 @@ export const commandSkills = async (
     return
   }
   if (subcommand === 'list' && hasFlag(ctx.flags, 'runnable')) {
-    print(
-      await listRunnableSkills(async cursor => {
-        const page = await ctx.client.v2.listWorkspaceSkills({cursor})
-        // The server sends schemaVersion; the published summary type predates it.
-        return {
-          items: page.items as unknown as SkillListRow[],
-          nextCursor: page.nextCursor,
-        }
-      }),
-    )
+    print(await runnableSkillList(ctx))
     return
   }
   if (subcommand === 'list') {
