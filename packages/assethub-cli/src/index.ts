@@ -38,7 +38,12 @@ import {
 import {launchAgentProgram, loadKeyIntoLaunchd} from './appEnv.js'
 import {defaultInstallHooks, type InstallHooks} from './setupHooksBridge.js'
 import {canUploadSessions, installHooks as installSessionHooks, runHooksCommand} from './hooks/index.js'
-import {describeError, trustSystemCertificates} from './networkErrors.js'
+import {
+  describeError,
+  FEATURE_NOT_AVAILABLE_MESSAGE,
+  isFeatureNotAvailableError,
+  trustSystemCertificates,
+} from './networkErrors.js'
 import {createNodeUpdateDeps, runUpdate} from './update.js'
 import {
   autoUpdateEnabled,
@@ -4851,7 +4856,9 @@ const errorToOutput = (error: unknown): Record<string, unknown> => {
   if (error instanceof AssetHubApiError) {
     return {
       name: error.name,
-      message: error.message,
+      message: isFeatureNotAvailableError(error)
+        ? FEATURE_NOT_AVAILABLE_MESSAGE
+        : error.message,
       status: error.status,
       code: error.code,
     }
@@ -9291,7 +9298,10 @@ if (isMainModule) {
     exit(130)
   })
   run().catch((error: unknown) => {
-    if (error instanceof AssetHubApiError) {
+    const notAvailable = isFeatureNotAvailableError(error)
+    if (notAvailable) {
+      stderr.write(`${FEATURE_NOT_AVAILABLE_MESSAGE}\n`)
+    } else if (error instanceof AssetHubApiError) {
       stderr.write(
         `AssetHub API error [${error.status}] ${error.code}: ${error.message}\n`,
       )
@@ -9309,7 +9319,9 @@ if (isMainModule) {
             : error instanceof CliExecutionError && error.exitCode === 3
               ? 'WAIT_TIMEOUT'
               : 'CLI_ERROR',
-        message: describeError(error),
+        message: notAvailable
+          ? FEATURE_NOT_AVAILABLE_MESSAGE
+          : describeError(error),
       },
       runId:
         error instanceof CliExecutionError

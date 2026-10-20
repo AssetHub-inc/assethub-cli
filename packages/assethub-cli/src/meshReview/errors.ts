@@ -1,5 +1,6 @@
 // packages/assethub-cli/src/meshReview/errors.ts
 import type {MeshReviewProject} from './projects.js'
+import {FEATURE_NOT_AVAILABLE_MESSAGE, isFeatureNotAvailableError} from '../networkErrors.js'
 import {MeshReviewSyncError} from './syncMeshReview.js'
 
 export type MeshReviewErrorContext = {profile: string; workspaceId?: string | undefined}
@@ -22,7 +23,7 @@ export const explainMeshReviewError = (error: MeshReviewSyncError, ctx: MeshRevi
     case 'PROJECT_AMBIGUOUS':
       return `${error.message} Run "assethub mesh-review projects" and pass the project id to --project.`
     default:
-      return error.message
+      return isFeatureNotAvailableError(error) ? FEATURE_NOT_AVAILABLE_MESSAGE : error.message
   }
 }
 

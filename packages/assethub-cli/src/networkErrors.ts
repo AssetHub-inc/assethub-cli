@@ -30,3 +30,16 @@ export const describeError = (error: unknown): string => {
   const detail = cause.message && typeof code === 'string' ? `${cause.message} (${code})` : cause.message || code
   return typeof detail === 'string' && detail ? `${error.message}: ${detail}` : error.message
 }
+
+/**
+ * The server answers an internal-only route with the same 404 as a path it does
+ * not have, so a key without access cannot tell the two apart. Every route the
+ * CLI calls exists, so that answer means the feature is not open to this key.
+ */
+export const FEATURE_NOT_AVAILABLE_MESSAGE = 'This feature is not yet available for this account.'
+
+export const isFeatureNotAvailableError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false
+  const {status, code} = error as {status?: unknown; code?: unknown}
+  return (status === undefined || status === 404) && code === 'NOT_FOUND' && error.message.startsWith('No such endpoint')
+}
