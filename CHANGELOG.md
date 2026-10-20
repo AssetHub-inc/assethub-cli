@@ -1,12 +1,18 @@
 # Changelog
 
+## CLI 0.1.61 · SDK 0.1.22
+
+Publish SDK 0.1.22 before CLI 0.1.61.
+
+- One skill list: `skills list --runnable` now lists every skill this account can run, each with its `source`: the workspace's own and installed skills (official V8 goal skills included), `showcase` skills (official v7, installed on first run) and, for staff, skills shared to staff, which `skills list` never showed. `skills run <skill-id>` runs any of them; it starts a staff share through its share (by skill id or share id) and a showcase skill at its listed revision. SDK adds `listStaffSharedWorkspaceSkills`, `startStaffSharedWorkspaceSkillRun` and `startShowcaseWorkspaceSkillRun`.
+- The bundled skill reads that one list instead of a separate `api call` for shares.
+
 ## CLI 0.1.60 · SDK 0.1.21
 
 Brings the published CLI and SDK level with the CLI embedded in `assethub-web` main (through assethub-web #8906). Every option is forwarded to existing server operations; the server keeps admission, gates, billing and operation IDs authoritative. Publish SDK 0.1.21 before CLI 0.1.60.
 
 - Goal skills (ag.memory-skill.v8): `skills import-goal`, `skills run <skill-id> --goal` with `--image-model` / `--mesh-model` limits, `skills run-answer`, `skills run-stop`, and saved drafts for a goal run that ends unverified. SDK adds `answerWorkspaceSkillRun`, `stopWorkspaceSkillRun` and `importWorkspaceGoalSkill`.
 - Official V8 goal skills: SDK types the `WorkspaceGoalSkillListItem` variant of the skill list (`official`, `staffOnly`, `recommendedModels`); `skills list --runnable` marks goal skills `official` / `staffOnly`.
-- One skill list: `skills list --runnable` now lists every skill this account can run, each with its `source`: the workspace's own and installed skills (official V8 goal skills included), `showcase` skills (official v7, installed on first run) and, for staff, skills shared to staff, which `skills list` never showed. `skills run <skill-id>` runs any of them; it starts a staff share through its share (by skill id or share id) and a showcase skill at its listed revision. SDK adds `listStaffSharedWorkspaceSkills`, `startStaffSharedWorkspaceSkillRun` and `startShowcaseWorkspaceSkillRun`. The bundled skill reads that one list instead of a separate `api call` for shares.
 - Character Assembly: `--part-extractor` accepts V5.0.1, V5.0.2, V5.0.4, V5.0.5, V4.1 No Ring Fit and V4 Preserve Geometry; `--wait`, part count, mesh quality and experiment validation treat every V4/V5 assembly agent alike.
 - `production analyze` / `batch`: `--body-construction clothed-scaffold-v1`, `--whole-guide [--whole-guide-mesh <mesh-id>]`, and the V5.3 `maskedBaseBody` / `shellConform` / `wholeGuide` experiment keys. SDK types add `bodyConstruction`.
 - `composer run`: `--base-body`, `--whole-guide` and `--whole-guide-mesh`.
