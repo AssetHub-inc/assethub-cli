@@ -297,14 +297,14 @@ test('production resume <order-id> still resumes when the run lookup is refused'
   })
 })
 
-// @testdoc An unavailable server preserves its actual API error without claiming the public resume route is Internal-only.
+// @testdoc A resume the server answers as an unknown path says the feature is not yet available and still shows the server's message.
 test.each(['No such endpoint', 'No such endpoint. See https://app.assethub.io/api/v2/openapi.json for the available operations.'])('production resume preserves the server endpoint response: %s', async message => {
   const {baseUrl, stateDir} = await serve([run('failed')], {
     code: 'NOT_FOUND', message,
   })
   await expect(cli(baseUrl, stateDir, ['production', 'resume', 'run-1'])).rejects.toMatchObject({
     stderr: expect.stringContaining(message),
-    stdout: expect.stringContaining('"code": "NOT_FOUND"'),
+    stdout: expect.stringMatching(/"code": "NOT_FOUND",\s+"message": "This feature is not yet available for this account."/),
   })
   expect(resumes).toEqual(['order-1'])
 })

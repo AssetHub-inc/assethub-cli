@@ -4856,7 +4856,9 @@ const errorToOutput = (error: unknown): Record<string, unknown> => {
   if (error instanceof AssetHubApiError) {
     return {
       name: error.name,
-      message: error.message,
+      message: isFeatureNotAvailableError(error)
+        ? FEATURE_NOT_AVAILABLE_MESSAGE
+        : error.message,
       status: error.status,
       code: error.code,
     }
@@ -9285,24 +9287,6 @@ const isMainModule = (() => {
   }
 })()
 
-/**
- * Commands whose routes the server opens only to internal keys. Public commands
- * keep the server's own answer: there the same 404 means the server lacks the
- * route, not that the account lacks access.
- */
-const isInternalOnlyCommand = (): boolean => {
-  try {
-    const {positionals, flags} = parseArgs(argv.slice(2))
-    return (
-      positionals[0] === 'skills' ||
-      positionals[0] === 'mesh-review' ||
-      hasFlag(flags, 'internal')
-    )
-  } catch {
-    return false
-  }
-}
-
 if (isMainModule) {
   trustSystemCertificates(tls)
   process.once('SIGINT', () => {
@@ -9316,10 +9300,11 @@ if (isMainModule) {
     exit(130)
   })
   run().catch((error: unknown) => {
-    const notAvailable =
-      isFeatureNotAvailableError(error) && isInternalOnlyCommand()
+    const notAvailable = isFeatureNotAvailableError(error)
     if (notAvailable) {
-      stderr.write(`${FEATURE_NOT_AVAILABLE_MESSAGE}\n`)
+      stderr.write(
+        `${FEATURE_NOT_AVAILABLE_MESSAGE} (${describeError(error)})\n`,
+      )
     } else if (error instanceof AssetHubApiError) {
       stderr.write(
         `AssetHub API error [${error.status}] ${error.code}: ${error.message}\n`,

@@ -32,9 +32,10 @@ export const describeError = (error: unknown): string => {
 }
 
 /**
- * The server answers an internal-only route with the same 404 as a path it does
- * not have, so a key without access cannot tell the two apart. Every route the
- * CLI calls exists, so that answer means the feature is not open to this key.
+ * The server answers a route the key may not use with the same 404 as a path it
+ * does not have, so the two cannot be told apart. Every command reads that
+ * answer as the feature not being open to this account yet; the server's own
+ * message is still written to stderr.
  */
 export const FEATURE_NOT_AVAILABLE_MESSAGE = 'This feature is not yet available for this account.'
 

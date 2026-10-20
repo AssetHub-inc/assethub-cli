@@ -12,7 +12,7 @@ Brings the published CLI and SDK level with the CLI embedded in `assethub-web` m
 - Internal `mesh-review run|sync|projects`: runs the review engine locally (needs `tools/mesh-review` or `--engine-dir`) and syncs findings to Production Control.
 - SDK `CharacterAssemblyProgress` types V5.3 early delivery (`deliveryRevision`, `improving`); `--wait` reports progress only when it changes.
 - `assethub update` also refreshes the agent skill copies that setup installed.
-- `skills`, `mesh-review` and `--internal` commands whose route is not open to the key (the server answers with the same 404 as an unknown path) now say `This feature is not yet available for this account.` instead of pointing at the OpenAPI document. The error code stays `NOT_FOUND`; public commands keep the server's message.
+- A command whose route the server answers as an unknown path (the 404 an internal-only route gives a key without access) now says `This feature is not yet available for this account.`; the server's message stays on stderr and the error code stays `NOT_FOUND`.
 
 ## CLI 0.1.59
 
