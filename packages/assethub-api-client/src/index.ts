@@ -118,6 +118,8 @@ export type {
   WorkspaceSkillRunVerdict,
   WorkspaceSkillRunVerdictInput,
   WorkspaceSkillRunHumanVerdictResult,
+  WorkspaceGoalRunState,
+  WorkspaceGoalSkillImported,
 } from './workspaceSkills.js'
 export type {
   Workspace,
@@ -217,6 +219,7 @@ import type {
   WorkspaceSkillDraftSchema,
   WorkspaceSkillBuildDryRunResult,
   WorkspaceSkillRun,
+  WorkspaceGoalSkillImported,
   WorkspaceSkillRunResumeInput,
   WorkspaceSkillRunStartInput,
   WorkspaceSkillRunStarted,
@@ -1131,6 +1134,8 @@ export type ProductionAnalyzeRequest = RequireAtLeastOne<
     baseBodyAssetId?: string
     pipelineDepth?: 'parts' | 'mesh' | 'composition'
     assemblyPolicy?: 'concept-to-character-v1'
+    /** Internal V4 rollout: keep the source outfit on the scaffold instead of an undressed base-body stage. */
+    bodyConstruction?: 'clothed-scaffold-v1'
     /** V4 part count follows agent admission; other experiment switches are internal-only. */
     assemblyExperiment?: {
       garmentFit?: Partial<
@@ -1146,12 +1151,22 @@ export type ProductionAnalyzeRequest = RequireAtLeastOne<
           boolean
         >
       >
-      models?: Partial<
-        Record<'planner' | 'review' | 'qaEscalation', string>
-      >
+      models?: Partial<Record<'planner' | 'review' | 'qaEscalation', string>>
       partCount?: 'few' | 'default' | 'detailed'
       v5Assembler?: boolean
+      headBodyFirst?: boolean
       v5Start?: 'placement' | 'fit'
+      /** V5.3/V5 whole-guide correction; internal-only, server-gated. */
+      wholeGuide?: {enabled: true; guideMeshAssetId?: string}
+      /** V5.3 best-of-both switches; internal-only, server-gated by `production_v53_best_of_both_enabled`. */
+      maskedBaseBody?: true
+      baseBodyMode?: 'bodysuit'
+      partImageModel?:
+        /** Retired input alias; the server resolves it to GPT Image 2.5. */
+        | 'google/gemini-3-pro-image'
+        | 'google/gemini-3.1-flash-image'
+        | 'openai/gpt-image-2.5-sunburst'
+      shellConform?: boolean
     }
     skillSelection?: ProductionWorkspaceSkillSelection
     skillPlannerModel?:
@@ -1269,6 +1284,12 @@ export type ProductionRunResult = {
 }
 
 export type MeshComposeRequest = {
+  /** Internal-only owned evidence; server capabilities and worker payloads are private. */
+  headBodyConnection?: {
+    enabled: true
+    selectionRef: {graphId: string; artifactId: string; sha256: string}
+  }
+
   skillSelection?: ProductionWorkspaceSkillSelection
   baseBodyAssetId?: string
   agentRuntime?: ComposerAgentRuntime
@@ -1371,7 +1392,10 @@ export type MeshRefineRequest = {
   skillAssemblyReasoning?: 'low' | 'medium' | 'high'
   assemblyPolicy?: 'body_first_v1'
   initialPlacementOnly?: boolean
-  dressingGeneration?: {maxCredits: number; sourceImageAssetIds: Record<string, string>}
+  dressingGeneration?: {
+    maxCredits: number
+    sourceImageAssetIds: Record<string, string>
+  }
   skillSelection?: ProductionWorkspaceSkillSelection
   geometryBackend?: 'blender'
   referenceMode?: 'front' | 'all_angles'
@@ -1507,6 +1531,9 @@ export type ProductionAgent = {
   /** Conditional policy access does not grant unrestricted graph execution. */
   supportedAssemblyPolicies?: NonNullable<
     ProductionAnalyzeRequest['assemblyPolicy']
+  >[]
+  supportedBodyConstructions?: NonNullable<
+    ProductionAnalyzeRequest['bodyConstruction']
   >[]
   requiredAssemblyPipelineDepth?: 'composition'
   graphEndpoint?: string
@@ -2505,10 +2532,9 @@ export class AssetHubClient {
       (
         await this.request<SkillMemoryLinks>(
           'v2',
-          withQuery(
-            `/workspace-skills/${encodeURIComponent(skillId)}/memory`,
-            {revision: options.revision},
-          ),
+          withQuery(`/workspace-skills/${encodeURIComponent(skillId)}/memory`, {
+            revision: options.revision,
+          }),
           {method: 'GET'},
         )
       ).data,
@@ -2632,7 +2658,46 @@ export class AssetHubClient {
         )
       ).data,
 
-    /** Looks right (`keep`) / Needs changes (`not_right`). Free; changes neither the skill nor the run. */
+    /** Answer a goal run's question (`goal.question`); the run continues with it. */
+    answerWorkspaceSkillRun: async (
+      skillId: string,
+      runId: string,
+      answer: string,
+    ): Promise<WorkspaceSkillRun> =>
+      (
+        await this.request<WorkspaceSkillRun>(
+          'v2',
+          `/workspace-skills/${encodeURIComponent(skillId)}/runs/${encodeURIComponent(runId)}/answer`,
+          {method: 'POST', body: JSON.stringify({answer})},
+        )
+      ).data,
+
+    /** Stop a goal run after its current step; everything made so far is kept. */
+    stopWorkspaceSkillRun: async (
+      skillId: string,
+      runId: string,
+    ): Promise<WorkspaceSkillRun> =>
+      (
+        await this.request<WorkspaceSkillRun>(
+          'v2',
+          `/workspace-skills/${encodeURIComponent(skillId)}/runs/${encodeURIComponent(runId)}/stop`,
+          {method: 'POST', body: '{}'},
+        )
+      ).data,
+
+    /** Store an authored ag.memory-skill.v8 skill.json in the workspace (next revision). */
+    importWorkspaceGoalSkill: async (
+      body: Record<string, unknown>,
+    ): Promise<WorkspaceGoalSkillImported> =>
+      (
+        await this.request<WorkspaceGoalSkillImported>(
+          'v2',
+          '/workspace-skills/goal-skills',
+          {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    /** Keep (`keep`) / Not right (`not_right`). Free; changes neither the skill nor the run. */
     recordWorkspaceSkillRunVerdict: async (
       skillId: string,
       runId: string,
@@ -2717,14 +2782,15 @@ export class AssetHubClient {
         )
       ).data,
 
-    getWorkspaceSkillDraftSchema: async (): Promise<WorkspaceSkillDraftSchema> =>
-      (
-        await this.request<WorkspaceSkillDraftSchema>(
-          'v2',
-          '/workspace-skills/drafts/schema',
-          {method: 'GET'},
-        )
-      ).data,
+    getWorkspaceSkillDraftSchema:
+      async (): Promise<WorkspaceSkillDraftSchema> =>
+        (
+          await this.request<WorkspaceSkillDraftSchema>(
+            'v2',
+            '/workspace-skills/drafts/schema',
+            {method: 'GET'},
+          )
+        ).data,
 
     dryRunWorkspaceSkillBuild: async (
       body: WorkspaceSkillBuildInput,
@@ -2771,14 +2837,15 @@ export class AssetHubClient {
         )
       ).data,
 
-    listOfficialWorkspaceSkills: async (): Promise<OfficialWorkspaceSkillList> =>
-      (
-        await this.request<OfficialWorkspaceSkillList>(
-          'v2',
-          '/workspace-skills/official',
-          {method: 'GET'},
-        )
-      ).data,
+    listOfficialWorkspaceSkills:
+      async (): Promise<OfficialWorkspaceSkillList> =>
+        (
+          await this.request<OfficialWorkspaceSkillList>(
+            'v2',
+            '/workspace-skills/official',
+            {method: 'GET'},
+          )
+        ).data,
 
     installOfficialWorkspaceSkill: async (
       skillId: string,

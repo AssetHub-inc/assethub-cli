@@ -30,12 +30,13 @@ const readBody = async (request: IncomingMessage) => {
 // @testdoc Native requested input contains only the node pointer: explicit export and refinement must reuse frozen owned sources and the latest saved scene without resubmitting images or replaying internal execution fields.
 it.each([
   {command: 'run', previousOperation: 'mesh.compose', override: false},
+  {command: 'run', previousOperation: 'mesh.compose', override: false, modelOverride: 'V5.2'},
   {command: 'run', previousOperation: 'mesh.compose', override: true},
   {command: 'refine', previousOperation: 'mesh.compose', override: false},
   {command: 'refine', previousOperation: 'mesh.refine', override: false},
   {command: 'refine', previousOperation: 'mesh.refine', override: false, effortOverride: 'thorough'},
   {command: 'refine', previousOperation: 'mesh.refine', override: false, modeOverride: 'standard'},
-])('reuses native $previousOperation sources for composer $command (override=$override)', async ({command, previousOperation, override, modeOverride, effortOverride}) => {
+])('reuses native $previousOperation sources for composer $command (override=$override)', async ({command, previousOperation, override, modeOverride, effortOverride, modelOverride}) => {
   const stateDir = await mkdtemp(join(tmpdir(), 'assethub-native-lineage-'))
   cleanup.push(() => rm(stateDir, {recursive: true, force: true}))
   const canvas = {id: 42, name: 'Native Composer', ownerId: 'org-a', url: 'https://api.test/workflow/42'}
@@ -78,6 +79,7 @@ it.each([
     ...(command === 'refine' ? ['--instruction', 'Align the saved parts'] : []),
     ...(modeOverride ? ['--mode', modeOverride] : []),
     ...(effortOverride ? ['--effort', effortOverride] : []),
+    ...(modelOverride ? ['--model', modelOverride] : []),
     ...(override ? ['--transforms-json', JSON.stringify({mesh_latest: originalTransform})] : []),
   ])
   if (modeOverride) {
@@ -88,6 +90,7 @@ it.each([
   }
   expect(result.code, JSON.stringify(result.json)).toBe(0)
   expect(posted).toHaveLength(1)
+  if (modelOverride) expect(posted[0]).toHaveProperty('agentVersion', 'part_composer_v5_2_staged_fit')
   expect(posted[0]).toMatchObject({agentRuntime: frozen.agentRuntime, parts: [{assetId: 'mesh_latest', name: 'Body', canonicalKey: 'body'}], fullBodyImageAssetId: 'saved-reference', transforms: {mesh_latest: override ? originalTransform : transform}, executionContext: {canvasId: 42, parentRunId: 'native-run'}})
   for (const key of ['nativeRunMode', 'nativeNodeId', 'nativeScene', 'nativeNodeInputFingerprint', 'operationKey', 'quickRunId', 'quickScene', 'workspaceSkillRun']) expect(posted[0]).not.toHaveProperty(key)
   if (command === 'run') {

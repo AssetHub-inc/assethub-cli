@@ -1,5 +1,5 @@
 /**
- * Client-side validation for the internal-only `assemblyExperiment` body field
+ * Client-side validation for the `assemblyExperiment` body field
  * of `production analyze` (V4 Character Assembly). Mirrors the server schema in
  * `apps/frontend/src/feature/artifactGraph/util/assemblyExperiment.ts`; the
  * server remains the authority, this only fails fast before a paid request.
@@ -21,6 +21,7 @@ export const PART_COUNT_VALUES = ['few', 'default', 'detailed'] as const
 
 export const V5_START_VALUES = ['placement', 'fit'] as const
 
+/** Mirrors `PART_IMAGE_MODELS` on the server (assethub-ml `DRAW_OVERRIDES`). */
 export const PART_IMAGE_MODELS = [
   'google/gemini-3-pro-image',
   'google/gemini-3.1-flash-image',
@@ -36,6 +37,31 @@ export type AssemblyExperimentInput = {
   v5Start?: (typeof V5_START_VALUES)[number]
   garmentFit?: Partial<Record<(typeof GARMENT_FIT_FLAGS)[number], boolean>>
   models?: Partial<Record<(typeof MODEL_ROLES)[number], string>>
+  wholeGuide?: {enabled: true; guideMeshAssetId?: string}
+  /** V5.3 best-of-both switches (internal, V5.3 only). */
+  maskedBaseBody?: true
+  shellConform?: boolean
+}
+
+const MESH_ASSET_ID = /^mesh_[1-9]\d*$/
+
+const validateWholeGuide = (
+  value: unknown,
+): NonNullable<AssemblyExperimentInput['wholeGuide']> => {
+  if (!isRecord(value) || value.enabled !== true)
+    throw new Error(
+      '--assembly-experiment: wholeGuide must be {"enabled": true, "guideMeshAssetId"?: "mesh_<id>"}',
+    )
+  assertKeys(value, ['enabled', 'guideMeshAssetId'], 'wholeGuide')
+  if (value.guideMeshAssetId === undefined) return {enabled: true}
+  if (
+    typeof value.guideMeshAssetId !== 'string' ||
+    !MESH_ASSET_ID.test(value.guideMeshAssetId)
+  )
+    throw new Error(
+      '--assembly-experiment: wholeGuide.guideMeshAssetId must look like mesh_<id>',
+    )
+  return {enabled: true, guideMeshAssetId: value.guideMeshAssetId}
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -58,10 +84,34 @@ const validate = (json: unknown): AssemblyExperimentInput => {
     throw new Error('--assembly-experiment must be a JSON object')
   assertKeys(
     json,
-    ['garmentFit', 'models', 'v5Assembler', 'v5Start', 'partCount', 'partImageModel', 'pipelineHarness', 'headBodyFirst'],
+    [
+      'garmentFit',
+      'models',
+      'v5Assembler',
+      'v5Start',
+      'partCount',
+      'partImageModel',
+      'pipelineHarness',
+      'headBodyFirst',
+      'wholeGuide',
+      'maskedBaseBody',
+      'shellConform',
+    ],
     'the root object',
   )
   const out: AssemblyExperimentInput = {}
+  if (json.maskedBaseBody !== undefined) {
+    if (json.maskedBaseBody !== true)
+      throw new Error('--assembly-experiment: maskedBaseBody must be true')
+    out.maskedBaseBody = true
+  }
+  if (json.shellConform !== undefined) {
+    if (typeof json.shellConform !== 'boolean')
+      throw new Error('--assembly-experiment: shellConform must be true or false')
+    out.shellConform = json.shellConform
+  }
+  if (json.wholeGuide !== undefined)
+    out.wholeGuide = validateWholeGuide(json.wholeGuide)
   if (json.garmentFit !== undefined) {
     if (!isRecord(json.garmentFit))
       throw new Error('--assembly-experiment: garmentFit must be an object')
@@ -137,14 +187,34 @@ export const buildAssemblyExperiment = ({
   json,
   garmentFit,
   partCount,
+  wholeGuide,
+  wholeGuideMesh,
 }: {
   json?: unknown
   garmentFit?: string
   partCount?: string
+  wholeGuide?: boolean
+  wholeGuideMesh?: string
 }): AssemblyExperimentInput | undefined => {
-  if (json === undefined && garmentFit === undefined && partCount === undefined)
+  if (wholeGuideMesh !== undefined && wholeGuide !== true)
+    throw new Error('--whole-guide-mesh requires --whole-guide')
+  if (
+    json === undefined &&
+    garmentFit === undefined &&
+    partCount === undefined &&
+    wholeGuide !== true
+  )
     return undefined
   const base = json === undefined ? {} : validate(json)
+  if (wholeGuide === true)
+    base.wholeGuide = validateWholeGuide({
+      enabled: true,
+      ...(wholeGuideMesh === undefined
+        ? base.wholeGuide?.guideMeshAssetId === undefined
+          ? {}
+          : {guideMeshAssetId: base.wholeGuide.guideMeshAssetId}
+        : {guideMeshAssetId: wholeGuideMesh}),
+    })
   if (partCount !== undefined) {
     if (!(PART_COUNT_VALUES as readonly string[]).includes(partCount))
       throw new Error(

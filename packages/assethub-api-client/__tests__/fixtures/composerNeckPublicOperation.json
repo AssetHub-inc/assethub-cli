@@ -1,0 +1,151 @@
+{
+  "operation": "POST /mesh/compose",
+  "operationId": "671e997a-67e0-4ddc-87e9-bb69702ae148",
+  "workspaceId": "22222222-2222-4222-8222-222222222222",
+  "runId": "run_neck_contract_fixture",
+  "request": {
+    "agentVersion": "part_composer_v5_2_staged_fit",
+    "baseBodyAssetId": "mesh_154016",
+    "parts": [
+      {
+        "assetId": "mesh_154016"
+      },
+      {
+        "assetId": "mesh_154019"
+      }
+    ],
+    "fullBodyImageAssetId": "image_8c98f54a-98dd-4802-857b-22bbb9fdcbdc_0_0_color",
+    "headBodyConnection": {
+      "enabled": true,
+      "selectionRef": {
+        "graphId": "33333333-3333-4333-8333-333333333333",
+        "artifactId": "owned-approved-selection-fixture",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    "executionContext": {
+      "canvasId": 51877,
+      "clientOperationId": "671e997a-67e0-4ddc-87e9-bb69702ae148",
+      "source": "cli"
+    }
+  },
+  "terminal": {
+    "success": true,
+    "data": {
+      "runId": "run_neck_contract_fixture",
+      "status": "needs_review",
+      "outputs": [],
+      "headBodyConnection": {
+        "status": "needs_review",
+        "reasonCode": "source_qa_required",
+        "acceptanceScope": "neck-connection",
+        "creatorApproval": "pending",
+        "delivered": false
+      }
+    }
+  },
+  "publicOptionSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["enabled", "selectionRef"],
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "const": true
+      },
+      "selectionRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["graphId", "artifactId", "sha256"],
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "artifactId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    }
+  },
+  "openapi": {
+    "paths": {
+      "/mesh/compose": {
+        "post": {
+          "summary": "Compose existing parts",
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshComposeRequest"
+                }
+              }
+            }
+          }
+        }
+      },
+      "/runs/{runId}": {
+        "get": {
+          "summary": "Read existing composition",
+          "parameters": [
+            {
+              "name": "runId",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "MeshComposeRequest": {
+          "type": "object",
+          "properties": {
+            "headBodyConnection": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enabled", "selectionRef"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "selectionRef": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["graphId", "artifactId", "sha256"],
+                  "properties": {
+                    "graphId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "artifactId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -16,15 +16,15 @@ assethub setup --dry-run            # show every command and file change, change
 current state first and reports it as unchanged, updated, or (with `--dry-run`)
 what it would change.
 
-| Step | What it does |
-| --- | --- |
-| `login` | Reuses a saved key, or reads one from `--api-key-stdin`, `ASSETHUB_API_KEY` or a prompt. |
-| `workspace` | Uses `--workspace`, the saved selection, or asks you to pick one. |
-| agents | Finds Claude Code, Codex and Cursor on this machine (their folder or command), or uses `--agent`. |
-| `mcp` | Registers the `assethub` MCP server in each agent: Claude Code through `claude mcp add-json ... --scope user` (Claude Code owns `~/.claude.json`; when `claude` is not on PATH, for example with only an IDE extension, setup writes the same entry into that file itself), Codex as an `[mcp_servers.assethub]` section in `$CODEX_HOME/config.toml`, Cursor as `mcpServers.assethub` in `~/.cursor/mcp.json`. A file setup writes itself is backed up as `<file>.bak-<timestamp>` first and replaced in one step. If `claude mcp add` fails while replacing an outdated entry, the previous entry is put back. |
-| `skills` | Installs the bundled `assethub` skill under `~/.agents/skills/assethub` and links it into each agent's skill folder, so the agent knows the command sequence, cost rules and recovery steps. |
-| `app-env` | macOS: makes `ASSETHUB_API_KEY` visible to apps started from the Dock (see below). |
-| `doctor` | Runs `doctor --mcp` and prints a checklist (`--json` for machine output). |
+| Step        | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `login`     | Reuses a saved key, or reads one from `--api-key-stdin`, `ASSETHUB_API_KEY` or a prompt.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `workspace` | Uses `--workspace`, the saved selection, or asks you to pick one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| agents      | Finds Claude Code, Codex and Cursor on this machine (their folder or command), or uses `--agent`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `mcp`       | Registers the `assethub` MCP server in each agent: Claude Code through `claude mcp add-json ... --scope user` (Claude Code owns `~/.claude.json`; when `claude` is not on PATH, for example with only an IDE extension, setup writes the same entry into that file itself), Codex as an `[mcp_servers.assethub]` section in `$CODEX_HOME/config.toml`, Cursor as `mcpServers.assethub` in `~/.cursor/mcp.json`. A file setup writes itself is backed up as `<file>.bak-<timestamp>` first and replaced in one step. If `claude mcp add` fails while replacing an outdated entry, the previous entry is put back. |
+| `skills`    | Installs the bundled `assethub` skill under `~/.agents/skills/assethub` and links it into each agent's skill folder, so the agent knows the command sequence, cost rules and recovery steps.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `app-env`   | macOS: makes `ASSETHUB_API_KEY` visible to apps started from the Dock (see below).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `doctor`    | Runs `doctor --mcp` and prints a checklist (`--json` for machine output).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 Choose agents with `--agent claude-code|codex|cursor` (repeat it, or separate
 names with commas; `claude` also works). Run only some steps with
@@ -66,7 +66,7 @@ starts Claude Code or Codex. The key is redacted
 
 ```sh
 assethub update --check            # JSON: up_to_date or update_available
-assethub update                    # upgrade a global install now; the saved login is kept
+assethub update                    # upgrade a global install now; keeps the saved login, overwrites the agent skill
 assethub setup --no-auto-update    # turn background updates off (--auto-update turns them on)
 ```
 
@@ -267,6 +267,9 @@ assethub mesh download mesh_123 --out-dir ./meshes
 assethub graph list --limit 25
 assethub graph show --graph "$GRAPH_ID"
 assethub graph export --graph "$GRAPH_ID" --out ./graph.json
+# Per-stage wall-clock (count, first start, last completion, sum/max duration)
+# from node metadata.timing, grouped by stage:* tag. Export keeps metadata.timing.
+assethub graph timeline --graph "$GRAPH_ID"
 assethub graph lineage --graph "$GRAPH_ID" --artifact "$NODE_ID" --direction ancestors
 ```
 
@@ -490,6 +493,31 @@ flags and merges them into that JSON. Unknown keys are rejected client-side. The
 `google/gemini-3.1-flash-image`. Saved `google/gemini-3-pro-image` and
 `-preview` pins are replaced with GPT Image 2.5 Sunburst before dispatch.
 Nano Banana Pro is retired; the server enforces the replacement's access and pricing.
+
+Internal V4 actors with the `workflow_v4_clothed_scaffold_enabled` rollout gate can add
+`--body-construction clothed-scaffold-v1` to `production analyze` or `production batch`.
+This explicitly keeps the source outfit on the scaffold and avoids a separate undressed
+base-body stage. Omitting it preserves the existing V4 flow. Other agents and gate-off
+actors are refused before graph billing; provider safety filters remain active.
+
+Internal V5.3/V5 actors can opt a run into the whole-guide correction with
+`--whole-guide [--whole-guide-mesh mesh_<id>]` (or `{"wholeGuide":{"enabled":true,"guideMeshAssetId":"mesh_<id>"}}`
+in `--assembly-experiment`). It reuses the internal `workflow_part_composer_v8_whole_guide_enabled` gate: the server
+silently drops it for other agents or when the gate is off, and rejects a guide mesh your workspace does not own.
+Omitting it leaves the request unchanged.
+
+Internal V5.3 actors can also send the "best-of-both" assembly switches through `--assembly-experiment`:
+`maskedBaseBody` (`true`) and `shellConform` (boolean), next to `partImageModel`, `v5Assembler`, `v5Start`,
+`garmentFit` and `wholeGuide`. The server keeps them only for an internal V5.3 start and, when the
+`production_v53_best_of_both_enabled` gate passes, fills in any of them you left unset (explicit values win).
+Select the agent with `--part-extractor v5.3` (`ah_agent_graph_harpy_assembly_v5_3`) or one of the internal
+V5 variants `v5.0.1`, `v5.0.2` or `v5.0.4`.
+
+```sh
+assethub production analyze --file ./concept.png --part-extractor v5.3 --assembly-experiment \
+  '{"v5Assembler":true,"maskedBaseBody":true,"shellConform":true,"v5Start":"fit","wholeGuide":{"enabled":true}}' --wait
+assethub production analyze --file ./concept.png --part-extractor v5.3 --whole-guide --whole-guide-mesh mesh_123 --wait
+```
 
 V4 actors with the mesh-quality rollout (internal and named V4 testers) can choose the
 mesh quality and the models the run may use, like the canvas start card. The whole run
@@ -864,7 +892,7 @@ assethub parts compare --file ./input.png --preprocess-prompt "clean white backg
 assethub runs upload ./out/pluffy-run-2026-07-30 --dry-run
 ```
 
-Uploading a local artifact-graph run:
+### Uploading a local artifact-graph run
 
 ```sh
 # Validate the run folder without sending anything.
@@ -1016,7 +1044,13 @@ expired proof by logging in again. Explicit `--profile` uses its saved proof and
 ignores environment credentials; an explicit `--api-key` can supply the workspace
 key. Generation uses normal workspace credits.
 
+`composer run --model V5.2 --base-body <body-mesh-id> --part <garment-mesh-id> --reference <image-id>` selects internal Staged garment fit (`part_composer_v5_2_staged_fit`). The body is included in `parts` automatically. It preserves the body, runs proportion, pose and clearance reviews, and returns `needs_review`. Its default wait limit is 45 minutes.
+
+`composer run --model V5.3` selects internal V5.3 Staged Fit+ (`part_composer_v5_3_staged_fit`): the V5.2 staged fit plus recovery, turntable consistency and modular fit repair. It takes the same `--base-body`/`--part` flags as V5.2 and is advertised only to gated users.
+
 `composer run --model V6` selects Auto assemble (`part_composer_v6_auto_assemble`).
+
+`composer run --model V8 --whole-guide [--whole-guide-mesh <mesh-id>]` opts V8 into the internal whole-guide option. V5.3 enables the same stage by default only when the internal gate passes; `--whole-guide-mesh <mesh-id>` selects an owned GLB guide. Both models accept `wholeGuide` through `--input-json`; other models reject it. The source/body/UV guards and saved-delivery checks must pass before the corrected result replaces the predecessor.
 `composer run --model V5.1` runs Skill assembly: the CLI sends it as a codex
 `mesh.refine` with `skillAssembly: "assemble-character"` because the server runs
 the bundled Character Assembly skill in the Blender sandbox, not as a compose
@@ -1077,7 +1111,6 @@ The second returns the live description and input schema for one tool, including
 required fields. Both use the selected profile and the same bounded checks as
 `doctor --mcp`; they do not invoke tools or spend credits. Discover names first
 because server capabilities can change.
-
 
 ### Team members
 

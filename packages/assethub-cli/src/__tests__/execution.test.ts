@@ -64,6 +64,43 @@ const stateDir = async () => {
 }
 
 describe('recorded CLI execution', () => {
+  // @testdoc Repeated polls stay quiet while status and history transitions remain visible.
+  it('reports progress only when execution state changes', async () => {
+    const states = [
+      receipt('run-quiet'),
+      receipt('run-quiet'),
+      {
+        ...receipt('run-quiet', 'running'),
+        history: {status: 'pending' as const},
+      },
+      {
+        ...receipt('run-quiet', 'running'),
+        history: {status: 'pending' as const},
+      },
+      receipt('run-quiet', 'running'),
+      receipt('run-quiet', 'completed'),
+    ]
+    const client = createAssetHubClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://api.test',
+      fetch: async () => ok(states.shift()),
+    })
+    const onProgress = vi.fn()
+    const result = await waitForExecution(client, 'run-quiet', {
+      intervalMs: 1,
+      onProgress,
+    })
+    expect(
+      onProgress.mock.calls.map(([run]) => [run.status, run.history.status]),
+    ).toEqual([
+      ['queued', 'recorded'],
+      ['running', 'pending'],
+      ['running', 'recorded'],
+      ['completed', 'recorded'],
+    ])
+    expect(result.status).toBe('completed')
+  })
+
   // @testdoc A confirmed dispatch failure keeps its server receipt ID for CLI error output and resumes by reading that receipt without another POST.
   it.each([false, true])('preserves a failed run ID even if its first receipt read fails: %s', async failFirstRead => {
     const dir = await stateDir()

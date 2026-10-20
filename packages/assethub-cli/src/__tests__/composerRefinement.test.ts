@@ -705,6 +705,39 @@ describe('composer V6 and V5.1 from the CLI', () => {
     expect(posted[0]!.body).not.toHaveProperty('decimateRatio')
   })
 
+  // @testdoc Staged fitting's normal CLI flags include the required body once and reach the canonical model.
+  it.each([false, true])('dispatches V5.2 with --base-body (already present=%s)', async present => {
+    const stateDir = await mkdtemp(join(tmpdir(), 'assethub-composer-v52-'))
+    cleanup.push(() => rm(stateDir, {recursive: true, force: true}))
+    const posted: {url: string; body: Record<string, unknown>}[] = []
+    const result = await runCli(await serve(posted), stateDir, [
+      'composer', 'run', '--canvas', '42', '--part', 'mesh-shirt',
+      ...(present ? ['--part', 'mesh-body'] : []),
+      '--base-body', 'mesh-body', '--reference', 'ref-image', '--model', 'V5.2',
+    ])
+    expect(result.code, result.stderr).toBe(0)
+    expect(posted[0]!.body).toMatchObject({agentVersion: 'part_composer_v5_2_staged_fit', baseBodyAssetId: 'mesh-body'})
+    const parts = posted[0]!.body.parts as {assetId: string}[]
+    expect(parts.filter(part => part.assetId === 'mesh-body')).toHaveLength(1)
+    expect(parts).toHaveLength(2)
+  })
+
+  // @testdoc --whole-guide / --whole-guide-mesh build the wholeGuide request; absent flags leave the body untouched.
+  it.each(['V8', 'V5.3'])('sends wholeGuide only when its flags are given for %s', async model => {
+    const stateDir = await mkdtemp(join(tmpdir(), 'assethub-composer-wg-'))
+    cleanup.push(() => rm(stateDir, {recursive: true, force: true}))
+    const posted: {url: string; body: Record<string, unknown>}[] = []
+    const base = ['composer', 'run', '--canvas', '42', '--part', 'mesh-a=image-a', '--reference', 'ref-image', '--model', model]
+    const url = await serve(posted)
+    expect((await runCli(url, stateDir, base)).code).toBe(0)
+    expect(posted[0]!.body).not.toHaveProperty('wholeGuide')
+    expect((await runCli(url, stateDir, [...base, '--whole-guide'])).code).toBe(0)
+    expect(posted[1]!.body.wholeGuide).toEqual({enabled: true})
+    expect((await runCli(url, stateDir, [...base, '--whole-guide-mesh', 'mesh_9'])).code).toBe(0)
+    expect(posted[2]!.body.wholeGuide).toEqual({enabled: true, guideMeshAssetId: 'mesh_9'})
+    expect((await runCli(url, stateDir, [...base, '--whole-guide-mesh', 'bad'])).code).not.toBe(0)
+  })
+
   it.each(['V5.1', 'skill-assembly', 'part_composer_v5_1_skill_assembly'])(
     'runs Skill assembly (V5.1) as a codex refinement for --model %s',
     async model => {

@@ -69,6 +69,17 @@ const cli = (baseUrl: string, stateDir: string, args: string[]) =>
     })
   })
 
+const characterAssemblyApiValues = new Set([
+  'ah_agent_graph_harpy_assembly_v2',
+  'ah_agent_graph_harpy_assembly_v4_legacy',
+  'ah_agent_graph_harpy_assembly_v2_preserve',
+  'ah_agent_graph_harpy_assembly_v4_1_no_ring',
+  'ah_agent_graph_harpy_assembly_v5_3',
+  'ah_agent_graph_harpy_assembly_v5_0_1',
+  'ah_agent_graph_harpy_assembly_v5_0_2',
+  'ah_agent_graph_harpy_assembly_v5_0_4',
+])
+
 describe('built recorded CLI', () => {
   it.each([false, true])(
     'composes, resumes an unacknowledged receipt=%s, and derives transformed parts',
@@ -295,9 +306,14 @@ describe('built recorded CLI', () => {
     ['Chibi Character (Pluffy) v3.1', 'ah_agent_graph_pluffy_v3_1', 'Chibi Character (Pluffy) v3.1', ['pluffy', 'pluffy v3.1', 'pluffy 3.1']],
     ['V3.7 Artist Skills', 'ah_agent_graph_v3_7', 'V3.7 Artist Skills', ['v3.7', '3.7', 'V3.0.7 Artist Skills', '3.0.7']],
     ['Humanoid Assembly', 'ah_agent_graph_humanoid_assembly_auto', 'Humanoid Assembly', ['Humanoid Assembly (internal)', 'humanoid-assembly', 'humanoid_assembly_auto']],
+    ['V4.1 — No Ring Fit', 'ah_agent_graph_harpy_assembly_v4_1_no_ring', 'V4.1 — No Ring Fit', ['v4.1-no-ring', 'v4.1 no ring fit']],
+    ['V5.0.1 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_1', 'V5.0.1 Character Assembly', ['v5.0.1', '5.0.1', 'v5.0.1 character assembly']],
+    ['V5.0.2 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_2', 'V5.0.2 Character Assembly', ['v5.0.2', '5.0.2', 'v5.0.2 character assembly']],
+    ['V5.0.4 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_4', 'V5.0.4 Character Assembly', ['v5.0.4', '5.0.4', 'v5.0.4 character assembly']],
     ['V5.3 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_3', 'V5.3 Character Assembly', ['v5.3', '5.3', 'v5.3 character assembly']],
     ['V5 Character Assembly', 'ah_agent_graph_harpy_assembly_v2', 'V5 Character Assembly', ['v5', '5', 'v5 character assembly']],
     ['V4 Character Assembly', 'ah_agent_graph_harpy_assembly_v4_legacy', 'V4 Character Assembly', ['v4', '4', 'v4 character assembly', 'character assembly']],
+    ['V4 Character Assembly (Preserve Geometry)', 'ah_agent_graph_harpy_assembly_v2_preserve', 'V4 Character Assembly (Preserve Geometry)', ['v4-preserve', 'v4 preserve geometry']],
   ] as const)('splits and replays %s graphs', async (name, apiValue, label, aliases) => {
     const dir = await mkdtemp(join(tmpdir(), 'assethub-cli-graph-process-'))
     cleanup.push(() => rm(dir, {recursive: true, force: true}))
@@ -520,7 +536,26 @@ describe('built recorded CLI', () => {
     }
     let expectedPostCount = 2 + aliases.length
     expect(posted.at(-1)?.body).not.toHaveProperty('autoRepair')
-    if (apiValue === 'ah_agent_graph_harpy_assembly_v2' || apiValue === 'ah_agent_graph_harpy_assembly_v4_legacy') {
+    // @testdoc V4 analyze forwards clothed scaffold mode and refuses invalid opt-ins before paid dispatch.
+    if (characterAssemblyApiValues.has(apiValue)) {
+      const clothed = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--body-construction', 'clothed-scaffold-v1'])
+      expect(clothed.code, clothed.stderr).toBe(0)
+      expect(posted.at(-1)?.body).toMatchObject({bodyConstruction: 'clothed-scaffold-v1'})
+      expectedPostCount += 1
+      const invalid = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--body-construction', 'invalid'])
+      expect(invalid.code).not.toBe(0)
+      expect(posted).toHaveLength(expectedPostCount)
+      // @testdoc V4 analyze forwards assemblyExperiment from --assembly-experiment and --garment-fit, and refuses bad input before any request.
+      const experiment = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--assembly-experiment', '{"garmentFit":{"wearGraph":false},"models":{"planner":"a/b"}}', '--garment-fit', 'wearGraph,armatureFit'])
+      expect(experiment.code, experiment.stderr).toBe(0)
+      expect(posted.at(-1)?.body.assemblyExperiment).toEqual({
+        garmentFit: {wearGraph: true, armatureFit: true},
+        models: {planner: 'a/b'},
+      })
+      expectedPostCount += 1
+      const badExperiment = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--garment-fit', 'bogus'])
+      expect(badExperiment.code).not.toBe(0)
+      expect(posted).toHaveLength(expectedPostCount)
       // @testdoc V4 analyze sends the mesh quality and its allowed models as meshGeneration.preferences, like the canvas start card.
       const low = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--mesh-quality', 'low', '--mesh-model', 'meshGen.tripo_p2_preview'])
       expect(low.code, low.stderr).toBe(0)
@@ -549,6 +584,14 @@ describe('built recorded CLI', () => {
       // @testdoc Other agents refuse the V4 mesh quality options before any request.
       const refused = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--mesh-quality', 'low'])
       expect(refused.code).not.toBe(0)
+      expect(refused.json.error?.message).toContain('--part-extractor v4')
+      expect(posted).toHaveLength(expectedPostCount)
+      // @testdoc Other agents refuse assemblyExperiment flags before any request.
+      const experimentRefused = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--garment-fit', 'wearGraph'])
+      expect(experimentRefused.code).not.toBe(0)
+      expect(posted).toHaveLength(expectedPostCount)
+      const invalid = await cli(baseUrl, dir, ['production', 'analyze', '--source-id', 'image-asset', '--canvas', '42', '--part-extractor', name, '--body-construction', 'clothed-scaffold-v1'])
+      expect(invalid.code).not.toBe(0)
       expect(posted).toHaveLength(expectedPostCount)
     }
     if (apiValue === 'ah_agent_graph_v3_7_2') {

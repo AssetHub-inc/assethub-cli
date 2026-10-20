@@ -459,6 +459,7 @@ export const waitForExecution = async (
   const pollIntervalMs = () =>
     Math.max(options.intervalMs ?? 5_000, MIN_POLL_INTERVAL_MS) +
     Math.floor(Math.random() * POLL_JITTER_MS)
+  let lastProgress: string | undefined
   while (true) {
     const signal = AbortSignal.timeout(Math.max(1, deadline - Date.now()))
     let execution: CanvasExecution
@@ -486,7 +487,15 @@ export const waitForExecution = async (
       )
     }
     activeExecution.execution = execution
-    options.onProgress?.(execution)
+    const progress = JSON.stringify([
+      execution.status,
+      execution.history.status,
+      execution.progress,
+    ])
+    if (progress !== lastProgress) {
+      options.onProgress?.(execution)
+      lastProgress = progress
+    }
     if (execution.status === 'needs_review') return execution
     if (
       !['queued', 'running'].includes(execution.status) &&

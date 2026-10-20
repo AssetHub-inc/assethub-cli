@@ -92,10 +92,10 @@ describe('resolveLatestVersion', () => {
   })
 })
 
-type Calls = {runs: [string, string[]][]; said: string[]; verified: number}
+type Calls = {runs: [string, string[]][]; said: string[]; verified: number; refreshed: number}
 
 const deps = (overrides: Partial<UpdateDeps> = {}): {deps: UpdateDeps; calls: Calls} => {
-  const calls: Calls = {runs: [], said: [], verified: 0}
+  const calls: Calls = {runs: [], said: [], verified: 0, refreshed: 0}
   return {
     calls,
     deps: {
@@ -110,6 +110,10 @@ const deps = (overrides: Partial<UpdateDeps> = {}): {deps: UpdateDeps; calls: Ca
       verify: async () => {
         calls.verified += 1
         return {version: '0.1.31', auth: 'pass'}
+      },
+      refreshSkills: async () => {
+        calls.refreshed += 1
+        return [{path: '/Users/a/.agents/skills/assethub', change: 'updated', version: '0.1.31'}]
       },
       interactive: false,
       confirm: async () => true,
@@ -197,6 +201,38 @@ describe('runUpdate', () => {
     const {deps: d, calls} = deps({verify: async () => ({version: '0.1.31', auth: 'fail'})})
     expect(await runUpdate({}, d)).toMatchObject({status: 'updated', auth: 'fail'})
     expect(calls.said.join('\n')).toMatch(/assethub doctor/)
+  })
+
+  test('overwrites the installed agent skill with the new version and says so', async () => {
+    const {deps: d, calls} = deps()
+    const report = await runUpdate({}, d)
+    expect(calls.refreshed).toBe(1)
+    expect(report).toMatchObject({
+      status: 'updated',
+      skills: [{path: '/Users/a/.agents/skills/assethub', change: 'updated', version: '0.1.31'}],
+    })
+    expect(calls.said.join('\n')).toMatch(/Agent skill updated: \/Users\/a\/\.agents\/skills\/assethub \(0\.1\.31\)/)
+  })
+
+  test('a skill refresh that fails does not fail the update and says how to retry', async () => {
+    const {deps: d, calls} = deps({
+      refreshSkills: async () => {
+        throw new Error('EACCES')
+      },
+    })
+    expect(await runUpdate({}, d)).toMatchObject({status: 'updated', skills: []})
+    expect(calls.said.join('\n')).toMatch(/EACCES.*assethub setup --only skills/)
+  })
+
+  test('never touches the skill when nothing was installed', async () => {
+    for (const options of [{check: true}, {dryRun: true}]) {
+      const {deps: d, calls} = deps()
+      await runUpdate(options, d)
+      expect(calls.refreshed).toBe(0)
+    }
+    const failed = deps({run: async () => ({code: 1})})
+    await expect(runUpdate({}, failed.deps)).rejects.toThrow()
+    expect(failed.calls.refreshed).toBe(0)
   })
 
   test.each([

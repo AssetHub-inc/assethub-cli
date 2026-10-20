@@ -886,13 +886,17 @@ export type WorkspaceSkillRunStartInput = {
   canvasId: number
   /** The image the skill starts from: an image asset on that canvas. */
   sourceImageAssetId: string
-  budgetCredits: number
+  /** The spending limit, required for a v7 skill. A V8 goal skill's limit is
+   *  internal and the server ignores this. */
+  budgetCredits?: number
   ask?: string
   authorModel?: string
   /** Refuse instead of charge when the skill changed after it was read. */
   expectedRevision?: number
   expectedContentSha256?: string
   references?: WorkspaceSkillRunReference[]
+  /** Goal skills only: the image and mesh models the run may call; a kind left out is not limited. */
+  models?: {image?: string[]; mesh?: string[]}
   executionContext?: {
     canvasId: number
     clientOperationId: string
@@ -955,13 +959,58 @@ export type WorkspaceSkillRun = {
     finals: string[]
     reason: string
   }[]
-  /** Present only where the Looks right / Needs changes gate is on. */
+  /** Present only where the Keep / Not right gate is on. */
   humanVerdict?: unknown
+  /** `goal` for a V8 goal skill run (goal runner); absent for step runs. */
+  kind?: 'goal'
+  goal?: WorkspaceGoalRunState
+}
+
+/** The goal runner's view of a V8 run: its checklist, current step and question. */
+export type WorkspaceGoalRunState = {
+  result:
+    | 'running'
+    | 'waiting'
+    | 'budget_exhausted'
+    | 'completed'
+    | 'needs_review'
+    | 'failed'
+    | 'cancelled'
+  now: string | null
+  question: {question: string; options: string[]} | null
+  checks: {
+    acceptanceId: string
+    text: string
+    required: boolean
+    verdict: 'passed' | 'failed' | 'not_checked' | 'unsupported'
+    judgedBy: 'vlm_3x' | 'checks_py' | 'self' | null
+    tries: number
+    note: string | null
+  }[]
+  counts: {passed: number; failed: number; notChecked: number}
+  drafts: {stage: string; assetId: string; seq: number; part?: string}[]
+  reason: string | null
+  /** A failed run that run-resume continues (its job failed, it ran out of turns, or the sandbox kept failing). */
+  resumable?: boolean
+  /** The image and mesh models the run was limited to; absent when not limited. */
+  modelLimit?: {image?: string[]; mesh?: string[]}
+}
+
+/** The stored pin of an imported V8 goal skill. */
+export type WorkspaceGoalSkillImported = {
+  skillId: string
+  revision: number
+  contentSha256: string
+  title: string
+  schemaVersion: 'ag.memory-skill.v8'
+  /** How many references/* files were stored with this revision. */
+  files: number
 }
 
 export type WorkspaceSkillRunResumeInput = {
   clientOperationId: string
-  addCredits: number
+  /** Required for a v7 run; a V8 goal run continues without it. */
+  addCredits?: number
 }
 
 export type WorkspaceSkillRunVerdictInput = {

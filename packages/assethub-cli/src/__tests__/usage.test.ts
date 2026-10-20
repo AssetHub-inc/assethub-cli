@@ -11,12 +11,25 @@ describe('CLI usage / --help', () => {
     expect(usage).toContain('exit 0: both succeeded; 1: failed; 3: pending/uncertain')
   })
 
+  // @testdoc Internal routing includes safe comparison receipt retrieval and explicitly documents same-ID resume.
+  it('documents routing adoption, restore and same-ID comparison recovery', () => {
+    expect(usage).toContain('assethub models routing')
+    expect(usage).toContain('assethub models apply --input-json')
+    expect(usage).toContain('assethub models rollback')
+    expect(usage).toContain('assethub models comparison <id>')
+    expect(usage).toContain(
+      'persist UUID id in input; reuse identical input to resume',
+    )
+  })
+
   it('documents self-update', () => {
     expect(usage).toContain('assethub update [--check] [--dry-run] [--yes]')
   })
 
   it('documents the new production run and watch commands', () => {
-    expect(usage).toContain('assethub production run --order-id <id> --mission-id <id>')
+    expect(usage).toContain(
+      'assethub production run --order-id <id> --mission-id <id>',
+    )
     expect(usage).toContain('[--run-mode full_auto|approval]')
     expect(usage).toContain('[--max-cost-credits <n>]')
     expect(usage).toContain('assethub production watch <order-id>')
@@ -67,15 +80,21 @@ describe('CLI usage / --help', () => {
     expect(usage).toContain('[--dry-run]')
     expect(usage).toContain('[--rev <n>]')
     expect(usage).toContain('[--graph-id <id>]')
-    expect(usage).toContain('assethub runs upload ./out/pluffy-run-2026-07-30 --dry-run')
+    expect(usage).toContain(
+      'assethub runs upload ./out/pluffy-run-2026-07-30 --dry-run',
+    )
   })
 
   it('documents the rig and animate commands', () => {
     expect(usage).toContain('assethub rig check (')
     expect(usage).toContain('assethub rig create (')
-    expect(usage).toContain('[--rig-type biped|quadruped|hexapod|octopod|avian|serpentine|aquatic]')
+    expect(usage).toContain(
+      '[--rig-type biped|quadruped|hexapod|octopod|avian|serpentine|aquatic]',
+    )
     expect(usage).toContain('assethub animate presets')
-    expect(usage).toContain('assethub animate retarget --resource-id <id> --animation <preset-id>')
+    expect(usage).toContain(
+      'assethub animate retarget --resource-id <id> --animation <preset-id>',
+    )
     // The server caps `animations` at 5; --help says so rather than letting a
     // sixth flag come back as a 400.
     expect(usage).toContain('[--animation <preset-id>... up to 5 total]')

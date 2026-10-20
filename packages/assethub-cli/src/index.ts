@@ -15,7 +15,12 @@ import {
 import {setTimeout as delay} from 'node:timers/promises'
 import {buildAssemblyExperiment} from './assemblyExperiment.js'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
-import {AGENT_IDS, parseAgentIds, syncInstalledSkill, type AgentId} from './agentSetup.js'
+import {
+  AGENT_IDS,
+  parseAgentIds,
+  syncInstalledSkill,
+  type AgentId,
+} from './agentSetup.js'
 import {
   confirmNo,
   confirmYes,
@@ -55,8 +60,10 @@ import {
 } from './updateNotice.js'
 import {runModelRoutingCommand, routingComparisonExitCode} from './modelRouting.js'
 import {ingestProjectSources} from './projectSources.js'
+import {readGoalSkillImport} from './goalSkillImport.js'
 import {downloadCanvas} from './canvasDownload.js'
 import {downloadCanvasGraphZip} from './canvasGraphDownload.js'
+import {buildGraphTimeline} from './graphTimeline.js'
 import {
   executeNodeMeshBatch,
   resumeNodeMeshBatch,
@@ -74,6 +81,8 @@ import {
 } from './productionBatch.js'
 import {importCanvasAssetWithState} from './canvasAssetImport.js'
 import {
+  goalModelLimit,
+  isListedGoalSkill,
   listRunnableSkills,
   nextSkillRunAction,
   pinSkill,
@@ -154,6 +163,12 @@ import {
 } from './execution.js'
 import {batchReporter, runReporter} from './progressReport.js'
 
+import {parseMeshReviewArgs} from './meshReview/args.js'
+import {runMeshReviewCommand} from './meshReview/command.js'
+import {explainMeshReviewError, formatMeshReviewProjectCreated, formatMeshReviewProjects} from './meshReview/errors.js'
+import {createMeshReviewProject, listMeshReviewProjects} from './meshReview/projects.js'
+import {findEngineCli, runEngine} from './meshReview/runEngine.js'
+import {MeshReviewSyncError, syncMeshReview} from './meshReview/syncMeshReview.js'
 import {buildRunUploadPlan, formatBytes} from './runsUpload/buildRunUpload.js'
 import {readGraphFolder} from './runsUpload/graphFolder.js'
 import {uploadRun} from './runsUpload/uploadRun.js'
@@ -395,6 +410,11 @@ const partExtractorOptions = [
     aliases: ['humanoid assembly (internal)', 'humanoid-assembly', 'humanoid_assembly_auto'],
   },
   {
+    publicName: 'V4.1 — No Ring Fit',
+    apiValue: 'ah_agent_graph_harpy_assembly_v4_1_no_ring',
+    aliases: ['v4.1-no-ring', 'v4.1 no ring fit'],
+  },
+  {
     publicName: 'V4 Character Assembly',
     apiValue: 'ah_agent_graph_harpy_assembly_v4_legacy',
     aliases: ['v4', '4', 'v4 character assembly', 'character assembly'],
@@ -405,11 +425,41 @@ const partExtractorOptions = [
     aliases: ['v5', '5', 'v5 character assembly'],
   },
   {
+    publicName: 'V5.0.1 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_1',
+    aliases: ['v5.0.1', '5.0.1', 'v5.0.1 character assembly'],
+  },
+  {
+    publicName: 'V5.0.2 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_2',
+    aliases: ['v5.0.2', '5.0.2', 'v5.0.2 character assembly'],
+  },
+  {
+    publicName: 'V5.0.4 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_4',
+    aliases: ['v5.0.4', '5.0.4', 'v5.0.4 character assembly'],
+  },
+  {
     publicName: 'V5.3 Character Assembly',
     apiValue: 'ah_agent_graph_harpy_assembly_v5_3',
     aliases: ['v5.3', '5.3', 'v5.3 character assembly'],
   },
+  {
+    publicName: 'V4 Character Assembly (Preserve Geometry)',
+    apiValue: 'ah_agent_graph_harpy_assembly_v2_preserve',
+    aliases: ['v4-preserve', 'v4 preserve geometry'],
+  },
 ] as const satisfies readonly PartExtractorOption[]
+
+const isV4CharacterAssembly = (version: string): boolean =>
+  version === 'ah_agent_graph_harpy_assembly_v2' ||
+  version === 'ah_agent_graph_harpy_assembly_v4_legacy' ||
+  version === 'ah_agent_graph_harpy_assembly_v2_preserve' ||
+  version === 'ah_agent_graph_harpy_assembly_v4_1_no_ring' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_3' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_1' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_2' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_4'
 
 // A V4 Character Assembly run (image → parts → meshes → assembled character) takes
 // about an hour, so `--wait` defaults past the generic 15 minute limit.
@@ -516,7 +566,7 @@ Usage:
   assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--effort light|standard|thorough] [--max-rounds <n>] [--agent-model <provider:id|unambiguous-id>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --from-run <run-id> --skill-assembly [--reasoning low|medium|high] [--agent-model <agents-api model>] [--wait]
-  assethub composer run --part <mesh-asset-id>[=<part-image-id>] [--part <mesh-asset-id>[=<part-image-id>]...] --reference <image-asset-id> [--model <id>] [--agent-model <provider:id|unambiguous-id>] [--mode quick|quality] [--optimize off|light|medium|heavy] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer run --part <mesh-asset-id>[=<part-image-id>] [--part <mesh-asset-id>[=<part-image-id>]...] --reference <image-asset-id> [--model <id>] [--base-body <mesh-asset-id>] [--whole-guide] [--whole-guide-mesh <mesh-asset-id>] [--agent-model <provider:id|unambiguous-id>] [--mode quick|quality] [--optimize off|light|medium|heavy] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --part <mesh-asset-id>=<part-image-id>... --reference <image-asset-id> --model V6 [--optimize off|light|medium|heavy] [--canvas <id>] [--wait]
   assethub composer run --part <mesh-asset-id>... --reference <image-asset-id> --model V5.1 [--reasoning low|medium|high] [--agent-model <agents-api model>] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
@@ -532,6 +582,7 @@ Usage:
   assethub graph list [--cursor <cursor>] [--limit <n>]
   assethub graph show|export [--canvas <id> | --graph <id>] [--source generated|upload] [--artifact <node-id>] [--out <path>] [--allow-truncated]
   assethub graph lineage --artifact <node-id> [--canvas <id> | --graph <id>] [--source generated|upload] [--direction ancestors|descendants|both] [--depth <n>] [--out <path>]
+  assethub graph timeline [--canvas <id> | --graph <id>] [--source generated|upload]   (per-stage wall-clock from node metadata.timing grouped by stage:* tag; graph export keeps metadata.timing)
   assethub graph snapshot <graph-id> [--offset <n>] [--limit <n>]
   assethub graph node <graph-id> <node-id>
   assethub graph image <graph-id> <node-id> [--out <path>]
@@ -555,7 +606,7 @@ Usage:
   assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
   assethub jobs get <job-id> [--download --out-dir <dir>]
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
-  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--assembly-experiment <json|@file>] [--garment-fit <flag,flag>] [--name <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--assembly-experiment <json|@file>] [--garment-fit <flag,flag>] [--whole-guide [--whole-guide-mesh <mesh-asset-id>]] [--name <name>] [--base-body <mesh-asset-id>] [--body-construction clothed-scaffold-v1] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
     Production graph options: --pipeline-depth parts|mesh|composition [--assembly-policy concept-to-character-v1] [--mesh-generation-json <json|@file>]
     V4 mesh options: [--mesh-quality low|high] [--mesh-model <model-id>...] (the run only uses these models; default low = meshGen.tripo_p2_preview)
   assethub production batch (--file <path>... | --files-dir <dir> | --source-id <id>... | --source-url <url>...) --part-extractor <name> [--repeat <n>] [--yes] [--canvas <id>] [--operation-id <uuid>] [--wait [--concurrency <n>]] [--download --out-dir <dir>]
@@ -571,6 +622,10 @@ Usage:
   assethub production interventions <order-id>
   assethub production resume <run-id|order-id> [--expected-resume-count <n>] [--wait] [--timeout-ms <ms>] [--download --out-dir <dir>]   (after a fix, pick a stopped or stalled graph run back up; no new start fee; new generation uses credits)
   assethub runs upload <path> [--graph-id <id>] [--stream-id <id>] [--rev <n>] [--description <text>] [--tag <tag>...] [--skip-register] [--dry-run]
+  assethub mesh-review run <folder...> --project <name-or-id> [--asset <key>] [--out <dir>] [--baseline <findings.json>] [--config <toml>] [--reference <front.png>[,<side.png>[,<back.png>]] | --no-concept "<reason>"] [--skip-hp] [--no-render] [--no-sync] [--dry-run] [--engine-dir <path>]   (internal: runs the review engine in local headless Blender, then syncs; exit 0 clean, 1 errors found, 2 failure)
+  assethub mesh-review sync <findings.json> --project <name-or-id> [--asset <key>] [--dry-run]   (internal: upload a run made earlier; repeat the same command to resume)
+  assethub mesh-review projects [--json]   (internal: list the projects of this key's workspace, id + name)
+  assethub mesh-review projects create <name> [--json]   (internal: create a Production Control project in this key's workspace; an existing project of that name is returned, not duplicated)
   assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--part-count few|default|detailed] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
@@ -592,11 +647,14 @@ Usage:
   assethub skills build-enhance <build-id> --section <section> --current <json|@file|@-> [--note <text>]   (a suggestion only; nothing is written)
   assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
   assethub skills build-discard <build-id>
-  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to --budget)
+  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) [--budget <credits>] [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--image-model <id>]... [--mesh-model <id>]... [--wait] [--out-dir <dir>]   (PAID: pays what it uses; past the internal limit it pauses until run-resume. --budget only where the server still asks for one)
   assethub skills run-list [--file <image>] [--all] [--limit <n>]   (runs started from this folder, newest first, with their status)
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
-  assethub skills run-resume <skill-id> <run-id> --add-credits <n> [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to the new limit)
+  assethub skills run-resume <skill-id> <run-id> [--add-credits <n>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID: continues past the limit; --add-credits only where the server still asks for an amount)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
+  assethub skills import-goal <skill-folder|skill.json>   (store an authored ag.memory-skill.v8 skill and its references/ files in the workspace; run it with skills run <skill-id> --goal)
+  assethub skills run-answer <skill-id> <run-id> --answer <option> [--wait]   (a goal run that asked a question continues with your answer)
+  assethub skills run-stop <skill-id> <run-id>   (a goal run stops after its current step; everything made so far is kept)
   assethub skills official list
   assethub skills official install <skill-id> --revision <n> --content-sha256 <sha256> [--expected-revision <n>] [--expected-grant-revision <n>]
   assethub skills official prepare <skill-id> --input-json <json|@file|@->
@@ -776,21 +834,23 @@ const resolvePartExtractorForAnalyze = (flags: Flags): string =>
 const resolveProductionSkillSelection = (
   flags: Flags,
   agentVersion: string,
-):
-  | {mode: 'auto' | 'manual' | 'off'; skillIds: string[]}
-  | undefined => {
+): {mode: 'auto' | 'manual' | 'off'; skillIds: string[]} | undefined => {
   const mode = getFlag(flags, 'skill-mode')
   const skillIds = getFlagValues(flags, 'skill-id').map(value =>
     assertFlagHasValue(value, '--skill-id <id>'),
   )
   if (mode == null) {
-    if (skillIds.length > 0)
-      throw new Error('--skill-id requires --skill-mode')
+    if (skillIds.length > 0) throw new Error('--skill-id requires --skill-mode')
     return undefined
   }
   if (mode !== 'auto' && mode !== 'manual' && mode !== 'off')
     throw new Error('--skill-mode must be "auto", "manual", or "off"')
-  if (agentVersion !== 'ah_agent_graph_v3_7' && agentVersion !== 'ah_agent_graph_v3_7_1' && agentVersion !== 'ah_agent_graph_v3_7_2' && agentVersion !== 'ah_agent_graph_v3_7_3')
+  if (
+    agentVersion !== 'ah_agent_graph_v3_7' &&
+    agentVersion !== 'ah_agent_graph_v3_7_1' &&
+    agentVersion !== 'ah_agent_graph_v3_7_2' &&
+    agentVersion !== 'ah_agent_graph_v3_7_3'
+  )
     throw new Error('--skill-mode is supported only with V3 Artist Skills')
   if (skillIds.length > 3)
     throw new Error('--skill-id accepts at most 3 values')
@@ -811,12 +871,16 @@ const resolveProductionSkillSelection = (
 
 const resolveProductionBaseBody = (flags: Flags): string | undefined => {
   const value = getFlag(flags, 'base-body')
-  return value == null ? undefined : assertFlagHasValue(value, '--base-body <mesh-asset-id>')
+  return value == null
+    ? undefined
+    : assertFlagHasValue(value, '--base-body <mesh-asset-id>')
 }
 
 const resolveSkillPlannerModel = (flags: Flags): string | undefined => {
   const value = getFlag(flags, 'skill-planner-model')
-  return value == null ? undefined : assertFlagHasValue(value, '--skill-planner-model <model>')
+  return value == null
+    ? undefined
+    : assertFlagHasValue(value, '--skill-planner-model <model>')
 }
 
 const publicPartExtractorName = (
@@ -992,12 +1056,21 @@ const readStdinBlob = async (type?: string): Promise<Blob> =>
     stdin.on('error', reject)
   })
 
-const isPersonalProfile = (profile?: Pick<AuthProfile, 'apiKey' | 'authentication'>) =>
-  profile?.authentication === 'personal' || Boolean(profile?.apiKey?.startsWith('ah_pat_'))
+const isPersonalProfile = (
+  profile?: Pick<AuthProfile, 'apiKey' | 'authentication'>,
+) =>
+  profile?.authentication === 'personal' ||
+  Boolean(profile?.apiKey?.startsWith('ah_pat_'))
 
-const personalProfileAuthentication = (apiKey: string, baseUrl: string, profile?: AuthProfile) =>
-  profile?.apiKey === apiKey && new URL(profile.baseUrl).origin === new URL(baseUrl).origin
-    ? profile.authentication : undefined
+const personalProfileAuthentication = (
+  apiKey: string,
+  baseUrl: string,
+  profile?: AuthProfile,
+) =>
+  profile?.apiKey === apiKey &&
+  new URL(profile.baseUrl).origin === new URL(baseUrl).origin
+    ? profile.authentication
+    : undefined
 
 const canDiscoverPersonalKey = (key?: string) =>
   Boolean(key && (key.startsWith('ah_pat_') || /^sk_[a-f0-9]{64}$/i.test(key)))
@@ -1008,38 +1081,75 @@ const preferredApiKey = (flags: Flags, stored?: AuthProfile) =>
     ? stored?.apiKey
     : env.ASSETHUB_API_KEY?.trim() || stored?.apiKey)
 
-const personalAccount = async (auth: Pick<ResolvedAuth, 'apiKey' | 'baseUrl' | 'workspaceId' | 'authentication'>) => {
+const personalAccount = async (
+  auth: Pick<
+    ResolvedAuth,
+    'apiKey' | 'baseUrl' | 'workspaceId' | 'authentication'
+  >,
+) => {
   const knownPersonal = isPersonalProfile(auth)
   if (!knownPersonal && !canDiscoverPersonalKey(auth.apiKey)) return undefined
   try {
-    const account = await createWorkspaceClient({accessToken: auth.apiKey, baseUrl: auth.baseUrl, workspaceId: auth.workspaceId}).list()
-    if (account.authentication !== 'personal') throw new Error('Workspace API did not verify personal authentication')
+    const account = await createWorkspaceClient({
+      accessToken: auth.apiKey,
+      baseUrl: auth.baseUrl,
+      workspaceId: auth.workspaceId,
+    }).list()
+    if (account.authentication !== 'personal')
+      throw new Error('Workspace API did not verify personal authentication')
     return account
   } catch (error) {
-    if (!knownPersonal && error instanceof WorkspaceClientError && error.status === 401 && error.code === 'PERSONAL_KEY_NOT_REGISTERED') return undefined
+    if (
+      !knownPersonal &&
+      error instanceof WorkspaceClientError &&
+      error.status === 401 &&
+      error.code === 'PERSONAL_KEY_NOT_REGISTERED'
+    )
+      return undefined
     throw error
   }
 }
 
-const rememberPersonalProfile = async (auth: ResolvedAuth, configPath: string, config: AuthConfig, userId: string) => {
+const rememberPersonalProfile = async (
+  auth: ResolvedAuth,
+  configPath: string,
+  config: AuthConfig,
+  userId: string,
+) => {
   if (auth.source !== 'profile') return
-  config.profiles = {...config.profiles, [auth.profile]: {
-    apiKey: auth.apiKey, authentication: 'personal', userId,
-    workspaceId: config.profiles?.[auth.profile]?.workspaceId, baseUrl: auth.baseUrl, updatedAt: new Date().toISOString(),
-  }}
+  config.profiles = {
+    ...config.profiles,
+    [auth.profile]: {
+      apiKey: auth.apiKey,
+      authentication: 'personal',
+      userId,
+      workspaceId: config.profiles?.[auth.profile]?.workspaceId,
+      baseUrl: auth.baseUrl,
+      updatedAt: new Date().toISOString(),
+    },
+  }
   await writeAuthConfig(configPath, config)
 }
 
 const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
-  const explicitProfile = hasFlag(flags, 'profile') ? requireFlag(flags, 'profile') : undefined
-  const overrideKey = hasFlag(flags, 'api-key') ? requireFlag(flags, 'api-key') : undefined
+  const explicitProfile = hasFlag(flags, 'profile')
+    ? requireFlag(flags, 'profile')
+    : undefined
+  const overrideKey = hasFlag(flags, 'api-key')
+    ? requireFlag(flags, 'api-key')
+    : undefined
   const config =
     !overrideKey || explicitProfile
       ? await readAuthConfig(getConfigPath(flags))
       : undefined
-  const profile = explicitProfile ?? config?.defaultProfile ?? defaultProfileName
+  const profile =
+    explicitProfile ?? config?.defaultProfile ?? defaultProfileName
   const storedProfile = config?.profiles?.[profile]
-  const selected = Boolean(explicitProfile || storedProfile?.workspaceId || isPersonalProfile(storedProfile))
+  const selected = Boolean(
+    explicitProfile ||
+    storedProfile?.workspaceId ||
+    isPersonalProfile(storedProfile),
+  )
   if (selected && (!storedProfile || (!storedProfile.apiKey && !overrideKey)))
     throw new Error(
       'Selected profile has no workspace API key. Use workspace use <id> or auth login --api-key-stdin --profile <name>.',
@@ -1048,25 +1158,57 @@ const resolveAuth = async (flags: Flags): Promise<ResolvedAuth> => {
     getFlag(flags, 'base-url') ??
     (selected
       ? storedProfile!.baseUrl
-      : env.ASSETHUB_API_BASE_URL ?? storedProfile?.baseUrl ?? defaultBaseUrl)
+      : (env.ASSETHUB_API_BASE_URL ?? storedProfile?.baseUrl ?? defaultBaseUrl))
   if (overrideKey)
-    return {apiKey: overrideKey, baseUrl, profile, source: 'flag', workspaceId: getFlag(flags, 'workspace')}
+    return {
+      apiKey: overrideKey,
+      baseUrl,
+      profile,
+      source: 'flag',
+      workspaceId: getFlag(flags, 'workspace'),
+    }
   if (selected && storedProfile?.apiKey) {
     if (
-      (storedProfile.workspaceId || isPersonalProfile(storedProfile) || canDiscoverPersonalKey(storedProfile.apiKey)) &&
+      (storedProfile.workspaceId ||
+        isPersonalProfile(storedProfile) ||
+        canDiscoverPersonalKey(storedProfile.apiKey)) &&
       new URL(baseUrl).origin !== new URL(storedProfile.baseUrl).origin
     )
       throw new Error(
         'Selected workspace belongs to another API origin; select a workspace for this origin or supply an explicit API key',
       )
-    return {apiKey: storedProfile.apiKey, authentication: storedProfile.authentication, baseUrl, profile, source: 'profile', workspaceId: getFlag(flags, 'workspace') ?? storedProfile.workspaceId}
+    return {
+      apiKey: storedProfile.apiKey,
+      authentication: storedProfile.authentication,
+      baseUrl,
+      profile,
+      source: 'profile',
+      workspaceId: getFlag(flags, 'workspace') ?? storedProfile.workspaceId,
+    }
   }
   if (env.ASSETHUB_API_KEY?.trim())
-    return {apiKey: env.ASSETHUB_API_KEY, baseUrl, profile, source: 'env', workspaceId: getFlag(flags, 'workspace')}
+    return {
+      apiKey: env.ASSETHUB_API_KEY,
+      baseUrl,
+      profile,
+      source: 'env',
+      workspaceId: getFlag(flags, 'workspace'),
+    }
   if (storedProfile?.apiKey) {
-    if (canDiscoverPersonalKey(storedProfile.apiKey) && new URL(baseUrl).origin !== new URL(storedProfile.baseUrl).origin)
-      throw new Error('Saved API key belongs to another API origin; supply an explicit API key for this origin')
-    return {apiKey: storedProfile.apiKey, baseUrl, profile, source: 'profile', workspaceId: getFlag(flags, 'workspace') ?? storedProfile.workspaceId}
+    if (
+      canDiscoverPersonalKey(storedProfile.apiKey) &&
+      new URL(baseUrl).origin !== new URL(storedProfile.baseUrl).origin
+    )
+      throw new Error(
+        'Saved API key belongs to another API origin; supply an explicit API key for this origin',
+      )
+    return {
+      apiKey: storedProfile.apiKey,
+      baseUrl,
+      profile,
+      source: 'profile',
+      workspaceId: getFlag(flags, 'workspace') ?? storedProfile.workspaceId,
+    }
   }
   throw new Error(
     'Missing workspace API key. Use "workspace use <id>" after user login, "auth login --api-key-stdin", or ASSETHUB_API_KEY.',
@@ -2248,26 +2390,48 @@ const commandModels = async (
 const workspaceAuth = async (flags: Flags, allowPersonal = false) => {
   const configPath = getConfigPath(flags)
   const config = await readAuthConfig(configPath)
-  const explicitProfile = hasFlag(flags, 'profile') ? requireFlag(flags, 'profile') : undefined
+  const explicitProfile = hasFlag(flags, 'profile')
+    ? requireFlag(flags, 'profile')
+    : undefined
   const profile = explicitProfile ?? config.defaultProfile ?? defaultProfileName
   const stored = config.profiles?.[profile]
   const preferredKey = preferredApiKey(flags, stored)
-  if (allowPersonal && (canDiscoverPersonalKey(preferredKey) || (preferredKey === stored?.apiKey && isPersonalProfile(stored)))) {
+  if (
+    allowPersonal &&
+    (canDiscoverPersonalKey(preferredKey) ||
+      (preferredKey === stored?.apiKey && isPersonalProfile(stored)))
+  ) {
     const auth = await resolveAuth(flags)
-    auth.authentication = personalProfileAuthentication(auth.apiKey, auth.baseUrl, stored)
+    auth.authentication = personalProfileAuthentication(
+      auth.apiKey,
+      auth.baseUrl,
+      stored,
+    )
     const knownPersonal = isPersonalProfile(auth)
     const account = knownPersonal ? undefined : await personalAccount(auth)
     if (knownPersonal || account) {
-      if (account) await rememberPersonalProfile(auth, configPath, config, account.userId)
+      if (account)
+        await rememberPersonalProfile(auth, configPath, config, account.userId)
       return {
-        configPath, config, profile, accessToken: auth.apiKey,
-        workspaceMfaToken: undefined, baseUrl: auth.baseUrl,
-        selectedWorkspaceId: auth.workspaceId, personal: true,
-        client: createWorkspaceClient({accessToken: auth.apiKey, baseUrl: auth.baseUrl, workspaceId: auth.workspaceId}),
+        configPath,
+        config,
+        profile,
+        accessToken: auth.apiKey,
+        workspaceMfaToken: undefined,
+        baseUrl: auth.baseUrl,
+        selectedWorkspaceId: auth.workspaceId,
+        personal: true,
+        client: createWorkspaceClient({
+          accessToken: auth.apiKey,
+          baseUrl: auth.baseUrl,
+          workspaceId: auth.workspaceId,
+        }),
       }
     }
   }
-  const environmentToken = explicitProfile ? undefined : env.ASSETHUB_ACCESS_TOKEN?.trim()
+  const environmentToken = explicitProfile
+    ? undefined
+    : env.ASSETHUB_ACCESS_TOKEN?.trim()
   const accessToken = environmentToken || stored?.accessToken
   if (!accessToken)
     throw new Error(
@@ -2275,7 +2439,9 @@ const workspaceAuth = async (flags: Flags, allowPersonal = false) => {
     )
   const baseUrl =
     getFlag(flags, 'base-url') ??
-    (explicitProfile ? stored?.baseUrl : env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl) ??
+    (explicitProfile
+      ? stored?.baseUrl
+      : (env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl)) ??
     defaultBaseUrl
   if (
     !environmentToken &&
@@ -2313,35 +2479,78 @@ const commandWorkspace = async (
     : hasFlag(flags, 'profile')
       ? undefined
       : env.ASSETHUB_API_KEY?.trim()
-  const auth = await workspaceAuth(flags, ['list', 'get', 'use'].includes(subcommand ?? ''))
-  if (['members', 'invite', 'set-role', 'remove-member'].includes(subcommand ?? '')) {
+  const auth = await workspaceAuth(
+    flags,
+    ['list', 'get', 'use'].includes(subcommand ?? ''),
+  )
+  if (
+    ['members', 'invite', 'set-role', 'remove-member'].includes(
+      subcommand ?? '',
+    )
+  ) {
     let workspaceId = getFlag(flags, 'workspace') ?? auth.selectedWorkspaceId
-    if (!workspaceId) workspaceId = (await auth.client.list()).workspaces.find(item => item.active)?.id
-    if (!workspaceId) throw new Error('Specify --workspace <id> or select one with workspace use <id>')
+    if (!workspaceId)
+      workspaceId = (await auth.client.list()).workspaces.find(
+        item => item.active,
+      )?.id
+    if (!workspaceId)
+      throw new Error(
+        'Specify --workspace <id> or select one with workspace use <id>',
+      )
     if (subcommand === 'members') {
       print(await auth.client.listMembers(workspaceId))
       return
     }
-    const role = subcommand === 'invite' ? getFlag(flags, 'role') ?? 'user' : subcommand === 'set-role' ? requireFlag(flags, 'role') : undefined
-    if (role !== undefined && role !== 'user' && role !== 'admin') throw new Error('--role must be user or admin')
+    const role =
+      subcommand === 'invite'
+        ? (getFlag(flags, 'role') ?? 'user')
+        : subcommand === 'set-role'
+          ? requireFlag(flags, 'role')
+          : undefined
+    if (role !== undefined && role !== 'user' && role !== 'admin')
+      throw new Error('--role must be user or admin')
     stderr.write(`[workspace] ${subcommand} in ${workspaceId}…\n`)
-    if (subcommand === 'invite') print(await auth.client.inviteMember(workspaceId, {email: requireFlag(flags, 'email'), role: role as 'user' | 'admin', ...(hasFlag(flags, 'resend') ? {resend: true} : {})}))
-    else if (subcommand === 'set-role') print(await auth.client.setMemberRole(workspaceId, {userId: requirePositional(positionals, 2, 'user-id'), role: role as 'user' | 'admin'}))
-    else print(await auth.client.removeMember(workspaceId, requirePositional(positionals, 2, 'user-id')))
+    if (subcommand === 'invite')
+      print(
+        await auth.client.inviteMember(workspaceId, {
+          email: requireFlag(flags, 'email'),
+          role: role as 'user' | 'admin',
+          ...(hasFlag(flags, 'resend') ? {resend: true} : {}),
+        }),
+      )
+    else if (subcommand === 'set-role')
+      print(
+        await auth.client.setMemberRole(workspaceId, {
+          userId: requirePositional(positionals, 2, 'user-id'),
+          role: role as 'user' | 'admin',
+        }),
+      )
+    else
+      print(
+        await auth.client.removeMember(
+          workspaceId,
+          requirePositional(positionals, 2, 'user-id'),
+        ),
+      )
     return
   }
   if (subcommand === 'list') {
-    print(await auth.client.list({
-      query: getFlag(flags, 'query'),
-      cursor: getFlag(flags, 'cursor'),
-      limit: hasFlag(flags, 'limit') ? parsePositiveIntegerFlag(flags, 'limit', 100) : undefined,
-    }))
+    print(
+      await auth.client.list({
+        query: getFlag(flags, 'query'),
+        cursor: getFlag(flags, 'cursor'),
+        limit: hasFlag(flags, 'limit')
+          ? parsePositiveIntegerFlag(flags, 'limit', 100)
+          : undefined,
+      }),
+    )
     return
   }
   if (subcommand === 'get') {
     if (auth.personal && auth.selectedWorkspaceId) {
       const selected = await auth.client.select(auth.selectedWorkspaceId)
-      if (!selected.workspace) throw new Error('Workspace API returned no selected workspace')
+      if (!selected.workspace)
+        throw new Error('Workspace API returned no selected workspace')
       print(selected.workspace)
       return
     }
@@ -2380,12 +2589,15 @@ const commandWorkspace = async (
       'Workspace requires MFA. Complete verification in AssetHub, then provide the signed ah_workspace_mfa cookie through ASSETHUB_WORKSPACE_MFA together with your user access token',
     )
   const account = await auth.client.list()
-  const workspace = selected.workspace ?? account.workspaces.find(item => item.id === workspaceId)
+  const workspace =
+    selected.workspace ??
+    account.workspaces.find(item => item.id === workspaceId)
   if (!workspace)
     throw new Error('Workspace is not available to this authenticated user')
   const profiles = auth.config.profiles ?? {}
   if (auth.personal) {
-    if (account.authentication !== 'personal') throw new Error('Workspace API did not verify personal authentication')
+    if (account.authentication !== 'personal')
+      throw new Error('Workspace API did not verify personal authentication')
     profiles[auth.profile] = {
       apiKey: auth.accessToken,
       authentication: 'personal',
@@ -2394,8 +2606,18 @@ const commandWorkspace = async (
       baseUrl: auth.baseUrl,
       updatedAt: new Date().toISOString(),
     }
-    await writeAuthConfig(auth.configPath, {...auth.config, defaultProfile: auth.profile, profiles})
-    print({workspaceId, workspace, profile: auth.profile, selected: true, baseUrl: auth.baseUrl})
+    await writeAuthConfig(auth.configPath, {
+      ...auth.config,
+      defaultProfile: auth.profile,
+      profiles,
+    })
+    print({
+      workspaceId,
+      workspace,
+      profile: auth.profile,
+      selected: true,
+      baseUrl: auth.baseUrl,
+    })
     return
   }
   const cached = Object.entries(profiles).find(
@@ -2403,7 +2625,8 @@ const commandWorkspace = async (
       entry.userId === account.userId &&
       entry.workspaceId === workspaceId &&
       new URL(entry.baseUrl).origin === new URL(auth.baseUrl).origin &&
-      entry.apiKey && !isPersonalProfile(entry),
+      entry.apiKey &&
+      !isPersonalProfile(entry),
   )
   let apiKey: string | undefined
   for (const candidate of new Set([cached?.[1].apiKey, suppliedKey])) {
@@ -2518,7 +2741,11 @@ const commandAuth = async (
     const baseUrl =
       getFlag(flags, 'base-url') ?? env.ASSETHUB_API_BASE_URL ?? defaultBaseUrl
     const config = await readAuthConfig(configPath)
-    const authentication = personalProfileAuthentication(apiKey, baseUrl, config.profiles?.[profile])
+    const authentication = personalProfileAuthentication(
+      apiKey,
+      baseUrl,
+      config.profiles?.[profile],
+    )
     const account = await personalAccount({apiKey, baseUrl, authentication})
     const personal = account !== undefined
     if (!personal && !hasFlag(flags, 'skip-verify')) {
@@ -2530,7 +2757,9 @@ const commandAuth = async (
     profiles[profile] = {
       apiKey,
       baseUrl,
-      ...(account ? {authentication: 'personal' as const, userId: account.userId} : {}),
+      ...(account
+        ? {authentication: 'personal' as const, userId: account.userId}
+        : {}),
       updatedAt: new Date().toISOString(),
     }
     await writeAuthConfig(configPath, {
@@ -2558,15 +2787,35 @@ const commandAuth = async (
       ]
     let apiAuth: ResolvedAuth | undefined
     const preferredKey = preferredApiKey(flags, current)
-    if (canDiscoverPersonalKey(preferredKey) || (preferredKey === current?.apiKey && isPersonalProfile(current))) {
+    if (
+      canDiscoverPersonalKey(preferredKey) ||
+      (preferredKey === current?.apiKey && isPersonalProfile(current))
+    ) {
       apiAuth = await resolveAuth(flags)
-      apiAuth.authentication = personalProfileAuthentication(apiAuth.apiKey, apiAuth.baseUrl, current)
+      apiAuth.authentication = personalProfileAuthentication(
+        apiAuth.apiKey,
+        apiAuth.baseUrl,
+        current,
+      )
       const account = await personalAccount(apiAuth)
       if (account) {
-        if (apiAuth.workspaceId) await createAssetHubClient(apiAuth).v2.getCapabilities()
-        await rememberPersonalProfile(apiAuth, configPath, config, account.userId)
-        print({authenticated: true, authentication: 'personal', userId: account.userId, workspaceId: apiAuth.workspaceId,
-          profile: apiAuth.profile, source: apiAuth.source, baseUrl: apiAuth.baseUrl})
+        if (apiAuth.workspaceId)
+          await createAssetHubClient(apiAuth).v2.getCapabilities()
+        await rememberPersonalProfile(
+          apiAuth,
+          configPath,
+          config,
+          account.userId,
+        )
+        print({
+          authenticated: true,
+          authentication: 'personal',
+          userId: account.userId,
+          workspaceId: apiAuth.workspaceId,
+          profile: apiAuth.profile,
+          source: apiAuth.source,
+          baseUrl: apiAuth.baseUrl,
+        })
         return
       }
     }
@@ -2587,7 +2836,7 @@ const commandAuth = async (
       })
       return
     }
-    const auth = apiAuth ?? await resolveAuth(flags)
+    const auth = apiAuth ?? (await resolveAuth(flags))
     const client = createAssetHubClient({
       apiKey: auth.apiKey,
       baseUrl: auth.baseUrl,
@@ -2606,16 +2855,24 @@ const commandAuth = async (
 
   if (subcommand === 'logout') {
     const config = await readAuthConfig(configPath)
-    const selectedProfile = getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
+    const selectedProfile =
+      getFlag(flags, 'profile') ?? config.defaultProfile ?? profile
     const profiles = config.profiles ?? {}
     const existed = profiles[selectedProfile] != null
     delete profiles[selectedProfile]
     await writeAuthConfig(configPath, {
       defaultProfile:
-        config.defaultProfile === selectedProfile ? undefined : config.defaultProfile,
+        config.defaultProfile === selectedProfile
+          ? undefined
+          : config.defaultProfile,
       profiles,
     })
-    print({success: true, profile: selectedProfile, removed: existed, configPath})
+    print({
+      success: true,
+      profile: selectedProfile,
+      removed: existed,
+      configPath,
+    })
     return
   }
 
@@ -2627,15 +2884,23 @@ const commandAuth = async (
 // One-command onboarding. Login and workspace selection reuse commandAuth and
 // commandWorkspace (their JSON output is suppressed); setupCommand.ts owns the
 // steps, the agent configuration and the summary.
-const parseSetupSelection = (flags: Flags): {agents?: AgentId[]; skip: SetupStepName[]} => {
-  const agentValues = getFlagValues(flags, 'agent').map(value => assertFlagHasValue(value, '--agent <name>'))
-  let agents: AgentId[] | undefined = agentValues.length > 0 ? parseAgentIds(agentValues) : undefined
+const parseSetupSelection = (
+  flags: Flags,
+): {agents?: AgentId[]; skip: SetupStepName[]} => {
+  const agentValues = getFlagValues(flags, 'agent').map(value =>
+    assertFlagHasValue(value, '--agent <name>'),
+  )
+  let agents: AgentId[] | undefined =
+    agentValues.length > 0 ? parseAgentIds(agentValues) : undefined
   if (!agents && hasFlag(flags, 'client')) {
     // Older spelling: --client claude|codex|both.
     const client = getFlag(flags, 'client')
     if (client !== 'claude' && client !== 'codex' && client !== 'both')
-      throw new Error('--client must be claude, codex or both (use --agent claude-code|codex|cursor)')
-    agents = client === 'both' ? ['claude-code', 'codex'] : parseAgentIds([client])
+      throw new Error(
+        '--client must be claude, codex or both (use --agent claude-code|codex|cursor)',
+      )
+    agents =
+      client === 'both' ? ['claude-code', 'codex'] : parseAgentIds([client])
   }
   const stepValues = (name: string) =>
     getFlagValues(flags, name)
@@ -2644,14 +2909,19 @@ const parseSetupSelection = (flags: Flags): {agents?: AgentId[]; skip: SetupStep
       .map(value => value.trim())
       .filter(Boolean)
   const known = (name: string, values: string[]) => {
-    const unknown = values.filter(value => !(SETUP_STEPS as readonly string[]).includes(value))
+    const unknown = values.filter(
+      value => !(SETUP_STEPS as readonly string[]).includes(value),
+    )
     if (unknown.length > 0)
-      throw new Error(`Unknown setup step for --${name}: ${unknown.join(', ')}. Steps: login, workspace, mcp, skills, auto-update, app-env, doctor.`)
+      throw new Error(
+        `Unknown setup step for --${name}: ${unknown.join(', ')}. Steps: login, workspace, mcp, skills, auto-update, app-env, doctor.`,
+      )
     return values as SetupStepName[]
   }
   const only = known('only', stepValues('only'))
   const skip = new Set(known('skip', stepValues('skip')))
-  if (only.length > 0) for (const step of SETUP_STEPS) if (!only.includes(step)) skip.add(step)
+  if (only.length > 0)
+    for (const step of SETUP_STEPS) if (!only.includes(step)) skip.add(step)
   if (hasFlag(flags, 'no-skills')) skip.add('skills')
   return {agents, skip: SETUP_STEPS.filter(step => skip.has(step))}
 }
@@ -2660,19 +2930,27 @@ const parseSetupSelection = (flags: Flags): {agents?: AgentId[]; skip: SetupStep
 const setupRun = async (
   flags: Flags,
   installHooks: InstallHooks,
-  overrides: {skip?: SetupStepName[]; dryRun?: boolean; quietLog?: boolean} = {},
+  overrides: {
+    skip?: SetupStepName[]
+    dryRun?: boolean
+    quietLog?: boolean
+  } = {},
 ): Promise<{options: SetupOptions; deps: SetupDeps}> => {
   const selection = parseSetupSelection(flags)
   const config = await readAuthConfig(getConfigPath(flags))
   // Only name a profile the user chose or one that is saved: a synthetic profile
   // would make resolveAuth reject a fresh machine before its ASSETHUB_API_KEY fallback.
   const base: Flags = {...flags}
-  const chosenProfile = hasFlag(flags, 'profile') ? requireFlag(flags, 'profile') : config.defaultProfile
+  const chosenProfile = hasFlag(flags, 'profile')
+    ? requireFlag(flags, 'profile')
+    : config.defaultProfile
   if (chosenProfile) base.profile = chosenProfile
   else delete base.profile
   delete base.workspace
   const apiKeyStdin = hasFlag(flags, 'api-key-stdin')
-  const flagKey = hasFlag(flags, 'api-key') ? requireFlag(flags, 'api-key') : undefined
+  const flagKey = hasFlag(flags, 'api-key')
+    ? requireFlag(flags, 'api-key')
+    : undefined
   const envKey = env.ASSETHUB_API_KEY?.trim() || undefined
   const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
     printSuppressed = true
@@ -2692,7 +2970,11 @@ const setupRun = async (
     apiKeySource: flagKey ? 'flag' : envKey ? 'env' : undefined,
     noHook: hasFlag(flags, 'no-hook'),
     noAppEnv: hasFlag(flags, 'no-app-env'),
-    ...(hasFlag(flags, 'no-auto-update') ? {autoUpdate: false} : hasFlag(flags, 'auto-update') ? {autoUpdate: true} : {}),
+    ...(hasFlag(flags, 'no-auto-update')
+      ? {autoUpdate: false}
+      : hasFlag(flags, 'auto-update')
+        ? {autoUpdate: true}
+        : {}),
     saveSessions: hasFlag(flags, 'save-sessions'),
     dryRun: overrides.dryRun ?? hasFlag(flags, 'dry-run'),
     yes: hasFlag(flags, 'yes'),
@@ -2703,7 +2985,13 @@ const setupRun = async (
     launchAgentProgram: launchAgentProgram(
       process.execPath,
       realpathSync(argv[1] ?? fileURLToPath(import.meta.url)),
-      ['env', 'load', ...(hasFlag(flags, 'profile') ? ['--profile', requireFlag(flags, 'profile')] : [])],
+      [
+        'env',
+        'load',
+        ...(hasFlag(flags, 'profile')
+          ? ['--profile', requireFlag(flags, 'profile')]
+          : []),
+      ],
     ),
     interactive: Boolean(stdin.isTTY && stderr.isTTY) && !apiKeyStdin,
     installHooks,
@@ -2717,7 +3005,10 @@ const setupRun = async (
         const auth = await resolveAuth(base)
         if (auth.source !== 'profile') return false
         if (await personalAccount(auth)) return true
-        await createAssetHubClient({apiKey: auth.apiKey, baseUrl: auth.baseUrl}).v2.listModels()
+        await createAssetHubClient({
+          apiKey: auth.apiKey,
+          baseUrl: auth.baseUrl,
+        }).v2.listModels()
         return true
       } catch {
         return false
@@ -2726,7 +3017,13 @@ const setupRun = async (
     promptApiKey: () => promptHidden('AssetHub API key (input hidden): '),
     login: ({apiKey}) =>
       quiet(() => {
-        const loginFlags: Flags = {...base, profile: typeof base.profile === 'string' ? base.profile : defaultProfileName}
+        const loginFlags: Flags = {
+          ...base,
+          profile:
+            typeof base.profile === 'string'
+              ? base.profile
+              : defaultProfileName,
+        }
         if (apiKey) {
           delete loginFlags['api-key-stdin']
           loginFlags['api-key'] = apiKey
@@ -2734,18 +3031,33 @@ const setupRun = async (
         return commandAuth('login', loginFlags)
       }),
     resolveTarget: () => resolveMcpTarget(flags),
-    readAutoUpdate: () => readAutoUpdateSetting(settingsPath(getConfigPath(flags))),
-    writeAutoUpdate: on => writeAutoUpdateSetting(settingsPath(getConfigPath(flags)), on),
-    canSelfUpdate: async () => isInstalledPackage(realpathSync(argv[1] ?? fileURLToPath(import.meta.url))),
+    readAutoUpdate: () =>
+      readAutoUpdateSetting(settingsPath(getConfigPath(flags))),
+    writeAutoUpdate: on =>
+      writeAutoUpdateSetting(settingsPath(getConfigPath(flags)), on),
+    canSelfUpdate: async () =>
+      isInstalledPackage(
+        realpathSync(argv[1] ?? fileURLToPath(import.meta.url)),
+      ),
     autoUpdateBlockedByEnv: !autoUpdateEnabled(undefined, env),
     resolveAuth: async () => {
       const auth = await resolveAuth(base)
-      return {apiKey: auth.apiKey, baseUrl: auth.baseUrl, profile: auth.profile, workspaceId: auth.workspaceId}
+      return {
+        apiKey: auth.apiKey,
+        baseUrl: auth.baseUrl,
+        profile: auth.profile,
+        workspaceId: auth.workspaceId,
+      }
     },
     discoverWorkspace: async auth => {
       try {
-        const capabilities = await createAssetHubClient({apiKey: auth.apiKey, baseUrl: auth.baseUrl}).v2.getCapabilities()
-        return typeof capabilities.ownerId === 'string' && capabilities.ownerId ? capabilities.ownerId : undefined
+        const capabilities = await createAssetHubClient({
+          apiKey: auth.apiKey,
+          baseUrl: auth.baseUrl,
+        }).v2.getCapabilities()
+        return typeof capabilities.ownerId === 'string' && capabilities.ownerId
+          ? capabilities.ownerId
+          : undefined
       } catch {
         return undefined
       }
@@ -2757,7 +3069,9 @@ const setupRun = async (
       if (saved.defaultProfile) base.profile = saved.defaultProfile
     },
     listWorkspaces: async () =>
-      (await (await workspaceAuth(base, true)).client.list()).workspaces.map(item => ({id: item.id, name: item.name})),
+      (await (await workspaceAuth(base, true)).client.list()).workspaces.map(
+        item => ({id: item.id, name: item.name}),
+      ),
     pickWorkspace: pickFromList,
     confirm: confirmYes,
     confirmOptIn: confirmNo,
@@ -2779,7 +3093,9 @@ export const commandSetup = async (
 ): Promise<void> => {
   const {options, deps} = await setupRun(flags, installHooks, overrides)
   if (hasFlag(flags, 'client') && !hasFlag(flags, 'agent'))
-    stderr.write('--client is deprecated; use --agent claude-code|codex|cursor.\n')
+    stderr.write(
+      '--client is deprecated; use --agent claude-code|codex|cursor.\n',
+    )
   const result = await runSetup(options, deps)
   if (hasFlag(flags, 'json')) print(result)
   else {
@@ -2800,25 +3116,39 @@ const setupCheck = async (flags: Flags) => {
     quietLog: true,
   })
   const result = await runSetup(options, deps)
-  const outdated = result.steps.filter(step => step.status === 'fail' || step.change === 'would-update')
+  const outdated = result.steps.filter(
+    step => step.status === 'fail' || step.change === 'would-update',
+  )
   return {
     name: 'setup' as const,
     status: outdated.length === 0 ? ('pass' as const) : ('fail' as const),
     ...(outdated.length > 0
       ? {
-          message: outdated.map(step => `${step.name}: ${step.detail.replace(/ \(dry run\)$/, '')}`).join('; '),
+          message: outdated
+            .map(
+              step =>
+                `${step.name}: ${step.detail.replace(/ \(dry run\)$/, '')}`,
+            )
+            .join('; '),
           hint: `Run \`assethub setup${options.project ? ' --project' : ''}\` to fix it.`,
         }
-      : {message: `${result.agents.join(', ')}: MCP config and skill are up to date`}),
+      : {
+          message: `${result.agents.join(', ')}: MCP config and skill are up to date`,
+        }),
   }
 }
 
 // `env load` is what the macOS login agent installed by `setup` runs: it copies
 // the saved key into launchd's user environment so Claude and Codex, started
 // from the Dock, can expand ${ASSETHUB_API_KEY} in their MCP config.
-const commandEnv = async (subcommand: string | undefined, flags: Flags): Promise<void> => {
-  if (subcommand !== 'load') throw new Error('Unknown env command. Use "env load".')
-  if (process.platform !== 'darwin') throw new Error('env load is only needed on macOS.')
+const commandEnv = async (
+  subcommand: string | undefined,
+  flags: Flags,
+): Promise<void> => {
+  if (subcommand !== 'load')
+    throw new Error('Unknown env command. Use "env load".')
+  if (process.platform !== 'darwin')
+    throw new Error('env load is only needed on macOS.')
   const auth = await resolveAuth(flags)
   const loaded = await loadKeyIntoLaunchd(auth.apiKey, runProcess)
   if (!loaded.ok) throw new Error(loaded.detail)
@@ -2884,16 +3214,18 @@ const defaultWaitMs = (flags: Flags): number => {
     extractor == null
       ? undefined
       : partExtractorByInput.get(normalizePartExtractorName(extractor))
-  return option?.apiValue === 'ah_agent_graph_harpy_assembly_v2' ||
-    option?.apiValue === 'ah_agent_graph_harpy_assembly_v4_legacy' ||
-    option?.apiValue === 'ah_agent_graph_harpy_assembly_v5_3'
+  return option !== undefined && isV4CharacterAssembly(option.apiValue)
     ? harpyAssemblyV2WaitMs
     : 900000
 }
 
 const watchOptions = (flags: Flags) => ({
   intervalMs: parsePositiveIntegerFlag(flags, 'interval-ms', 5000),
-  timeoutMs: parsePositiveIntegerFlag(flags, 'timeout-ms', defaultWaitMs(flags)),
+  timeoutMs: parsePositiveIntegerFlag(
+    flags,
+    'timeout-ms',
+    defaultWaitMs(flags),
+  ),
   onProgress: runReporter({write: text => stderr.write(text)}),
 })
 /**
@@ -3282,6 +3614,8 @@ const meshRefinementModes = [
   'codex',
 ] as const satisfies readonly MeshRefinementMode[]
 
+const COMPOSER_STAGED_FIT_MODEL = 'part_composer_v5_2_staged_fit'
+const COMPOSER_STAGED_FIT_PLUS_MODEL = 'part_composer_v5_3_staged_fit'
 const COMPOSER_V6_MODEL = 'part_composer_v6_auto_assemble'
 const COMPOSER_SKILL_ASSEMBLY_MODEL = 'part_composer_v5_1_skill_assembly'
 /** Same text the canvas node sends, so CLI and canvas runs read alike. */
@@ -3289,6 +3623,9 @@ const COMPOSER_SKILL_ASSEMBLY_INSTRUCTION =
   'Assemble these parts into one character with the Character Assembly skill.'
 const IDENTITY_TRANSFORM: MeshTransform = [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
 const composerModelAliases: Record<string, string> = {
+  'v5.2': COMPOSER_STAGED_FIT_MODEL,
+  'staged-fit': COMPOSER_STAGED_FIT_MODEL,
+  'v5.3': COMPOSER_STAGED_FIT_PLUS_MODEL,
   v6: COMPOSER_V6_MODEL,
   'auto-assemble': COMPOSER_V6_MODEL,
   'v5.1': COMPOSER_SKILL_ASSEMBLY_MODEL,
@@ -3308,7 +3645,9 @@ const composerPartFlag = (value: string) => {
   const assetId = index === -1 ? raw : raw.slice(0, index)
   const partImageAssetId = index === -1 ? undefined : raw.slice(index + 1)
   if (!assetId || partImageAssetId === '')
-    throw new Error('--part must be <mesh-asset-id> or <mesh-asset-id>=<part-image-id>')
+    throw new Error(
+      '--part must be <mesh-asset-id> or <mesh-asset-id>=<part-image-id>',
+    )
   return {assetId, ...(partImageAssetId ? {partImageAssetId} : {})}
 }
 /** V6 waits up to 81 min on ml and V5.1's sandbox up to 2 h; 15 min cannot see either finish. */
@@ -3341,7 +3680,6 @@ const selectComposerAgentModel = (
     )
   return matches[0]
 }
-
 
 const refinementTransforms = (value: unknown, flag: string) => {
   if (value == null || typeof value !== 'object' || Array.isArray(value))
@@ -3450,19 +3788,35 @@ const composerInputFromRun = (
   const transforms = previous.composition?.transforms ?? source.transforms
   if (transforms != null) input.transforms = transforms
   if (operation === 'mesh.refine') {
-    for (const key of ['calibration', 'referenceViews', 'geometrySources'] as const) {
-      if (previous.refinement?.[key] != null) input[key] = previous.refinement[key]
+    for (const key of [
+      'calibration',
+      'referenceViews',
+      'geometrySources',
+    ] as const) {
+      if (previous.refinement?.[key] != null)
+        input[key] = previous.refinement[key]
     }
-    const generation = input.dressingGeneration as MeshRefineRequest['dressingGeneration']
+    const generation =
+      input.dressingGeneration as MeshRefineRequest['dressingGeneration']
     if (generation && Array.isArray(input.parts)) {
-      const sources = input.geometrySources as Record<string, string> | undefined
-      input.dressingGeneration = {...generation, sourceImageAssetIds: Object.fromEntries(
-        input.parts.flatMap((part: {assetId: string; sourceAssetId?: string}) => {
-          const image = generation.sourceImageAssetIds[part.assetId] ??
-            generation.sourceImageAssetIds[part.sourceAssetId ?? sources?.[part.assetId] ?? '']
-          return typeof image === 'string' ? [[part.assetId, image]] : []
-        }),
-      )}
+      const sources = input.geometrySources as
+        | Record<string, string>
+        | undefined
+      input.dressingGeneration = {
+        ...generation,
+        sourceImageAssetIds: Object.fromEntries(
+          input.parts.flatMap(
+            (part: {assetId: string; sourceAssetId?: string}) => {
+              const image =
+                generation.sourceImageAssetIds[part.assetId] ??
+                generation.sourceImageAssetIds[
+                  part.sourceAssetId ?? sources?.[part.assetId] ?? ''
+                ]
+              return typeof image === 'string' ? [[part.assetId, image]] : []
+            },
+          ),
+        ),
+      }
     }
     const reviewContext = previous.refinement?.report?.reviewContext
     if (reviewContext != null) input.reviewContext = reviewContext
@@ -3516,7 +3870,9 @@ const commandComposerRefine = async (
       ? composerInputFromRun(previous, 'mesh.refine')
       : {
           // Refinement reads meshes and the concept only; a paired part image is not sent.
-          parts: parts.map(value => ({assetId: composerPartFlag(value).assetId})),
+          parts: parts.map(value => ({
+            assetId: composerPartFlag(value).assetId,
+          })),
           fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
         }
   delete input.executionContext
@@ -3568,8 +3924,15 @@ const commandComposerRefine = async (
     throw new Error(`--mode must be one of: ${meshRefinementModes.join(', ')}`)
   if (skillAssembly && mode !== 'codex')
     throw new Error('Skill assembly (V5.1) runs in codex mode only')
-  if (mode !== 'codex' && (input.geometryBackend || input.referenceMode === 'all_angles' || input.background))
-    throw new Error('Saved Blender-backend, all-angle or background settings require codex mode; use --input-json with settings matching the new mode')
+  if (
+    mode !== 'codex' &&
+    (input.geometryBackend ||
+      input.referenceMode === 'all_angles' ||
+      input.background)
+  )
+    throw new Error(
+      'Saved Blender-backend, all-angle or background settings require codex mode; use --input-json with settings matching the new mode',
+    )
   const modeInfo = refinementModeInfo(capabilities, mode)
   const effort = getFlag(ctx.flags, 'effort') ?? input.effort
   if (effort != null && (typeof effort !== 'string' || !['light', 'standard', 'thorough'].includes(effort)))
@@ -3593,7 +3956,7 @@ const commandComposerRefine = async (
     throw new Error('--max-rounds must be a positive integer')
   const roundLimit =
     mode === 'codex' && input.assemblyPolicy === 'body_first_v1'
-      ? capabilities.bodyFirstMaxRounds ?? modeInfo.maxRounds
+      ? (capabilities.bodyFirstMaxRounds ?? modeInfo.maxRounds)
       : modeInfo.maxRounds
   if (maxRounds != null && maxRounds > roundLimit)
     throw new Error(
@@ -3635,7 +3998,9 @@ const commandComposerRefine = async (
     throw new Error('Skill assembly runs on an Agents API model')
   const modelOption = selectComposerAgentModel(
     skillAssembly
-      ? capabilities.agentModels?.filter(model => model.provider === 'agents-api')
+      ? capabilities.agentModels?.filter(
+          model => model.provider === 'agents-api',
+        )
       : capabilities.agentModels,
     agentModelFlag,
   )
@@ -3675,7 +4040,11 @@ const commandComposerRefine = async (
  * The Part Composer node's "Optimize output" presets: the share of geometry the full-resolution bake keeps
  * (textures become WebP). Assembly always uses its own shrunk parts; this only sizes the delivered mesh.
  */
-const COMPOSER_OPTIMIZE_RATIOS = {light: 0.75, medium: 0.5, heavy: 0.25} as const
+const COMPOSER_OPTIMIZE_RATIOS = {
+  light: 0.75,
+  medium: 0.5,
+  heavy: 0.25,
+} as const
 const composerOptimizePresets = ['off', 'light', 'medium', 'heavy'] as const
 
 const commandComposer = async (
@@ -3747,6 +4116,27 @@ const commandComposer = async (
             fullBodyImageAssetId: requireFlag(ctx.flags, 'reference'),
           }
   delete input.executionContext
+  const baseBody = getFlag(ctx.flags, 'base-body')
+  if (baseBody) {
+    if (nodeId)
+      throw new Error('--base-body applies to explicit parts, not --node')
+    input.baseBodyAssetId = baseBody
+    if (
+      Array.isArray(input.parts) &&
+      !input.parts.some((part: {assetId?: string}) => part.assetId === baseBody)
+    )
+      input.parts.unshift({assetId: baseBody, canonicalKey: 'base_body'})
+  }
+  const wholeGuideMesh = getFlag(ctx.flags, 'whole-guide-mesh')
+  if (wholeGuideMesh != null) {
+    if (!/^mesh_[1-9]\d*$/.test(wholeGuideMesh))
+      throw new Error(
+        '--whole-guide-mesh must be a mesh asset id such as mesh_42',
+      )
+    input.wholeGuide = {enabled: true, guideMeshAssetId: wholeGuideMesh}
+  } else if (hasFlag(ctx.flags, 'whole-guide')) {
+    input.wholeGuide = {enabled: true}
+  }
   if (
     !nodeId &&
     (!Array.isArray(input.parts) ||
@@ -3759,12 +4149,20 @@ const commandComposer = async (
     throw new Error('--mode must be quick or quality')
   if (mode) input.mode = mode
   if (model) input.agentVersion = model
+  if (input.agentVersion === COMPOSER_STAGED_FIT_MODEL)
+    defaultComposerWaitTimeout(ctx.flags, 45 * 60 * 1000)
+  // V5.3 adds recovery regenerations and modular fit repair on top of V5.2.
+  if (input.agentVersion === COMPOSER_STAGED_FIT_PLUS_MODEL)
+    defaultComposerWaitTimeout(ctx.flags, 95 * 60_000)
   if (input.agentVersion === COMPOSER_V6_MODEL) {
     // V6 re-plans every part from its own drawing; ml fails the run without one.
     const missing = (Array.isArray(input.parts) ? input.parts : [])
       .filter(
-        (part: {assetId?: string; partImageAssetId?: string; partTaskId?: string}) =>
-          !part.partImageAssetId && !part.partTaskId,
+        (part: {
+          assetId?: string
+          partImageAssetId?: string
+          partTaskId?: string
+        }) => !part.partImageAssetId && !part.partTaskId,
       )
       .map((part: {assetId?: string}) => part.assetId)
     if (missing.length)
@@ -4923,16 +5321,28 @@ const commandProductionRunOneShot = async (ctx: CommandContext): Promise<void> =
 
 const productionBatchImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const productionBatchUnsupportedSources = [
-  'image-url', 'url', 'source-resource-id', 'resource-id', 'file-ref-json',
-  'stdin', 'stdin-base64', 'stdin-data-uri', 'stdin-json', 'source-json',
-  'data-uri', 'clipboard', 'upload-id',
+  'image-url',
+  'url',
+  'source-resource-id',
+  'resource-id',
+  'file-ref-json',
+  'stdin',
+  'stdin-base64',
+  'stdin-data-uri',
+  'stdin-json',
+  'source-json',
+  'data-uri',
+  'clipboard',
+  'upload-id',
 ]
 
 /** Images in command order: --files-dir (by name), --file, --source-id, --source-url. */
 const productionBatchSources = async (
   flags: Flags,
 ): Promise<ProductionBatchSource[]> => {
-  const unsupported = productionBatchUnsupportedSources.find(name => hasFlag(flags, name))
+  const unsupported = productionBatchUnsupportedSources.find(name =>
+    hasFlag(flags, name),
+  )
   if (unsupported)
     throw new Error(
       `production batch does not take --${unsupported}; pass images with --file, --files-dir, --source-id or --source-url`,
@@ -4940,12 +5350,23 @@ const productionBatchSources = async (
   const sources: ProductionBatchSource[] = []
   for (const dir of getFlagValues(flags, 'files-dir')) {
     const names = (await readdir(resolve(dir), {withFileTypes: true}))
-      .filter(entry => entry.isFile() && productionBatchImageExtensions.has(extname(entry.name).toLowerCase()))
+      .filter(
+        entry =>
+          entry.isFile() &&
+          productionBatchImageExtensions.has(extname(entry.name).toLowerCase()),
+      )
       .map(entry => entry.name)
       .sort()
     if (names.length === 0)
-      throw new Error(`--files-dir ${dir} has no .png, .jpg, .jpeg or .webp images`)
-    sources.push(...names.map(name => ({flag: 'file' as const, value: resolve(dir, name)})))
+      throw new Error(
+        `--files-dir ${dir} has no .png, .jpg, .jpeg or .webp images`,
+      )
+    sources.push(
+      ...names.map(name => ({
+        flag: 'file' as const,
+        value: resolve(dir, name),
+      })),
+    )
   }
   for (const flag of ['file', 'source-id', 'source-url'] as const)
     for (const value of getFlagValues(flags, flag))
@@ -4976,9 +5397,16 @@ const commandProductionBatch = async (ctx: CommandContext) => {
   const operationId = getFlag(ctx.flags, 'operation-id') ?? randomUUID()
   const state = stateOptions(ctx)
   const saved = await readProductionBatch(state.stateDir, operationId)
-  const requestedCanvasId = selectedCanvasId(ctx.flags) ?? projectContext?.canvasId
-  if (saved && requestedCanvasId != null && requestedCanvasId !== saved.canvasId)
-    throw new Error(`Batch ${operationId} runs on canvas ${saved.canvasId}; drop --canvas or pass that canvas`)
+  const requestedCanvasId =
+    selectedCanvasId(ctx.flags) ?? projectContext?.canvasId
+  if (
+    saved &&
+    requestedCanvasId != null &&
+    requestedCanvasId !== saved.canvasId
+  )
+    throw new Error(
+      `Batch ${operationId} runs on canvas ${saved.canvasId}; drop --canvas or pass that canvas`,
+    )
   const session = await productionSession(
     ctx,
     'production.analyze',
@@ -4990,8 +5418,9 @@ const commandProductionBatch = async (ctx: CommandContext) => {
     write: text => stderr.write(text),
     operationId,
     agent:
-      partExtractorOptions.find(option => option.apiValue === options.agentVersion)
-        ?.publicName ?? String(options.agentVersion),
+      partExtractorOptions.find(
+        option => option.apiValue === options.agentVersion,
+      )?.publicName ?? String(options.agentVersion),
     canvasId: session.canvas.id,
     ...(wait ? {concurrency} : {}),
     images: entries.map(entry => ({
@@ -5014,11 +5443,19 @@ const commandProductionBatch = async (ctx: CommandContext) => {
     agent,
     parentRunId,
     buildItems: async () => {
-      const resolved: Array<Awaited<ReturnType<typeof resolveProductionAnalyzeSource>>> = []
+      const resolved: Array<
+        Awaited<ReturnType<typeof resolveProductionAnalyzeSource>>
+      > = []
       for (const source of sources) {
         const flags = {...ctx.flags}
-        for (const flag of ['file', 'files-dir', 'source-id', 'source-url']) delete flags[flag]
-        resolved.push(await resolveProductionAnalyzeSource({...ctx, flags: {...flags, [source.flag]: source.value}}))
+        for (const flag of ['file', 'files-dir', 'source-id', 'source-url'])
+          delete flags[flag]
+        resolved.push(
+          await resolveProductionAnalyzeSource({
+            ...ctx,
+            flags: {...flags, [source.flag]: source.value},
+          }),
+        )
       }
       return entries.map((entry): ProductionBatchItem => {
         const label = labels[entry.index]!
@@ -5037,11 +5474,16 @@ const commandProductionBatch = async (ctx: CommandContext) => {
       ? {
           wait: {
             concurrency,
-            intervalMs: parsePositiveIntegerFlag(ctx.flags, 'interval-ms', 5000),
+            intervalMs: parsePositiveIntegerFlag(
+              ctx.flags,
+              'interval-ms',
+              5000,
+            ),
             timeoutMs: parsePositiveIntegerFlag(
               ctx.flags,
               'timeout-ms',
-              defaultWaitMs(ctx.flags) * Math.ceil(entries.length / concurrency),
+              defaultWaitMs(ctx.flags) *
+                Math.ceil(entries.length / concurrency),
             ),
             onProgress: printItem,
           },
@@ -5058,7 +5500,10 @@ const commandProductionBatch = async (ctx: CommandContext) => {
     for (const item of result.items) {
       if (!item.execution?.outputs.length) continue
       const downloaded = await maybeDownloadUrls(
-        {...ctx.flags, 'out-dir': join(outDir ?? '', item.label, `run-${item.repeat}`)},
+        {
+          ...ctx.flags,
+          'out-dir': join(outDir ?? '', item.label, `run-${item.repeat}`),
+        },
         item.execution.outputs,
       )
       if (downloaded) downloads.push({key: item.key, ...downloaded})
@@ -5076,7 +5521,13 @@ const commandProductionBatch = async (ctx: CommandContext) => {
       deferred: count('deferred'),
       pending: count('pending'),
       failed: count('failed'),
-      finished: result.items.filter(item => item.execution && !['dispatched', 'deferred', 'failed', 'pending'].includes(item.status)).length,
+      finished: result.items.filter(
+        item =>
+          item.execution &&
+          !['dispatched', 'deferred', 'failed', 'pending'].includes(
+            item.status,
+          ),
+      ).length,
     },
     ...(result.timedOut ? {timedOut: true} : {}),
     ...(downloads.length ? {downloads} : {}),
@@ -5115,8 +5566,7 @@ const resolveV4MeshPreferences = (flags: Flags, agentVersion: string) => {
     id.startsWith('meshGen.') ? id : `meshGen.${id}`,
   )
   if (quality === undefined && models.length === 0) return undefined
-  if (agentVersion !== 'ah_agent_graph_harpy_assembly_v2' &&
-      agentVersion !== 'ah_agent_graph_harpy_assembly_v4_legacy')
+  if (!isV4CharacterAssembly(agentVersion))
     throw new Error('--mesh-quality and --mesh-model require --part-extractor v4')
   if (quality !== undefined && quality !== 'low' && quality !== 'high')
     throw new Error('--mesh-quality must be low or high')
@@ -5150,15 +5600,12 @@ const resolveProductionAssemblyExperiment = async (
         }),
     garmentFit: getFlag(ctx.flags, 'garment-fit'),
     partCount: getFlag(ctx.flags, 'part-count'),
+    ...(hasFlag(ctx.flags, 'whole-guide') ? {wholeGuide: true} : {}),
+    wholeGuideMesh: getFlag(ctx.flags, 'whole-guide-mesh'),
   })
-  if (
-    assemblyExperiment !== undefined &&
-    agentVersion !== 'ah_agent_graph_harpy_assembly_v2' &&
-    agentVersion !== 'ah_agent_graph_harpy_assembly_v4_legacy' &&
-    agentVersion !== 'ah_agent_graph_harpy_assembly_v5_3'
-  )
+  if (assemblyExperiment !== undefined && !isV4CharacterAssembly(agentVersion))
     throw new Error(
-      '--assembly-experiment, --garment-fit and --part-count require --part-extractor v4, v5 or v5.3',
+      '--assembly-experiment, --garment-fit, --part-count and --whole-guide require a V4 or V5 Character Assembly --part-extractor',
     )
   return assemblyExperiment
 }
@@ -5170,6 +5617,11 @@ const resolveProductionAssemblyExperiment = async (
 const resolveProductionAnalyzeOptions = async (ctx: CommandContext) => {
     const agentVersion = resolvePartExtractorForAnalyze(ctx.flags)
     const baseBodyAssetId = resolveProductionBaseBody(ctx.flags)
+    const bodyConstruction = getFlag(ctx.flags, 'body-construction')
+    if (bodyConstruction !== undefined && bodyConstruction !== 'clothed-scaffold-v1')
+      throw new Error('--body-construction must be clothed-scaffold-v1')
+    if (bodyConstruction !== undefined && !isV4CharacterAssembly(agentVersion))
+      throw new Error('--body-construction requires a V4 or V5 Character Assembly --part-extractor')
     const assemblyExperiment = await resolveProductionAssemblyExperiment(ctx, agentVersion)
     const skillPlannerModel = resolveSkillPlannerModel(ctx.flags)
     const autoRepair = parseBooleanFlag(ctx.flags, 'auto-repair')
@@ -5177,61 +5629,60 @@ const resolveProductionAnalyzeOptions = async (ctx: CommandContext) => {
       ctx.flags,
       agentVersion,
     )
-    if (skillPlannerModel !== undefined && !['auto', 'manual'].includes(skillSelection?.mode ?? ''))
-      throw new Error('--skill-planner-model requires --skill-mode auto or manual')
-    const projectContext =
-      hasFlag(ctx.flags, 'context') || hasFlag(ctx.flags, 'context-version')
-        ? {
-            canvasId: Number(requireFlag(ctx.flags, 'context')),
-            version: Number(requireFlag(ctx.flags, 'context-version')),
-          }
-        : undefined
-    if (projectContext) {
-      if (
-        Object.values(projectContext).some(
-          value => !Number.isSafeInteger(value) || value <= 0,
-        )
-      )
-        throw new Error(
-          '--context and --context-version must be positive integers',
-        )
-      const canvasId = selectedCanvasId(ctx.flags)
-      if (canvasId != null && canvasId !== projectContext.canvasId)
-        throw new Error('--context must match --canvas')
-    }
-    const pipelineDepth = getFlag(ctx.flags, 'pipeline-depth')
+  const projectContext =
+    hasFlag(ctx.flags, 'context') || hasFlag(ctx.flags, 'context-version')
+      ? {
+          canvasId: Number(requireFlag(ctx.flags, 'context')),
+          version: Number(requireFlag(ctx.flags, 'context-version')),
+        }
+      : undefined
+  if (projectContext) {
     if (
-      pipelineDepth !== undefined &&
-      pipelineDepth !== 'parts' &&
-      pipelineDepth !== 'mesh' &&
-      pipelineDepth !== 'composition'
+      Object.values(projectContext).some(
+        value => !Number.isSafeInteger(value) || value <= 0,
+      )
     )
-      throw new Error('--pipeline-depth must be parts, mesh or composition')
-    const assemblyPolicy = getFlag(ctx.flags, 'assembly-policy')
-    const meshGenerationInput = getFlag(ctx.flags, 'mesh-generation-json')
-    const meshPreferences = resolveV4MeshPreferences(ctx.flags, agentVersion)
-    if (meshPreferences && meshGenerationInput !== undefined)
       throw new Error(
-        '--mesh-quality / --mesh-model cannot be combined with --mesh-generation-json',
+        '--context and --context-version must be positive integers',
       )
-    const meshGeneration =
-      meshPreferences ??
-      (meshGenerationInput === undefined
-        ? undefined
-        : await readJsonArgument(meshGenerationInput, '--mesh-generation-json'))
-    if (
-      assemblyPolicy !== undefined &&
-      assemblyPolicy !== 'concept-to-character-v1'
+    const canvasId = selectedCanvasId(ctx.flags)
+    if (canvasId != null && canvasId !== projectContext.canvasId)
+      throw new Error('--context must match --canvas')
+  }
+  const pipelineDepth = getFlag(ctx.flags, 'pipeline-depth')
+  if (
+    pipelineDepth !== undefined &&
+    pipelineDepth !== 'parts' &&
+    pipelineDepth !== 'mesh' &&
+    pipelineDepth !== 'composition'
+  )
+    throw new Error('--pipeline-depth must be parts, mesh or composition')
+  const assemblyPolicy = getFlag(ctx.flags, 'assembly-policy')
+  const meshGenerationInput = getFlag(ctx.flags, 'mesh-generation-json')
+  const meshPreferences = resolveV4MeshPreferences(ctx.flags, agentVersion)
+  if (meshPreferences && meshGenerationInput !== undefined)
+    throw new Error(
+      '--mesh-quality / --mesh-model cannot be combined with --mesh-generation-json',
     )
-      throw new Error('--assembly-policy must be concept-to-character-v1')
-    if (assemblyPolicy && pipelineDepth !== 'composition')
-      throw new Error('--assembly-policy requires --pipeline-depth composition')
+  const meshGeneration =
+    meshPreferences ??
+    (meshGenerationInput === undefined
+      ? undefined
+      : await readJsonArgument(meshGenerationInput, '--mesh-generation-json'))
+  if (
+    assemblyPolicy !== undefined &&
+    assemblyPolicy !== 'concept-to-character-v1'
+  )
+    throw new Error('--assembly-policy must be concept-to-character-v1')
+  if (assemblyPolicy && pipelineDepth !== 'composition')
+    throw new Error('--assembly-policy requires --pipeline-depth composition')
   return {
     projectContext,
     options: {
       agentVersion,
       name: getFlag(ctx.flags, 'name'),
       ...(baseBodyAssetId === undefined ? {} : {baseBodyAssetId}),
+      ...(bodyConstruction === undefined ? {} : {bodyConstruction}),
       ...(assemblyExperiment === undefined ? {} : {assemblyExperiment}),
       ...(skillPlannerModel === undefined ? {} : {skillPlannerModel}),
       ...(autoRepair === undefined ? {} : {autoRepair}),
@@ -5452,7 +5903,8 @@ const commandProduction = async (
   if (subcommand === 'resume') {
     const id = requirePositional(positionals, 2, 'run-id|order-id')
     const expected = getFlag(ctx.flags, 'expected-resume-count')
-    const expectedResumeCount = expected === undefined ? undefined : Number(expected)
+    const expectedResumeCount =
+      expected === undefined ? undefined : Number(expected)
     if (
       expectedResumeCount !== undefined &&
       (!Number.isSafeInteger(expectedResumeCount) || expectedResumeCount < 0)
@@ -5463,10 +5915,7 @@ const commandProduction = async (
     // (not a run, or no access to runs) falls back to the order ID as before.
     const wait = hasFlag(ctx.flags, 'wait')
     const run = await ctx.client.v2.getRun(id).catch((error: unknown) => {
-      if (
-        !wait ||
-        (error instanceof AssetHubApiError && error.status === 404)
-      )
+      if (!wait || (error instanceof AssetHubApiError && error.status === 404))
         return undefined
       throw error
     })
@@ -5595,11 +6044,17 @@ const commandParts = async (
     let orderId = source == null ? getFlag(ctx.flags, 'order-id') : undefined
     if (orderId != null) {
       if (autoRepair !== undefined)
-        throw new Error('--auto-repair can only be set when starting a new production run')
+        throw new Error(
+          '--auto-repair can only be set when starting a new production run',
+        )
       if (baseBodyAssetId !== undefined)
-        throw new Error('--base-body can only be set when starting a new production run')
+        throw new Error(
+          '--base-body can only be set when starting a new production run',
+        )
       if (skillPlannerModel !== undefined)
-        throw new Error('--skill-planner-model can only be set when starting a new production run')
+        throw new Error(
+          '--skill-planner-model can only be set when starting a new production run',
+        )
       orderId = assertFlagHasValue(orderId, '--order-id <id>')
       if (hasFlag(ctx.flags, 'skill-mode') || hasFlag(ctx.flags, 'skill-id'))
         throw new Error(
@@ -5617,8 +6072,13 @@ const commandParts = async (
       orderId == null && requestedAgentVersion != null
         ? resolveProductionSkillSelection(ctx.flags, requestedAgentVersion)
         : undefined
-    if (skillPlannerModel !== undefined && !['auto', 'manual'].includes(skillSelection?.mode ?? ''))
-      throw new Error('--skill-planner-model requires --skill-mode auto or manual')
+    if (
+      skillPlannerModel !== undefined &&
+      !['auto', 'manual'].includes(skillSelection?.mode ?? '')
+    )
+      throw new Error(
+        '--skill-planner-model requires --skill-mode auto or manual',
+      )
     if (
       requestedAgentVersion != null &&
       artifactGraphPartExtractorApiValues.has(requestedAgentVersion)
@@ -5635,9 +6095,9 @@ const commandParts = async (
     }
     if (
       orderId != null &&
-      ['part-count', 'assembly-experiment', 'garment-fit'].some(flag => hasFlag(ctx.flags, flag))
+      ['part-count', 'assembly-experiment', 'garment-fit', 'whole-guide', 'whole-guide-mesh'].some(flag => hasFlag(ctx.flags, flag))
     )
-      throw new Error('--assembly-experiment, --garment-fit and --part-count can only be set when starting a new production run')
+      throw new Error('--assembly-experiment, --garment-fit, --part-count and --whole-guide can only be set when starting a new production run')
     const assemblyExperiment = orderId == null
       ? await resolveProductionAssemblyExperiment(ctx, requestedAgentVersion!)
       : undefined
@@ -6340,7 +6800,11 @@ export const commandGraph = async (
     if (out) {
       await mkdir(dirname(resolve(out)), {recursive: true})
       await writeFile(resolve(out), Buffer.from(image.data, 'base64'))
-      print({mediaType: image.mediaType, bytes: image.bytes, path: resolve(out)})
+      print({
+        mediaType: image.mediaType,
+        bytes: image.bytes,
+        path: resolve(out),
+      })
       return
     }
     // Without --out, print the metadata WITHOUT the base64 blob: a megabyte
@@ -6357,8 +6821,8 @@ export const commandGraph = async (
     print(await ctx.client.v2.listGraphs(pageOptions(ctx.flags)))
     return
   }
-  if (!['show', 'lineage', 'export'].includes(subcommand ?? ''))
-    throw new Error('Use graph list|show|lineage|export')
+  if (!['show', 'lineage', 'export', 'timeline'].includes(subcommand ?? ''))
+    throw new Error('Use graph list|show|lineage|export|timeline')
 
   const direction = getFlag(ctx.flags, 'direction') ?? 'both'
   if (!['ancestors', 'descendants', 'both'].includes(direction))
@@ -6386,13 +6850,24 @@ export const commandGraph = async (
         })
       })()
   if (
-    (subcommand === 'export' || getFlag(ctx.flags, 'out')) &&
+    (subcommand === 'export' ||
+      subcommand === 'timeline' ||
+      getFlag(ctx.flags, 'out')) &&
     graph.truncated &&
     !hasFlag(ctx.flags, 'allow-truncated')
   )
     throw new Error(
       'Graph exceeds export bounds; narrow with --artifact or explicitly use --allow-truncated',
     )
+  if (subcommand === 'timeline') {
+    print({
+      graphId: graph.graphId,
+      revision: graph.revision,
+      truncated: graph.truncated,
+      ...buildGraphTimeline(graph.nodes),
+    })
+    return
+  }
   const out = getFlag(ctx.flags, 'out')
   if (out) {
     await writeFile(resolve(out), JSON.stringify(graph, null, 2) + '\n', {
@@ -6578,6 +7053,45 @@ const commandRuns = async (
   })
 
   print({...summary, ...result})
+}
+
+/**
+ * `assethub mesh-review run <folder>` runs the review engine locally (headless Blender) and
+ * syncs findings + renders to Production Control; `mesh-review sync <findings.json>` uploads a
+ * run made earlier. Repeating a command after an uncertain response resumes the same run.
+ */
+const commandMeshReview = async (
+  subcommand: string | undefined,
+  positionals: string[],
+  ctx: CommandContext,
+): Promise<void> => {
+  const args = parseMeshReviewArgs(subcommand, positionals, ctx.flags as never)
+  try {
+    const outcome = await runMeshReviewCommand(args, {
+      auth: ctx.auth,
+      runEngine,
+      sync: syncMeshReview,
+      listProjects: listMeshReviewProjects,
+      createProject: createMeshReviewProject,
+      findEngineCli: engineDir => findEngineCli({engineDir, cwd: process.cwd(), env}),
+      log: line => stderr.write(`${line}\n`),
+    })
+    if (args.mode === 'project-create' && !args.json) {
+      stdout.write(`${formatMeshReviewProjectCreated((outcome.result as {project: Parameters<typeof formatMeshReviewProjectCreated>[0]}).project)}\n`)
+    } else if (args.mode === 'projects' && !args.json) {
+      stdout.write(`${formatMeshReviewProjects((outcome.result as {projects: Parameters<typeof formatMeshReviewProjects>[0]}).projects)}\n`)
+    } else {
+      print(outcome.result)
+    }
+    process.exitCode = outcome.exitCode
+  } catch (error) {
+    if (error instanceof MeshReviewSyncError) {
+      stderr.write(`[mesh-review] ${explainMeshReviewError(error, {profile: ctx.auth.profile, workspaceId: ctx.auth.workspaceId})}\n`)
+      process.exitCode = 2
+      return
+    }
+    throw error
+  }
 }
 
 export type RunsUploadArgs = {
@@ -6838,7 +7352,9 @@ const internalV2Request = async <T>(
     method,
     headers: {
       Authorization: `Bearer ${ctx.auth.apiKey}`,
-      ...(ctx.auth.workspaceId ? {'X-AssetHub-Workspace': ctx.auth.workspaceId} : {}),
+      ...(ctx.auth.workspaceId
+        ? {'X-AssetHub-Workspace': ctx.auth.workspaceId}
+        : {}),
       'Content-Type': 'application/json',
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -7437,7 +7953,8 @@ const UUID_PATTERN =
 
 const operationIdFlag = (flags: Flags): string => {
   const value = getFlag(flags, 'operation-id') ?? randomUUID()
-  if (!UUID_PATTERN.test(value)) throw new Error('--operation-id must be a UUID')
+  if (!UUID_PATTERN.test(value))
+    throw new Error('--operation-id must be a UUID')
   return value
 }
 
@@ -7511,10 +8028,15 @@ const finishSkillRun = async (
           skillTitle: input.skillTitle ?? (await skillRunTitle(ctx, input.skillId)),
         })
       : undefined
-  for (const file of files?.saved ?? [])
-    stderr.write(`Saved: ${file.path}\n`)
+  for (const file of files?.saved ?? []) stderr.write(`Saved: ${file.path}\n`)
+  // A goal run that ended without a verified result still made drafts; save
+  // them so --out-dir is not empty after a paid run.
+  const goalEndedUnverified =
+    run.kind === 'goal' &&
+    run.status !== 'running' &&
+    !run.outputs.some(output => output.verified)
   const tries =
-    input.attempts && input.outDir
+    (input.attempts || goalEndedUnverified) && input.outDir
       ? await saveSkillRunAttempts({
           client: ctx.client,
           run,
@@ -7529,7 +8051,9 @@ const finishSkillRun = async (
   // can pick it up here instead of the person paying for a new run blind.
   const lastCheck = [...run.verdicts].reverse().find(v => v.pass !== null)
   const rejected =
-    lastCheck?.pass === false && run.status !== 'completed' && run.status !== 'running'
+    lastCheck?.pass === false &&
+    run.status !== 'completed' &&
+    run.status !== 'running'
       ? {attempt: lastCheck.attempt, reason: lastCheck.reason}
       : undefined
   print({
@@ -7547,7 +8071,8 @@ const finishSkillRun = async (
   else if (
     run.status === 'failed' ||
     run.status === 'cancelled' ||
-    (files?.failed.length ?? 0) > 0
+    (files?.failed.length ?? 0) > 0 ||
+    (tries?.failed.length ?? 0) > 0
   )
     process.exitCode = 1
 }
@@ -7573,16 +8098,53 @@ const commandSkillRun = async (
         throw new Error(
           'Pass exactly one image: --file <path> (a picture on this computer) or --image-asset <asset-id>.',
         )
-      // No default: the spending limit is always the person's decision.
-      requireFlag(ctx.flags, 'budget')
-      const budgetCredits = parsePositiveIntegerFlag(ctx.flags, 'budget', 1)
+      // No default: a run's limit is internal unless the server still asks
+      // for one (a v7 run outside skill_run_internal_limit answers 422).
+      const goal = hasFlag(ctx.flags, 'goal')
+      const budgetCredits = hasFlag(ctx.flags, 'budget')
+        ? parsePositiveIntegerFlag(ctx.flags, 'budget', 1)
+        : undefined
+      // Checked before any upload or start, so a bad flag costs nothing.
+      const modelLimit = goalModelLimit({
+        image: getFlagValues(ctx.flags, 'image-model'),
+        mesh: getFlagValues(ctx.flags, 'mesh-model'),
+      })
       const operationId = operationIdFlag(ctx.flags)
-      const pin = await pinSkill(ctx.client, skillId, {
+      const expected = {
         revision: hasFlag(ctx.flags, 'revision')
           ? parsePositiveIntegerFlag(ctx.flags, 'revision', 1)
           : undefined,
         contentSha256: getFlag(ctx.flags, 'content-sha256'),
-      })
+      }
+      // A V8 goal skill (`skills import-goal`) is pinned by the server at
+      // start. The step-skill read does not know goal skills, so a skill it
+      // cannot find is started as a goal skill only when the workspace lists
+      // it as one; anything else stays a 404 before an upload (`--goal` skips
+      // the read).
+      const goalPin = {skillId, title: skillId, ...expected}
+      const pin = goal
+        ? goalPin
+        : await pinSkill(ctx.client, skillId, expected).catch(async error => {
+            if (
+              error instanceof AssetHubApiError &&
+              error.status === 404 &&
+              (await isListedGoalSkill(async cursor => {
+                const page = await ctx.client.v2.listWorkspaceSkills({cursor})
+                return {
+                  items: page.items as unknown as SkillListRow[],
+                  nextCursor: page.nextCursor,
+                }
+              }, skillId))
+            )
+              return {...goalPin, goal: true as const}
+            throw error
+          })
+      const stepSkill = !goal && !('goal' in pin)
+      // Same as the Use skill card: a step skill picks its models in its steps.
+      if (stepSkill && modelLimit.models)
+        throw new Error(
+          `"${pin.title}" picks its models in its own steps, so --image-model and --mesh-model do not apply. Run it again without them.`,
+        )
       const {canvas} = await openExecutionSession({
         ...stateOptions(ctx),
         canvasId: selectedCanvasId(ctx.flags),
@@ -7600,19 +8162,25 @@ const commandSkillRun = async (
           })
         ).assetId
       stderr.write(
-        `Running "${pin.title}" (revision ${pin.revision}) with a limit of ${budgetCredits} credits on canvas ${canvas.id}.\n` +
-          `If this command is interrupted, run it again with --operation-id ${operationId}: that continues the same run instead of paying twice.\n`,
+        `Running "${pin.title}"${pin.revision ? ` (revision ${pin.revision})` : ''}${budgetCredits === undefined ? '' : ` with a limit of ${budgetCredits} credits`} on canvas ${canvas.id}.\n` +
+          `If this command is interrupted, run it again with --operation-id ${operationId}: that continues the same run instead of paying twice.\n` +
+          (modelLimit.models
+            ? `Models: image ${modelLimit.models.image?.join(', ') ?? 'auto'}; 3D ${modelLimit.models.mesh?.join(', ') ?? 'auto'}.\n`
+            : ''),
       )
       const started = await ctx.client.v2.startWorkspaceSkillRun(skillId, {
         clientOperationId: operationId,
         canvasId: canvas.id,
         sourceImageAssetId,
-        budgetCredits,
+        ...(budgetCredits !== undefined ? {budgetCredits} : {}),
         ask: hasFlag(ctx.flags, 'ask')
           ? await readTextArgument(requireFlag(ctx.flags, 'ask'))
           : undefined,
-        expectedRevision: pin.revision,
-        expectedContentSha256: pin.contentSha256,
+        ...(pin.revision ? {expectedRevision: pin.revision} : {}),
+        ...(pin.contentSha256
+          ? {expectedContentSha256: pin.contentSha256}
+          : {}),
+        ...modelLimit,
         executionContext: {
           canvasId: canvas.id,
           clientOperationId: operationId,
@@ -7632,7 +8200,8 @@ const commandSkillRun = async (
         ownerId: canvas.ownerId,
         skillId,
         skillTitle: pin.title,
-        revision: pin.revision,
+        // A goal run is pinned by the server; the start answer carries it.
+        revision: pin.revision ?? started.pin.revision,
         runId: started.runId,
         operationId,
         canvasId: canvas.id,
@@ -7641,7 +8210,9 @@ const commandSkillRun = async (
         startedIn: process.cwd(),
         startedAt: new Date().toISOString(),
       }).catch(error =>
-        stderr.write(`Could not record this run locally (${error instanceof Error ? error.message : error}); keep the operation id above.\n`),
+        stderr.write(
+          `Could not record this run locally (${error instanceof Error ? error.message : error}); keep the operation id above.\n`,
+        ),
       )
       await finishSkillRun(ctx, {
         skillId,
@@ -7660,19 +8231,30 @@ const commandSkillRun = async (
     const receipt = await readSkillRunReceipt(stateOptions(ctx).stateDir, runId)
     const saveTo = {
       outDir: outDirFlag ?? receipt?.outDir,
-      ...(!outDirFlag && receipt?.sourceFile ? {sourceFileName: basename(receipt.sourceFile)} : {}),
+      ...(!outDirFlag && receipt?.sourceFile
+        ? {sourceFileName: basename(receipt.sourceFile)}
+        : {}),
       ...(receipt ? {skillTitle: receipt.skillTitle} : {}),
     }
     if (subcommand === 'run-status') {
-      await finishSkillRun(ctx, {skillId, runId, wait, ...saveTo, attempts: hasFlag(ctx.flags, 'attempts')})
+      await finishSkillRun(ctx, {
+        skillId,
+        runId,
+        wait,
+        ...saveTo,
+        attempts: hasFlag(ctx.flags, 'attempts'),
+      })
       return
     }
     if (subcommand === 'run-resume') {
-      requireFlag(ctx.flags, 'add-credits')
+      // A run with an internal limit just continues; --add-credits only
+      // where the server still asks for an amount.
       const operationId = operationIdFlag(ctx.flags)
       await ctx.client.v2.resumeWorkspaceSkillRun(skillId, runId, {
         clientOperationId: operationId,
-        addCredits: parsePositiveIntegerFlag(ctx.flags, 'add-credits', 1),
+        ...(hasFlag(ctx.flags, 'add-credits')
+          ? {addCredits: parsePositiveIntegerFlag(ctx.flags, 'add-credits', 1)}
+          : {}),
       })
       await finishSkillRun(ctx, {
         skillId,
@@ -7683,12 +8265,24 @@ const commandSkillRun = async (
       })
       return
     }
+    if (subcommand === 'run-answer') {
+      const answer = requireFlag(ctx.flags, 'answer')
+      await ctx.client.v2.answerWorkspaceSkillRun(skillId, runId, answer)
+      await finishSkillRun(ctx, {skillId, runId, wait, ...saveTo})
+      return
+    }
+    if (subcommand === 'run-stop') {
+      await ctx.client.v2.stopWorkspaceSkillRun(skillId, runId)
+      await finishSkillRun(ctx, {skillId, runId, wait, ...saveTo})
+      return
+    }
     if (subcommand === 'run-verdict') {
       const verdict = parseEnumFlag(ctx.flags, 'verdict', [
         'keep',
         'not-right',
       ] as const)
-      if (!verdict) throw new Error('Missing required flag: --verdict keep|not-right')
+      if (!verdict)
+        throw new Error('Missing required flag: --verdict keep|not-right')
       print(
         await ctx.client.v2.recordWorkspaceSkillRunVerdict(skillId, runId, {
           verdict: verdict === 'keep' ? 'keep' : 'not_right',
@@ -7705,7 +8299,9 @@ const commandSkillRun = async (
       // A key without skill runs gets the same 404 as an unknown path.
       const unavailable =
         error.code === 'SKILL_RUN_DISABLED' ||
-        (subcommand === 'run' && error.status === 404 && error.code === 'NOT_FOUND')
+        (subcommand === 'run' &&
+          error.status === 404 &&
+          error.code === 'NOT_FOUND')
       print({
         error: {
           code: error.code,
@@ -7720,7 +8316,9 @@ const commandSkillRun = async (
     }
     throw error
   }
-  throw new Error('Use skills run|run-status|run-resume|run-verdict')
+  throw new Error(
+    'Use skills run|run-status|run-resume|run-answer|run-stop|run-verdict',
+  )
 }
 
 /**
@@ -7742,7 +8340,9 @@ const commandSkillRunList = async (ctx: CommandContext): Promise<void> => {
     const run = await ctx.client.v2
       .getWorkspaceSkillRun(receipt.skillId, receipt.runId)
       .catch((error: unknown) =>
-        error instanceof AssetHubApiError ? {error: error.code} : Promise.reject(error),
+        error instanceof AssetHubApiError
+          ? {error: error.code}
+          : Promise.reject(error),
       )
     const status = 'status' in run ? run.status : 'unknown'
     items.push({
@@ -7783,9 +8383,20 @@ export const commandSkills = async (
     subcommand === 'run' ||
     subcommand === 'run-status' ||
     subcommand === 'run-resume' ||
+    subcommand === 'run-answer' ||
+    subcommand === 'run-stop' ||
     subcommand === 'run-verdict'
   ) {
     await commandSkillRun(subcommand, positionals, ctx)
+    return
+  }
+  if (subcommand === 'import-goal') {
+    const path = requirePositional(positionals, 2, 'skill folder or skill.json')
+    print(
+      await ctx.client.v2.importWorkspaceGoalSkill(
+        await readGoalSkillImport(path),
+      ),
+    )
     return
   }
   if (subcommand === 'list' && hasFlag(ctx.flags, 'runnable')) {
@@ -7922,11 +8533,7 @@ export const commandSkills = async (
       await ctx.client.v2.setWorkspaceSkillControls(
         requirePositional(positionals, 2, 'skill-id'),
         {
-          expectedRevision: parsePositiveIntegerFlag(
-            ctx.flags,
-            'revision',
-            1,
-          ),
+          expectedRevision: parsePositiveIntegerFlag(ctx.flags, 'revision', 1),
           expectedGrantRevision: parsePositiveIntegerFlag(
             ctx.flags,
             'grant-revision',
@@ -7969,9 +8576,7 @@ export const commandSkills = async (
     print(
       subcommand === 'learn'
         ? await ctx.client.v2.learnWorkspaceSkill(
-            input as Parameters<
-              typeof ctx.client.v2.learnWorkspaceSkill
-            >[0],
+            input as Parameters<typeof ctx.client.v2.learnWorkspaceSkill>[0],
             {idempotencyKey: operationId!},
           )
         : await ctx.client.v2.prepareWorkspaceSkillProposal(
@@ -7996,9 +8601,7 @@ export const commandSkills = async (
       subcommand === 'update'
         ? await ctx.client.v2.updateWorkspaceSkill(
             id,
-            input as Parameters<
-              typeof ctx.client.v2.updateWorkspaceSkill
-            >[1],
+            input as Parameters<typeof ctx.client.v2.updateWorkspaceSkill>[1],
           )
         : await ctx.client.v2.acceptWorkspaceSkillProposal(
             id,
@@ -8092,7 +8695,8 @@ export const commandSkills = async (
       // account's builder cannot write rather than coercing it.
       taskKind: (parseEnumFlag(ctx.flags, 'task-kind', [
         ...WORKSPACE_SKILL_BUILD_TASK_KINDS,
-      ]) ?? 'part_separation') as (typeof WORKSPACE_SKILL_BUILD_TASK_KINDS)[number],
+      ]) ??
+        'part_separation') as (typeof WORKSPACE_SKILL_BUILD_TASK_KINDS)[number],
       source:
         canvasIds.length > 0
           ? {kind: 'canvas_graph' as const, canvasIds}
@@ -8235,13 +8839,25 @@ const resolveMcpTarget = async (
 ): Promise<{baseUrl: string; workspaceId?: string}> => {
   const config = await readAuthConfig(getConfigPath(flags))
   const explicitProfile = getFlag(flags, 'profile')
-  const stored = config.profiles?.[explicitProfile ?? config.defaultProfile ?? defaultProfileName]
-  if (explicitProfile && !stored) throw new Error('Selected profile does not exist')
-  const selected = explicitProfile || stored?.workspaceId || isPersonalProfile(stored)
-  const baseUrl = getFlag(flags, 'base-url') ??
-    (selected ? stored?.baseUrl : env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl) ?? defaultBaseUrl
-  const workspaceId = getFlag(flags, 'workspace') ??
-    (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin ? stored.workspaceId : undefined)
+  const stored =
+    config.profiles?.[
+      explicitProfile ?? config.defaultProfile ?? defaultProfileName
+    ]
+  if (explicitProfile && !stored)
+    throw new Error('Selected profile does not exist')
+  const selected =
+    explicitProfile || stored?.workspaceId || isPersonalProfile(stored)
+  const baseUrl =
+    getFlag(flags, 'base-url') ??
+    (selected
+      ? stored?.baseUrl
+      : (env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl)) ??
+    defaultBaseUrl
+  const workspaceId =
+    getFlag(flags, 'workspace') ??
+    (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin
+      ? stored.workspaceId
+      : undefined)
   return {baseUrl, workspaceId}
 }
 
@@ -8259,7 +8875,9 @@ const noticeUpdate = async (flags: Flags): Promise<void> => {
     for (const notice of decision.notices) stderr.write(`${notice}\n`)
     if (cache && (decision.markAnnounced || decision.markNoticed))
       await patchUpdateCheck(cachePath, cache, {
-        ...(decision.markAnnounced && cache.autoUpdate ? {autoUpdate: {...cache.autoUpdate, announced: true}} : {}),
+        ...(decision.markAnnounced && cache.autoUpdate
+          ? {autoUpdate: {...cache.autoUpdate, announced: true}}
+          : {}),
         ...(decision.markNoticed ? {noticedAt: now.toISOString()} : {}),
       })
     if (decision.refresh && (await claimRefreshAttempt(cachePath, now)))
@@ -8282,17 +8900,31 @@ const run = async (): Promise<void> => {
 
   const [command, subcommand] = parsed.positionals
   if (command !== 'init') await syncInstalledSkill()
-  if (!['update', 'hooks', 'env'].includes(command ?? '')) await noticeUpdate(parsed.flags)
+  if (!['update', 'hooks', 'env'].includes(command ?? ''))
+    await noticeUpdate(parsed.flags)
   if (command === 'init') {
     if (subcommand)
-      throw new Error(`Use init [--agent ${AGENT_IDS.join('|')}] [--project] [--dry-run]`)
+      throw new Error(
+        `Use init [--agent ${AGENT_IDS.join('|')}] [--project] [--dry-run]`,
+      )
     // Kept for existing scripts: agent wiring only, as before, through setup's steps.
     stderr.write(
       '`assethub init` is deprecated and will be removed in a later version; use `assethub setup` (or `assethub setup --only mcp,skills` for agent wiring only).\n',
     )
-    await commandSetup({...parsed.flags, json: true, yes: true}, installSessionHooks, {
-      skip: ['login', 'workspace', 'auto-update', 'app-env', 'hook', 'doctor'],
-    })
+    await commandSetup(
+      {...parsed.flags, json: true, yes: true},
+      installSessionHooks,
+      {
+        skip: [
+          'login',
+          'workspace',
+          'auto-update',
+          'app-env',
+          'hook',
+          'doctor',
+        ],
+      },
+    )
     return
   }
   if (command === 'mcp' && subcommand === 'tools') {
@@ -8343,16 +8975,30 @@ const run = async (): Promise<void> => {
   }
   if (command === 'mcp') {
     if (subcommand !== 'config')
-      throw new Error('Use mcp tools [tool-name] or mcp config --client cursor|codex')
+      throw new Error(
+        'Use mcp tools [tool-name] or mcp config --client cursor|codex',
+      )
     const config = await readAuthConfig(getConfigPath(parsed.flags))
     const explicitProfile = getFlag(parsed.flags, 'profile')
-    const stored = config.profiles?.[explicitProfile ?? config.defaultProfile ?? defaultProfileName]
-    if (explicitProfile && !stored) throw new Error('Selected profile does not exist')
-    const selected = explicitProfile || stored?.workspaceId || isPersonalProfile(stored)
-    const baseUrl = getFlag(parsed.flags, 'base-url') ??
-      (selected ? stored?.baseUrl : env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl) ?? defaultBaseUrl
-    const workspaceId = getFlag(parsed.flags, 'workspace') ??
-      (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin ? stored.workspaceId : undefined)
+    const stored =
+      config.profiles?.[
+        explicitProfile ?? config.defaultProfile ?? defaultProfileName
+      ]
+    if (explicitProfile && !stored)
+      throw new Error('Selected profile does not exist')
+    const selected =
+      explicitProfile || stored?.workspaceId || isPersonalProfile(stored)
+    const baseUrl =
+      getFlag(parsed.flags, 'base-url') ??
+      (selected
+        ? stored?.baseUrl
+        : (env.ASSETHUB_API_BASE_URL ?? stored?.baseUrl)) ??
+      defaultBaseUrl
+    const workspaceId =
+      getFlag(parsed.flags, 'workspace') ??
+      (stored && new URL(baseUrl).origin === new URL(stored.baseUrl).origin
+        ? stored.workspaceId
+        : undefined)
     stdout.write(
       mcpConfig(
         requireFlag(parsed.flags, 'client'),
@@ -8372,7 +9018,10 @@ const run = async (): Promise<void> => {
       await refreshUpdateCheck({
         cachePath,
         lockPath: `${cachePath}.lock`,
-        autoUpdate: autoUpdateEnabled(await readAutoUpdateSetting(settingsPath(configPath)), env),
+        autoUpdate: autoUpdateEnabled(
+          await readAutoUpdateSetting(settingsPath(configPath)),
+          env,
+        ),
         deps: createNodeUpdateDeps(['--config', configPath]),
       })
       return
@@ -8386,7 +9035,9 @@ const run = async (): Promise<void> => {
     const installs = !hasFlag(parsed.flags, 'check') && !hasFlag(parsed.flags, 'dry-run')
     // Never install alongside a background auto-update.
     if (installs && !(await takeLock(`${cachePath}.lock`)))
-      throw new Error('A background update of the CLI is running; try again in a minute.')
+      throw new Error(
+        'A background update of the CLI is running; try again in a minute.',
+      )
     const report = await runUpdate(
       {check: hasFlag(parsed.flags, 'check'), dryRun: hasFlag(parsed.flags, 'dry-run'), yes: hasFlag(parsed.flags, 'yes')},
       createNodeUpdateDeps(forwardFlags, apiKey ? {ASSETHUB_API_KEY: apiKey} : {}),
@@ -8394,12 +9045,18 @@ const run = async (): Promise<void> => {
       if (installs) await rm(`${cachePath}.lock`, {force: true})
     })
     // Every answer from the registry refreshes the daily hint, so it never nags about an installed version.
-    await writeUpdateCheck(cachePath, report.status === 'updated' ? report.to : report.latest).catch(() => undefined)
+    await writeUpdateCheck(
+      cachePath,
+      report.status === 'updated' ? report.to : report.latest,
+    ).catch(() => undefined)
     print(report)
     return
   }
+  // composer run has its own --whole-guide / --whole-guide-mesh.
+  const assemblyFlags = ['part-count', 'assembly-experiment', 'garment-fit']
+  if (!(command === 'composer' && subcommand === 'run')) assemblyFlags.push('whole-guide', 'whole-guide-mesh')
   if (
-    ['part-count', 'assembly-experiment', 'garment-fit'].some(flag => hasFlag(parsed.flags, flag)) &&
+    assemblyFlags.some(flag => hasFlag(parsed.flags, flag)) &&
     !((command === 'production' && ['analyze', 'batch'].includes(subcommand ?? '')) ||
       (command === 'parts' && ['split', 'compare'].includes(subcommand ?? '')))
   )
@@ -8411,9 +9068,15 @@ const run = async (): Promise<void> => {
       includeMcp: hasFlag(parsed.flags, 'mcp'),
       timeoutMs: parsePositiveIntegerFlag(parsed.flags, 'timeout-ms', 15000),
     })
-    const setup = hasFlag(parsed.flags, 'setup') ? await setupCheck(parsed.flags) : undefined
+    const setup = hasFlag(parsed.flags, 'setup')
+      ? await setupCheck(parsed.flags)
+      : undefined
     const report = setup
-      ? {...diagnosed, ok: diagnosed.ok && setup.status === 'pass', checks: [...diagnosed.checks, setup]}
+      ? {
+          ...diagnosed,
+          ok: diagnosed.ok && setup.status === 'pass',
+          checks: [...diagnosed.checks, setup],
+        }
       : diagnosed
     print(report)
     if (!report.ok) process.exitCode = 2
@@ -8579,6 +9242,9 @@ const run = async (): Promise<void> => {
       return
     case 'production':
       await commandProduction(subcommand, parsed.positionals, ctx)
+      return
+    case 'mesh-review':
+      await commandMeshReview(subcommand, parsed.positionals, ctx)
       return
     case 'runs':
       await commandRuns(subcommand, parsed.positionals, ctx)

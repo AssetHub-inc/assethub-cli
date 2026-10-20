@@ -16,6 +16,38 @@ import {
 const operationId = '11111111-1111-4111-8111-111111111111'
 const jpegBase64 = '/9j/2Q=='
 
+// @testdoc The generic gateway used by CLI, MCP and chat preserves V5's explicit head/body choice and paid operation identity.
+it.each([true, false])(
+  'forwards headBodyFirst=%s without changing the caller context',
+  async headBodyFirst => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({success: true, data: {runId: 'saved-v5-run'}}),
+    )
+    const client = createAssetHubClient({
+      apiKey: 'test-key', workspaceId: 'workspace', fetch: request,
+    })
+    const spec = {
+      paths: {'/production/analyze': {post: {summary: 'Analyze production'}}},
+    }
+    const body = {
+      agentVersion: 'ah_agent_graph_harpy_assembly_v2',
+      imageAssetId: 'owned-image',
+      assemblyExperiment: {headBodyFirst},
+      executionContext: {canvasId: 42, clientOperationId: operationId, source: 'cli'},
+    }
+    await callApiOperation(
+      client,
+      {catalog: buildApiCatalog(spec), specs: {v1: {}, v2: spec}},
+      {operation: 'POST /production/analyze', operationId, body},
+    )
+    const [url, init] = request.mock.calls[0]!
+    expect(url).toBe('https://app.assethub.io/api/v2/production/analyze')
+    expect(JSON.parse(String(init?.body))).toEqual(body)
+    expect(new Headers(init?.headers).get('Idempotency-Key')).toBe(operationId)
+    expect(new Headers(init?.headers).get('X-AssetHub-Workspace')).toBe('workspace')
+  },
+)
+
 // @testdoc CLI, MCP and chat's shared generic operation gateway retain explicit mesh settings and the caller's paid idempotency identity.
 it('posts explicit graph mesh settings unchanged through the generic operation gateway', async () => {
   const request = vi
