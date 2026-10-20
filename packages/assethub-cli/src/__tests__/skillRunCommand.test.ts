@@ -73,6 +73,14 @@ const server = createServer(async (req, res) => {
       outcome: runStatus === 'completed' ? {status: 'completed'} : null,
       parts: [],
     })
+  if (path === `/api/v2/workspace-skills/figure-clay/runs/${runId}/stop` && runsDisabled)
+    return send(404, {
+      success: false,
+      error: {
+        code: 'NOT_FOUND',
+        message: 'No such endpoint. See https://app.assethub.io/api/v2/openapi.json for the available operations.',
+      },
+    })
   if (path === `/api/v2/workspace-skills/figure-clay/runs/${runId}/resume`)
     return send(202, {runId, skillId: 'figure-clay', status: 'running'})
   if (path === `/api/v2/workspace-skills/figure-clay/runs/${runId}/verdict`)
@@ -232,6 +240,21 @@ it('says plainly when this account cannot run skills', async () => {
     )
     expect(result.code).toBe(2)
     expect(result.json.error.message).toBe('Running skills is not available on this account yet.')
+  } finally {
+    runsDisabled = false
+  }
+})
+
+it('says a run command is not yet available when the server hides the route from this key', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  runsDisabled = true
+  try {
+    const result = await cli(['run-stop', 'figure-clay', runId], dir)
+    expect(result.code).toBe(2)
+    expect(result.json.error).toMatchObject({
+      code: 'NOT_FOUND',
+      message: 'This feature is not yet available for this account.',
+    })
   } finally {
     runsDisabled = false
   }
