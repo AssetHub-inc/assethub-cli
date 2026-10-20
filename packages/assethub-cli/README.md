@@ -511,7 +511,7 @@ Internal V5.3 actors can also send the "best-of-both" assembly switches through 
 `garmentFit` and `wholeGuide`. The server keeps them only for an internal V5.3 start and, when the
 `production_v53_best_of_both_enabled` gate passes, fills in any of them you left unset (explicit values win).
 Select the agent with `--part-extractor v5.3` (`ah_agent_graph_harpy_assembly_v5_3`) or one of the internal
-V5 variants `v5.0.1`, `v5.0.2` or `v5.0.4`.
+V5 variants `v5.0.1`, `v5.0.2`, `v5.0.4` or `v5.0.5`.
 
 ```sh
 assethub production analyze --file ./concept.png --part-extractor v5.3 --assembly-experiment \

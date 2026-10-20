@@ -78,6 +78,7 @@ const characterAssemblyApiValues = new Set([
   'ah_agent_graph_harpy_assembly_v5_0_1',
   'ah_agent_graph_harpy_assembly_v5_0_2',
   'ah_agent_graph_harpy_assembly_v5_0_4',
+  'ah_agent_graph_harpy_assembly_v5_0_5',
 ])
 
 describe('built recorded CLI', () => {
@@ -310,6 +311,7 @@ describe('built recorded CLI', () => {
     ['V5.0.1 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_1', 'V5.0.1 Character Assembly', ['v5.0.1', '5.0.1', 'v5.0.1 character assembly']],
     ['V5.0.2 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_2', 'V5.0.2 Character Assembly', ['v5.0.2', '5.0.2', 'v5.0.2 character assembly']],
     ['V5.0.4 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_4', 'V5.0.4 Character Assembly', ['v5.0.4', '5.0.4', 'v5.0.4 character assembly']],
+    ['V5.0.5 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_5', 'V5.0.5 Character Assembly', ['v5.0.5', '5.0.5', 'v5.0.5 character assembly']],
     ['V5.3 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_3', 'V5.3 Character Assembly', ['v5.3', '5.3', 'v5.3 character assembly']],
     ['V5 Character Assembly', 'ah_agent_graph_harpy_assembly_v2', 'V5 Character Assembly', ['v5', '5', 'v5 character assembly']],
     ['V4 Character Assembly', 'ah_agent_graph_harpy_assembly_v4_legacy', 'V4 Character Assembly', ['v4', '4', 'v4 character assembly', 'character assembly']],

@@ -445,6 +445,11 @@ const partExtractorOptions = [
     aliases: ['v5.0.4', '5.0.4', 'v5.0.4 character assembly'],
   },
   {
+    publicName: 'V5.0.5 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_5',
+    aliases: ['v5.0.5', '5.0.5', 'v5.0.5 character assembly'],
+  },
+  {
     publicName: 'V5.3 Character Assembly',
     apiValue: 'ah_agent_graph_harpy_assembly_v5_3',
     aliases: ['v5.3', '5.3', 'v5.3 character assembly'],
@@ -464,7 +469,8 @@ const isV4CharacterAssembly = (version: string): boolean =>
   version === 'ah_agent_graph_harpy_assembly_v5_3' ||
   version === 'ah_agent_graph_harpy_assembly_v5_0_1' ||
   version === 'ah_agent_graph_harpy_assembly_v5_0_2' ||
-  version === 'ah_agent_graph_harpy_assembly_v5_0_4'
+  version === 'ah_agent_graph_harpy_assembly_v5_0_4' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_5'
 
 // A V4 Character Assembly run (image → parts → meshes → assembled character) takes
 // about an hour, so `--wait` defaults past the generic 15 minute limit.
