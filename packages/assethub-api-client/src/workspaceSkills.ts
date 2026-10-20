@@ -415,8 +415,27 @@ export type WorkspaceSkillSummary = {
   authorId: string | null
 }
 
+/**
+ * An ag.memory-skill.v8 goal skill this actor can run (internal, behind the
+ * goal runner): one of the workspace, or a live AssetHub official release.
+ * Listed once, ahead of the first page; start it with the skill run
+ * operation and the server runs it.
+ */
+export type WorkspaceGoalSkillListItem = {
+  skillId: string
+  revision: number
+  summary: string
+  schemaVersion: 'ag.memory-skill.v8'
+  mode: 'manual'
+  taskKind: null
+  official?: boolean
+  staffOnly?: boolean
+  /** The catalog models the skill recommends, per kind; a run can limit them. */
+  recommendedModels?: {image: string[]; mesh: string[]}
+}
+
 export type WorkspaceSkillListResult = {
-  items: WorkspaceSkillSummary[]
+  items: (WorkspaceSkillSummary | WorkspaceGoalSkillListItem)[]
   canEdit: boolean
   nextCursor: string | null
 }

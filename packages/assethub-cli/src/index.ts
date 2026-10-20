@@ -636,7 +636,7 @@ Usage:
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
-  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: only skills that skills run accepts, every page)
+  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: only skills that skills run accepts, every page; internal goal skills, AssetHub official ones included, are marked goal/official/staffOnly)
   assethub skills get <skill-id> [--revision <n>]
   assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
   assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>

@@ -595,6 +595,22 @@ describe('goal skills in the CLI', () => {
     expect(listed.items[0].recommendedModels).toEqual(recommended)
   })
 
+  it('marks official and staff-only goal skills, like the Use skill badges', async () => {
+    const listed = await listRunnableSkills(async () => ({
+      items: [
+        row('assethub-drecom', 'ag.memory-skill.v8', {official: true, staffOnly: true}),
+        row('assethub-clay', 'ag.memory-skill.v8', {official: true, staffOnly: false}),
+        row('mine', 'ag.memory-skill.v8'),
+      ],
+      nextCursor: null,
+    }))
+    expect(listed.items.map(item => [item.skillId, item.official, item.staffOnly])).toEqual([
+      ['assethub-drecom', true, true],
+      ['assethub-clay', true, undefined],
+      ['mine', undefined, undefined],
+    ])
+  })
+
   it('treats a skill as a goal skill only when the workspace lists it as one', async () => {
     const listPage = async () => ({
       items: [row('drecom', 'ag.memory-skill.v8'), row('clay', 'ag.memory-skill.v7')],

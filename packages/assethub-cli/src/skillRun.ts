@@ -508,6 +508,8 @@ export type SkillListRow = {
   revision: number
   taskKind: string | null
   recommendedModels?: {image: string[]; mesh: string[]}
+  official?: boolean
+  staffOnly?: boolean
 }
 
 export type RunnableSkill = {
@@ -522,6 +524,10 @@ export type RunnableSkill = {
   goal?: true
   /** Goal skills: the catalog models the skill recommends, per kind. */
   recommendedModels?: {image: string[]; mesh: string[]}
+  /** Goal skills: an AssetHub official release (installs on its first run). */
+  official?: true
+  /** Goal skills: an official release only AssetHub staff can run so far. */
+  staffOnly?: true
 }
 
 /**
@@ -563,6 +569,8 @@ export const listRunnableSkills = async (
             ...(row.recommendedModels
               ? {recommendedModels: row.recommendedModels}
               : {}),
+            ...(row.official ? {official: true as const} : {}),
+            ...(row.staffOnly ? {staffOnly: true as const} : {}),
           }
         : {}),
     }
