@@ -5629,6 +5629,8 @@ const resolveProductionAnalyzeOptions = async (ctx: CommandContext) => {
       ctx.flags,
       agentVersion,
     )
+    if (skillPlannerModel !== undefined && !['auto', 'manual'].includes(skillSelection?.mode ?? ''))
+      throw new Error('--skill-planner-model requires --skill-mode auto or manual')
   const projectContext =
     hasFlag(ctx.flags, 'context') || hasFlag(ctx.flags, 'context-version')
       ? {
