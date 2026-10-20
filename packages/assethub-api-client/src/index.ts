@@ -87,6 +87,10 @@ export type {
   WorkspaceSkillLearnInput,
   WorkspaceSkillLearnResult,
   WorkspaceGoalSkillListItem,
+  WorkspaceSkillShowcaseItem,
+  WorkspaceSkillShowcaseRunStartInput,
+  WorkspaceSkillStaffShare,
+  WorkspaceSkillStaffShareCatalog,
   WorkspaceSkillListResult,
   WorkspaceSkillMode,
   WorkspaceSkillPhase,
@@ -209,6 +213,10 @@ import type {
   WorkspaceSkillLearnInput,
   WorkspaceSkillLearnResult,
   WorkspaceGoalSkillListItem,
+  WorkspaceSkillShowcaseItem,
+  WorkspaceSkillShowcaseRunStartInput,
+  WorkspaceSkillStaffShare,
+  WorkspaceSkillStaffShareCatalog,
   WorkspaceSkillListResult,
   WorkspaceSkillProposalAcceptInput,
   WorkspaceSkillPublication,
@@ -2618,6 +2626,62 @@ export class AssetHubClient {
         await this.request<WorkspaceSkillRunStarted>(
           'v2',
           `/workspace-skills/${encodeURIComponent(skillId)}/runs`,
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+            ...idempotencyRequestInit({
+              idempotencyKey: body.clientOperationId,
+            }),
+          },
+        )
+      ).data,
+
+    /** Every skill shared to AssetHub staff (staff accounts only; others get 403/404). */
+    listStaffSharedWorkspaceSkills: async (): Promise<WorkspaceSkillStaffShareCatalog> =>
+      (
+        await this.request<WorkspaceSkillStaffShareCatalog>(
+          'v2',
+          '/workspace-skills/shares',
+          {method: 'GET'},
+        )
+      ).data,
+
+    /**
+     * Start a run of a skill shared to staff, in this workspace (which pays).
+     * PAID, same body and idempotency rules as `startWorkspaceSkillRun`; read,
+     * resume and verdict use the returned `skillId`.
+     */
+    startStaffSharedWorkspaceSkillRun: async (
+      shareId: string,
+      body: WorkspaceSkillRunStartInput,
+    ): Promise<WorkspaceSkillRunStarted> =>
+      (
+        await this.request<WorkspaceSkillRunStarted>(
+          'v2',
+          `/workspace-skills/shares/${encodeURIComponent(shareId)}/runs`,
+          {
+            method: 'POST',
+            body: JSON.stringify(body),
+            ...idempotencyRequestInit({
+              idempotencyKey: body.clientOperationId,
+            }),
+          },
+        )
+      ).data,
+
+    /**
+     * Install a showcase skill (official v7 release, the listed revision) on
+     * first use and start a run of it. PAID; a retry with the same
+     * `clientOperationId` returns the same run.
+     */
+    startShowcaseWorkspaceSkillRun: async (
+      skillId: string,
+      body: WorkspaceSkillShowcaseRunStartInput,
+    ): Promise<WorkspaceSkillRunStarted> =>
+      (
+        await this.request<WorkspaceSkillRunStarted>(
+          'v2',
+          `/workspace-skills/showcase/${encodeURIComponent(skillId)}/runs`,
           {
             method: 'POST',
             body: JSON.stringify(body),

@@ -434,11 +434,38 @@ export type WorkspaceGoalSkillListItem = {
   recommendedModels?: {image: string[]; mesh: string[]}
 }
 
+/**
+ * An official v7 skill every admitted actor can run (internal): the first run
+ * installs it into the workspace (`startShowcaseWorkspaceSkillRun`).
+ */
+export type WorkspaceSkillShowcaseItem = {
+  skillId: string
+  revision: number
+  title: string
+  summary: string
+}
+
 export type WorkspaceSkillListResult = {
   items: (WorkspaceSkillSummary | WorkspaceGoalSkillListItem)[]
   canEdit: boolean
   nextCursor: string | null
+  /** Official v7 skills runnable without installing first; absent on older servers. */
+  showcase?: WorkspaceSkillShowcaseItem[]
 }
+
+/** A skill shared to AssetHub staff (staff accounts only), runnable by its `shareId`. */
+export type WorkspaceSkillStaffShare = {
+  /** Stable per shared skill; names no workspace. */
+  shareId: string
+  skillId: string
+  /** The revision staff can run. */
+  revision: number
+  title: string
+  /** Display name of the workspace the skill was shared from. */
+  workspace: string
+}
+
+export type WorkspaceSkillStaffShareCatalog = {items: WorkspaceSkillStaffShare[]}
 
 export type WorkspaceSkillDetail = {
   orgId?: string
@@ -922,6 +949,11 @@ export type WorkspaceSkillRunStartInput = {
     source: 'cli' | 'mcp' | 'api'
     agent?: {name: string; sessionId?: string}
   }
+}
+
+/** A showcase run names the official release revision it installs on first use. */
+export type WorkspaceSkillShowcaseRunStartInput = WorkspaceSkillRunStartInput & {
+  revision: number
 }
 
 export type WorkspaceSkillRunStarted = {

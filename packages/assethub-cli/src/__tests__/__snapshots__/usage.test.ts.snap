@@ -129,7 +129,7 @@ Usage:
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
-  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: only skills that skills run accepts, every page; internal goal skills, AssetHub official ones included, are marked goal/official/staffOnly)
+  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: every skill skills run accepts, in one list: the workspace's own, official ones and, for staff, skills shared to staff; each row says its source)
   assethub skills get <skill-id> [--revision <n>]
   assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
   assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
@@ -145,7 +145,7 @@ Usage:
   assethub skills build-enhance <build-id> --section <section> --current <json|@file|@-> [--note <text>]   (a suggestion only; nothing is written)
   assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
   assethub skills build-discard <build-id>
-  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) [--budget <credits>] [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--image-model <id>]... [--mesh-model <id>]... [--wait] [--out-dir <dir>]   (PAID: pays what it uses; past the internal limit it pauses until run-resume. --budget only where the server still asks for one)
+  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) [--budget <credits>] [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--image-model <id>]... [--mesh-model <id>]... [--wait] [--out-dir <dir>]   (PAID: any skill skills list --runnable shows; pays what it uses; past the internal limit it pauses until run-resume. --budget only where the server still asks for one)
   assethub skills run-list [--file <image>] [--all] [--limit <n>]   (runs started from this folder, newest first, with their status)
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
   assethub skills run-resume <skill-id> <run-id> [--add-credits <n>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID: continues past the limit; --add-credits only where the server still asks for an amount)

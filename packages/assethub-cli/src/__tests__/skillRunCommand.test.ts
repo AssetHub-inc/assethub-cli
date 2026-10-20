@@ -105,6 +105,50 @@ const server = createServer(async (req, res) => {
       outcome: {status: 'completed'},
       parts: [],
     })
+  // An official V8 goal skill not installed yet: the step-skill read is
+  // forbidden, the list names it as a goal skill, and a start installs it.
+  if (path === '/api/v2/workspace-skills/assethub-axe' || path.startsWith('/api/v2/workspace-skills/assethub-axe?'))
+    return send(403, {success: false, error: {code: 'WORKSPACE_SKILL_FORBIDDEN', message: 'Workspace Skill access is denied'}})
+  if (path === '/api/v2/workspace-skills' || path.startsWith('/api/v2/workspace-skills?'))
+    return send(200, {
+      items: [{skillId: 'assethub-axe', revision: 1, summary: 'Axe', schemaVersion: 'ag.memory-skill.v8', mode: 'manual', taskKind: null, official: true, staffOnly: true}],
+      canEdit: false,
+      nextCursor: null,
+      showcase: [{skillId: 'assethub-showcase', revision: 3, title: 'Showcase clay', summary: 'Showcase clay'}],
+    })
+  if (path === '/api/v2/workspace-skills/foreign-skill' || path.startsWith('/api/v2/workspace-skills/foreign-skill?'))
+    return send(403, {success: false, error: {code: 'WORKSPACE_SKILL_FORBIDDEN', message: 'Workspace Skill access is denied'}})
+  if (path === '/api/v2/workspace-skills/shares/s-1/runs')
+    return send(202, {runId, skillId: 'shared-pluffy', canvasId: 42, pin: {skillId: 'shared-pluffy', revision: 7, contentSha256: sha}, budget: {credits: 80}, status: 'running'})
+  if (path === '/api/v2/workspace-skills/showcase/assethub-showcase/runs')
+    return send(202, {runId, skillId: 'assethub-showcase', canvasId: 42, pin: {skillId: 'assethub-showcase', revision: 3, contentSha256: sha}, budget: {credits: 80}, status: 'running'})
+  if (path === `/api/v2/workspace-skills/assethub-showcase/runs/${runId}`)
+    return send(200, {
+      runId,
+      skillId: 'assethub-showcase',
+      status: 'running',
+      budget: {credits: 80, spentCredits: 0, remainingCredits: 80},
+      steps: [],
+      verdicts: [],
+      outputs: [],
+      outcome: null,
+      parts: [],
+    })
+  if (path === '/api/v2/workspace-skills/assethub-axe/runs')
+    return send(202, {runId, skillId: 'assethub-axe', canvasId: 42, kind: 'goal', pin: {skillId: 'assethub-axe', revision: 1, contentSha256: sha}, budget: {credits: 5000}, status: 'running'})
+  if (path === `/api/v2/workspace-skills/assethub-axe/runs/${runId}`)
+    return send(200, {
+      runId,
+      skillId: 'assethub-axe',
+      kind: 'goal',
+      status: 'running',
+      budget: {credits: 5000, spentCredits: 0, remainingCredits: 5000},
+      steps: [],
+      verdicts: [],
+      outputs: [],
+      outcome: null,
+      parts: [],
+    })
   if (path === '/api/v2/assets/img_9')
     return send(200, {assetId: 'img_9', url: `${baseUrl}/files/img_9.png`, expiresAt: 'x'})
   send(404, {success: false, error: {code: 'NOT_FOUND', message: path}})
@@ -228,6 +272,59 @@ it('runs a goal skill with no spending limit to set, and continues it without --
   seen.length = 0
   await cli(['run-resume', 'figure-clay', runId, '--operation-id', operationId], dir)
   expect(seen.find(r => r.path.endsWith('/resume'))!.body).toEqual({clientOperationId: operationId})
+})
+
+it('starts an official V8 goal skill whose step-skill read is forbidden, without --goal', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  seen.length = 0
+  const result = await cli(
+    ['run', 'assethub-axe', '--image-asset', 'img_1', '--canvas', '42', '--operation-id', operationId],
+    dir,
+  )
+  expect(result.code).toBe(0)
+  expect(seen.some(r => r.method === 'POST' && r.path === '/api/v2/workspace-skills/assethub-axe/runs')).toBe(true)
+})
+
+it('runs a skill shared to staff through its share, named by skill id or share id', async () => {
+  for (const name of ['shared-pluffy', 's-1']) {
+    const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+    seen.length = 0
+    const result = await cli(
+      ['run', name, '--image-asset', 'img_1', '--canvas', '42', '--operation-id', operationId],
+      dir,
+    )
+    expect(result.code).toBe(0)
+    const start = seen.find(r => r.method === 'POST' && r.path.endsWith('/runs'))!
+    expect(start.path).toBe('/api/v2/workspace-skills/shares/s-1/runs')
+    expect(start.body).toMatchObject({expectedRevision: 7, clientOperationId: operationId})
+    expect(result.stderr).toContain('Running "Pluffy Part Separation" (revision 7)')
+  }
+})
+
+it('installs and runs a showcase skill at its listed revision', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  seen.length = 0
+  const result = await cli(
+    ['run', 'assethub-showcase', '--image-asset', 'img_1', '--canvas', '42', '--operation-id', operationId],
+    dir,
+  )
+  expect(result.code).toBe(0)
+  const start = seen.find(r => r.method === 'POST' && r.path.endsWith('/runs'))!
+  expect(start.path).toBe('/api/v2/workspace-skills/showcase/assethub-showcase/runs')
+  expect(start.body).toMatchObject({revision: 3})
+  expect(start.body).not.toHaveProperty('expectedRevision')
+})
+
+it('keeps the 403 for a forbidden skill that is not in the runnable list', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  seen.length = 0
+  const result = await cli(
+    ['run', 'foreign-skill', '--image-asset', 'img_1', '--canvas', '42', '--operation-id', operationId],
+    dir,
+  )
+  expect(result.code).toBe(2)
+  expect(result.json.error.code).toBe('WORKSPACE_SKILL_FORBIDDEN')
+  expect(seen.some(r => r.method === 'POST' && r.path.endsWith('/runs'))).toBe(false)
 })
 
 it('says plainly when this account cannot run skills', async () => {
