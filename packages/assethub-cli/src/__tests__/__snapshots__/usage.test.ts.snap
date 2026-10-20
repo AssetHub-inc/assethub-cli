@@ -64,7 +64,7 @@ Usage:
   assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--effort light|standard|thorough] [--max-rounds <n>] [--agent-model <provider:id|unambiguous-id>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
   assethub composer refine --from-run <run-id> --skill-assembly [--reasoning low|medium|high] [--agent-model <agents-api model>] [--wait]
-  assethub composer run --part <mesh-asset-id>[=<part-image-id>] [--part <mesh-asset-id>[=<part-image-id>]...] --reference <image-asset-id> [--model <id>] [--agent-model <provider:id|unambiguous-id>] [--mode quick|quality] [--optimize off|light|medium|heavy] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
+  assethub composer run --part <mesh-asset-id>[=<part-image-id>] [--part <mesh-asset-id>[=<part-image-id>]...] --reference <image-asset-id> [--model <id>] [--base-body <mesh-asset-id>] [--whole-guide] [--whole-guide-mesh <mesh-asset-id>] [--agent-model <provider:id|unambiguous-id>] [--mode quick|quality] [--optimize off|light|medium|heavy] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --part <mesh-asset-id>=<part-image-id>... --reference <image-asset-id> --model V6 [--optimize off|light|medium|heavy] [--canvas <id>] [--wait]
   assethub composer run --part <mesh-asset-id>... --reference <image-asset-id> --model V5.1 [--reasoning low|medium|high] [--agent-model <agents-api model>] [--transforms-json <json|@file>] [--canvas <id>] [--wait]
   assethub composer run --input-json <json|@file> [--canvas <id>] [--operation-id <uuid>] [--wait] [--download --out-dir <dir>]
@@ -80,6 +80,7 @@ Usage:
   assethub graph list [--cursor <cursor>] [--limit <n>]
   assethub graph show|export [--canvas <id> | --graph <id>] [--source generated|upload] [--artifact <node-id>] [--out <path>] [--allow-truncated]
   assethub graph lineage --artifact <node-id> [--canvas <id> | --graph <id>] [--source generated|upload] [--direction ancestors|descendants|both] [--depth <n>] [--out <path>]
+  assethub graph timeline [--canvas <id> | --graph <id>] [--source generated|upload]   (per-stage wall-clock from node metadata.timing grouped by stage:* tag; graph export keeps metadata.timing)
   assethub graph snapshot <graph-id> [--offset <n>] [--limit <n>]
   assethub graph node <graph-id> <node-id>
   assethub graph image <graph-id> <node-id> [--out <path>]
@@ -103,7 +104,7 @@ Usage:
   assethub animate retarget --resource-id <id> --animation <preset-id> [--animation <preset-id>... up to 5 total] [--out-format glb|fbx] [--bake-animation true|false] [--export-with-geometry true|false] [--animate-in-place true|false] [--name <name>] [--wait] [--download --out-dir <dir>]
   assethub jobs get <job-id> [--download --out-dir <dir>]
   assethub jobs watch <job-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
-  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--assembly-experiment <json|@file>] [--garment-fit <flag,flag>] [--name <name>] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
+  assethub production analyze (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--assembly-experiment <json|@file>] [--garment-fit <flag,flag>] [--whole-guide [--whole-guide-mesh <mesh-asset-id>]] [--name <name>] [--base-body <mesh-asset-id>] [--body-construction clothed-scaffold-v1] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--context <canvas-id> --context-version <n>] [--wait] [--download --out-dir <dir>]
     Production graph options: --pipeline-depth parts|mesh|composition [--assembly-policy concept-to-character-v1] [--mesh-generation-json <json|@file>]
     V4 mesh options: [--mesh-quality low|high] [--mesh-model <model-id>...] (the run only uses these models; default low = meshGen.tripo_p2_preview)
   assethub production batch (--file <path>... | --files-dir <dir> | --source-id <id>... | --source-url <url>...) --part-extractor <name> [--repeat <n>] [--yes] [--canvas <id>] [--operation-id <uuid>] [--wait [--concurrency <n>]] [--download --out-dir <dir>]
@@ -119,12 +120,16 @@ Usage:
   assethub production interventions <order-id>
   assethub production resume <run-id|order-id> [--expected-resume-count <n>] [--wait] [--timeout-ms <ms>] [--download --out-dir <dir>]   (after a fix, pick a stopped or stalled graph run back up; no new start fee; new generation uses credits)
   assethub runs upload <path> [--graph-id <id>] [--stream-id <id>] [--rev <n>] [--description <text>] [--tag <tag>...] [--skip-register] [--dry-run]
+  assethub mesh-review run <folder...> --project <name-or-id> [--asset <key>] [--out <dir>] [--baseline <findings.json>] [--config <toml>] [--reference <front.png>[,<side.png>[,<back.png>]] | --no-concept "<reason>"] [--skip-hp] [--no-render] [--no-sync] [--dry-run] [--engine-dir <path>]   (internal: runs the review engine in local headless Blender, then syncs; exit 0 clean, 1 errors found, 2 failure)
+  assethub mesh-review sync <findings.json> --project <name-or-id> [--asset <key>] [--dry-run]   (internal: upload a run made earlier; repeat the same command to resume)
+  assethub mesh-review projects [--json]   (internal: list the projects of this key's workspace, id + name)
+  assethub mesh-review projects create <name> [--json]   (internal: create a Production Control project in this key's workspace; an existing project of that name is returned, not duplicated)
   assethub parts split (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard | --order-id <id>) [--file-name <name>] [--content-type <type>] [--part-extractor <name>] [--part-count few|default|detailed] [--base-body <mesh-asset-id>] [--skill-planner-model <model>] [--auto-repair true|false] [--skill-mode auto|manual|off] [--skill-id <id>...] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub parts compare (--file <path> | --source-url <url> | --source-id <id> | --image-url <url> | --file-ref-json <json> | --stdin | --stdin-base64 | --stdin-data-uri | --stdin-json | --source-json <json|@file|@-> | --data-uri <uri> | --clipboard) [--file-name <name>] [--content-type <type>] [--preprocess-prompt <text>] [--preprocess-model-id <id>] [--fail-on-preprocess-error] [--part-extractor <name>] [--part-count few|default|detailed] [--wait] [--task-id <id>...] [--mission-id <id>] [--all-ready] [--download --out-dir <dir>]
   assethub autopilot [<image>] --demo [--yolo] [--json] [--max-regen <n>] [--stall-rounds <n>] [--tie-epsilon <x>] [--multiview 2-view|4-view|6-view] [--ab-mode serial|cross] [--credit-budget <n>]
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
-  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: only skills that skills run accepts, every page)
+  assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: only skills that skills run accepts, every page; internal goal skills, AssetHub official ones included, are marked goal/official/staffOnly)
   assethub skills get <skill-id> [--revision <n>]
   assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
   assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
@@ -140,11 +145,14 @@ Usage:
   assethub skills build-enhance <build-id> --section <section> --current <json|@file|@-> [--note <text>]   (a suggestion only; nothing is written)
   assethub skills build-accept <build-id> --draft-sha256 <sha256> [--operation-id <uuid>]
   assethub skills build-discard <build-id>
-  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) --budget <credits> [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to --budget)
+  assethub skills run <skill-id> (--file <image> | --image-asset <asset-id>) [--budget <credits>] [--canvas <id>] [--ask <text|@file|@->] [--revision <n> --content-sha256 <sha256>] [--operation-id <uuid>] [--image-model <id>]... [--mesh-model <id>]... [--wait] [--out-dir <dir>]   (PAID: pays what it uses; past the internal limit it pauses until run-resume. --budget only where the server still asks for one)
   assethub skills run-list [--file <image>] [--all] [--limit <n>]   (runs started from this folder, newest first, with their status)
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
-  assethub skills run-resume <skill-id> <run-id> --add-credits <n> [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID, up to the new limit)
+  assethub skills run-resume <skill-id> <run-id> [--add-credits <n>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID: continues past the limit; --add-credits only where the server still asks for an amount)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
+  assethub skills import-goal <skill-folder|skill.json>   (store an authored ag.memory-skill.v8 skill and its references/ files in the workspace; run it with skills run <skill-id> --goal)
+  assethub skills run-answer <skill-id> <run-id> --answer <option> [--wait]   (a goal run that asked a question continues with your answer)
+  assethub skills run-stop <skill-id> <run-id>   (a goal run stops after its current step; everything made so far is kept)
   assethub skills official list
   assethub skills official install <skill-id> --revision <n> --content-sha256 <sha256> [--expected-revision <n>] [--expected-grant-revision <n>]
   assethub skills official prepare <skill-id> --input-json <json|@file|@->

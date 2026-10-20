@@ -73,6 +73,14 @@ const server = createServer(async (req, res) => {
       outcome: runStatus === 'completed' ? {status: 'completed'} : null,
       parts: [],
     })
+  if (path === `/api/v2/workspace-skills/figure-clay/runs/${runId}/stop` && runsDisabled)
+    return send(404, {
+      success: false,
+      error: {
+        code: 'NOT_FOUND',
+        message: 'No such endpoint. See https://app.assethub.io/api/v2/openapi.json for the available operations.',
+      },
+    })
   if (path === `/api/v2/workspace-skills/figure-clay/runs/${runId}/resume`)
     return send(202, {runId, skillId: 'figure-clay', status: 'running'})
   if (path === `/api/v2/workspace-skills/figure-clay/runs/${runId}/verdict`)
@@ -191,13 +199,35 @@ it('runs a skill pinned to the version read, waits, and saves the result next to
   expect(await readFile(join(dir, 'result.figure-clay.png'))).toEqual(png)
 })
 
-it('refuses to run without a spending limit, before any request', async () => {
+it('runs without a spending limit and leaves the limit to the server', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
   seen.length = 0
-  const result = await cli(['run', 'figure-clay', '--image-asset', 'img_1', '--canvas', '42'], dir)
-  expect(result.code).not.toBe(0)
-  expect(result.stderr).toContain('--budget')
-  expect(seen).toEqual([])
+  runStatus = 'completed'
+  const result = await cli(
+    ['run', 'figure-clay', '--image-asset', 'img_1', '--canvas', '42', '--operation-id', operationId],
+    dir,
+  )
+  expect(result.code).toBe(0)
+  const start = seen.find(r => r.method === 'POST' && r.path.endsWith('/runs'))!
+  expect(start.body).not.toHaveProperty('budgetCredits')
+})
+
+it('runs a goal skill with no spending limit to set, and continues it without --add-credits', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  seen.length = 0
+  runStatus = 'completed'
+  const result = await cli(
+    ['run', 'figure-clay', '--goal', '--image-asset', 'img_1', '--canvas', '42', '--operation-id', operationId],
+    dir,
+  )
+  expect(result.code).toBe(0)
+  expect(result.stderr).toContain('Running "figure-clay" on canvas 42.')
+  expect(result.stderr).not.toContain('limit')
+  const start = seen.find(r => r.method === 'POST' && r.path.endsWith('/runs'))!
+  expect(start.body).not.toHaveProperty('budgetCredits')
+  seen.length = 0
+  await cli(['run-resume', 'figure-clay', runId, '--operation-id', operationId], dir)
+  expect(seen.find(r => r.path.endsWith('/resume'))!.body).toEqual({clientOperationId: operationId})
 })
 
 it('says plainly when this account cannot run skills', async () => {
@@ -210,6 +240,21 @@ it('says plainly when this account cannot run skills', async () => {
     )
     expect(result.code).toBe(2)
     expect(result.json.error.message).toBe('Running skills is not available on this account yet.')
+  } finally {
+    runsDisabled = false
+  }
+})
+
+it('says a run command is not yet available when the server hides the route from this key', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
+  runsDisabled = true
+  try {
+    const result = await cli(['run-stop', 'figure-clay', runId], dir)
+    expect(result.code).toBe(2)
+    expect(result.json.error).toMatchObject({
+      code: 'NOT_FOUND',
+      message: 'This feature is not yet available for this account.',
+    })
   } finally {
     runsDisabled = false
   }

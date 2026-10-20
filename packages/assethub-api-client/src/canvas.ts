@@ -133,6 +133,10 @@ export type CharacterAssemblyProgress = {
     outcome: string
     stopReason?: string
     detail?: string
+    /** V5.3 early delivery: 1 is the first result, 2 a better recovered one that replaced it. */
+    deliveryRevision?: number
+    /** The first result is delivered and a better one may still replace it. */
+    improving?: boolean
   }
 }
 export type CanvasExecution = {

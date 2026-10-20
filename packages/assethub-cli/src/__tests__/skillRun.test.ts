@@ -5,6 +5,8 @@ import {afterEach, describe, expect, it} from 'vitest'
 import type {WorkspaceSkillRun} from '@assethub/api-client'
 import {
   describeSkillRunProgress,
+  goalModelLimit,
+  isListedGoalSkill,
   listRunnableSkills,
   nextSkillRunAction,
   pinSkill,
@@ -129,7 +131,9 @@ describe('describeSkillRunProgress', () => {
           budget: {credits: 100, spentCredits: 96, remainingCredits: 4},
         }),
       ),
-    ).toEqual(['Paused: the spending limit is reached (96 of 100 credits used).'])
+    ).toEqual([
+      `Paused: 96 credits used and not done yet. Ask whether to keep going, then: assethub skills run-resume figure-clay ${runId} --wait`,
+    ])
   })
 })
 
@@ -158,7 +162,7 @@ describe('waitForSkillRun', () => {
     expect(run.status).toBe('budget_exhausted')
     expect(lines).toEqual([
       'Try 1: Making the image - done.',
-      'Paused: the spending limit is reached (50 of 50 credits used).',
+      `Paused: 50 credits used and not done yet. Ask whether to keep going, then: assethub skills run-resume figure-clay ${runId} --wait`,
     ])
   })
 
@@ -273,8 +277,30 @@ describe('saveSkillRunOutputs', () => {
 describe('nextSkillRunAction', () => {
   it('points a paused run at resume, never at a new run', () => {
     expect(nextSkillRunAction(view({status: 'budget_exhausted'}))).toBe(
-      `Ask before spending more, then: assethub skills run-resume figure-clay ${runId} --add-credits <n> --wait`,
+      `Ask whether to keep going, then: assethub skills run-resume figure-clay ${runId} --wait (add --add-credits <n> only if the server asks for an amount)`,
     )
+  })
+
+  it('points a goal run that ran out of turns at resume too', () => {
+    const goal = {
+      result: 'failed' as const,
+      now: null,
+      question: null,
+      checks: [],
+      counts: {passed: 1, failed: 2, notChecked: 10},
+      drafts: [],
+      reason: 'turn_limit',
+    }
+    expect(
+      nextSkillRunAction(
+        view({status: 'failed', kind: 'goal', goal: {...goal, resumable: true}}),
+      ),
+    ).toBe(
+      `Ask whether to keep going, then: assethub skills run-resume figure-clay ${runId} --wait (add --add-credits <n> only if the server asks for an amount)`,
+    )
+    expect(
+      nextSkillRunAction(view({status: 'failed', kind: 'goal', goal})),
+    ).toBeUndefined()
   })
 })
 
@@ -360,6 +386,45 @@ describe('saveSkillRunAttempts', () => {
       {assetId: 'img_3', attempt: 3, check: 'unchecked', path: join(dir, 'hero.pluffy-accessory-extraction.try3-unchecked.png')},
     ])
     expect(await readFile(join(dir, 'hero.png'), 'utf8')).toBe('original')
+  })
+})
+
+describe('saveSkillRunAttempts on a goal run', () => {
+  const png = new Uint8Array([137, 80, 78, 71])
+  const fetchImpl = (async () =>
+    new Response(png, {headers: {'content-type': 'image/png'}})) as typeof fetch
+
+  it('saves each image draft as an unchecked try and skips mesh drafts', async () => {
+    const dir = await tempDir()
+    const {saved, failed} = await saveSkillRunAttempts({
+      client: client(),
+      run: view({
+        status: 'failed',
+        kind: 'goal',
+        goal: {
+          result: 'failed',
+          now: null,
+          question: null,
+          checks: [],
+          counts: {passed: 0, failed: 1, notChecked: 0},
+          drafts: [
+            {stage: 'views', assetId: 'image_a', seq: 4},
+            {stage: 'parts', assetId: 'image_b', seq: 9, part: 'Head'},
+            {stage: 'mesh', assetId: 'mesh_c', seq: 12},
+          ],
+          reason: null,
+        },
+      }),
+      skillTitle: 'Weapon concept to 3D',
+      outDir: dir,
+      sourceFileName: 'axe.png',
+      fetchImpl,
+    })
+    expect(failed).toEqual([])
+    expect(saved).toEqual([
+      {assetId: 'image_a', attempt: 1, check: 'unchecked', path: join(dir, 'axe.weapon-concept-to-3d.try1-unchecked.png')},
+      {assetId: 'image_b', attempt: 2, check: 'unchecked', part: 'Head', path: join(dir, 'axe.weapon-concept-to-3d.try2-head-unchecked.png')},
+    ])
   })
 })
 
@@ -488,5 +553,71 @@ describe('saveSkillRunAttempts: which AI check belongs to which try', () => {
       fetchImpl,
     })
     expect(saved.map(item => [item.part, item.check, item.reason])).toEqual([['Hat', 'passed', undefined], ['Bag', 'rejected', 'strap cut off']])
+  })
+})
+
+describe('goalModelLimit', () => {
+  it('sends nothing without model flags (Auto)', () => {
+    expect(goalModelLimit({image: [], mesh: []})).toEqual({})
+  })
+
+  it('sends only the kinds named, once each', () => {
+    expect(
+      goalModelLimit({image: [], mesh: ['meshGen.meshy_v7_1', 'meshGen.hunyuan31', 'meshGen.meshy_v7_1']}),
+    ).toEqual({models: {mesh: ['meshGen.meshy_v7_1', 'meshGen.hunyuan31']}})
+  })
+})
+
+describe('goal skills in the CLI', () => {
+  const row = (skillId: string, schemaVersion: string, extra = {}) => ({
+    skillId,
+    summary: skillId,
+    schemaVersion,
+    mode: 'manual',
+    revision: 1,
+    taskKind: null,
+    ...extra,
+  })
+
+  it('lists goal skills as runnable, with their recommended models', async () => {
+    const recommended = {image: [], mesh: ['meshGen.meshy_v7_1']}
+    const listed = await listRunnableSkills(async () => ({
+      items: [
+        row('drecom', 'ag.memory-skill.v8', {recommendedModels: recommended}),
+        row('clay', 'ag.memory-skill.v7'),
+      ],
+      nextCursor: null,
+    }))
+    expect(listed.items.map(item => [item.skillId, item.goal])).toEqual([
+      ['drecom', true],
+      ['clay', undefined],
+    ])
+    expect(listed.items[0].recommendedModels).toEqual(recommended)
+  })
+
+  it('marks official and staff-only goal skills, like the Use skill badges', async () => {
+    const listed = await listRunnableSkills(async () => ({
+      items: [
+        row('assethub-drecom', 'ag.memory-skill.v8', {official: true, staffOnly: true}),
+        row('assethub-clay', 'ag.memory-skill.v8', {official: true, staffOnly: false}),
+        row('mine', 'ag.memory-skill.v8'),
+      ],
+      nextCursor: null,
+    }))
+    expect(listed.items.map(item => [item.skillId, item.official, item.staffOnly])).toEqual([
+      ['assethub-drecom', true, true],
+      ['assethub-clay', true, undefined],
+      ['mine', undefined, undefined],
+    ])
+  })
+
+  it('treats a skill as a goal skill only when the workspace lists it as one', async () => {
+    const listPage = async () => ({
+      items: [row('drecom', 'ag.memory-skill.v8'), row('clay', 'ag.memory-skill.v7')],
+      nextCursor: 'next',
+    })
+    expect(await isListedGoalSkill(listPage, 'drecom')).toBe(true)
+    expect(await isListedGoalSkill(listPage, 'clay')).toBe(false)
+    expect(await isListedGoalSkill(listPage, 'typo-skill')).toBe(false)
   })
 })

@@ -30,3 +30,17 @@ export const describeError = (error: unknown): string => {
   const detail = cause.message && typeof code === 'string' ? `${cause.message} (${code})` : cause.message || code
   return typeof detail === 'string' && detail ? `${error.message}: ${detail}` : error.message
 }
+
+/**
+ * The server answers a route the key may not use with the same 404 as a path it
+ * does not have, so the two cannot be told apart. Every command reads that
+ * answer as the feature not being open to this account yet; the server's own
+ * message is still written to stderr.
+ */
+export const FEATURE_NOT_AVAILABLE_MESSAGE = 'This feature is not yet available for this account.'
+
+export const isFeatureNotAvailableError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false
+  const {status, code} = error as {status?: unknown; code?: unknown}
+  return (status === undefined || status === 404) && code === 'NOT_FOUND' && error.message.startsWith('No such endpoint')
+}

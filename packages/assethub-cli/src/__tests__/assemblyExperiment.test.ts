@@ -3,6 +3,41 @@ import {describe, expect, it} from 'vitest'
 import {buildAssemblyExperiment} from '../assemblyExperiment.js'
 
 describe('buildAssemblyExperiment', () => {
+  // @testdoc CLI JSON forwards the V5 prepass boolean exactly; omission never opts in.
+  it.each([true, false])('preserves headBodyFirst=%s', headBodyFirst => {
+    expect(buildAssemblyExperiment({json: {headBodyFirst}})).toEqual({
+      headBodyFirst,
+    })
+    expect(() =>
+      buildAssemblyExperiment({json: {headBodyFirst: 'true'}}),
+    ).toThrow(/headBodyFirst/)
+  })
+  // @testdoc The V5.3 best-of-both keys pass through; unknown image models and non-boolean switches fail before a paid request.
+  it('accepts the best-of-both keys and rejects bad values', () => {
+    const json = {
+      v5Assembler: true,
+      maskedBaseBody: true,
+      partImageModel: 'openai/gpt-image-2.5-sunburst',
+      shellConform: true,
+      v5Start: 'fit',
+      garmentFit: {penetrationRepair: true, depthGate: true},
+      wholeGuide: {enabled: true},
+    }
+    expect(buildAssemblyExperiment({json})).toEqual(json)
+    expect(() => buildAssemblyExperiment({json: {partImageModel: 'foo/bar'}})).toThrow(/partImageModel/)
+    expect(() => buildAssemblyExperiment({json: {shellConform: 'yes'}})).toThrow(/shellConform/)
+    expect(() => buildAssemblyExperiment({json: {maskedBaseBody: false}})).toThrow(/maskedBaseBody/)
+  })
+  // @testdoc Explicit Pro pins retain their provider model before a paid request.
+  it.each(['google/gemini-3-pro-image'])(
+    'preserves the explicitly selected image model %s', partImageModel => {
+      const input = {partImageModel, shellConform: true}
+      expect(buildAssemblyExperiment({json: input})).toEqual({
+        partImageModel, shellConform: true,
+      })
+      expect(input.partImageModel).toBe(partImageModel)
+    },
+  )
   it('returns undefined when neither input is given', () => {
     expect(buildAssemblyExperiment({})).toBeUndefined()
   })
@@ -93,6 +128,28 @@ describe('buildAssemblyExperiment', () => {
     ['empty --garment-fit', {garmentFit: ' , '}, /garment-fit/],
   ])('rejects %s', (_name, input, message) => {
     expect(() => buildAssemblyExperiment(input as never)).toThrow(message)
+  })
+
+  // @testdoc --whole-guide opts V5.3/V5 into the whole-guide correction; the guide mesh needs the flag.
+  it('builds wholeGuide from the flag and optional mesh id', () => {
+    expect(buildAssemblyExperiment({wholeGuide: true})).toEqual({
+      wholeGuide: {enabled: true},
+    })
+    expect(
+      buildAssemblyExperiment({wholeGuide: true, wholeGuideMesh: 'mesh_42'}),
+    ).toEqual({wholeGuide: {enabled: true, guideMeshAssetId: 'mesh_42'}})
+    expect(
+      buildAssemblyExperiment({json: {wholeGuide: {enabled: true}}}),
+    ).toEqual({wholeGuide: {enabled: true}})
+    expect(() => buildAssemblyExperiment({wholeGuideMesh: 'mesh_42'})).toThrow(
+      /--whole-guide-mesh requires --whole-guide/,
+    )
+    expect(() =>
+      buildAssemblyExperiment({wholeGuide: true, wholeGuideMesh: 'abc'}),
+    ).toThrow(/mesh_<id>/)
+    expect(() =>
+      buildAssemblyExperiment({json: {wholeGuide: {enabled: false}}}),
+    ).toThrow(/wholeGuide/)
   })
 })
 

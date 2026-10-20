@@ -20,7 +20,12 @@ export type SkillRunClient = {
       skillId: string,
       options?: {revision?: number},
     ) => Promise<{
-      skill: {skillId: string; revision: number; contentSha256: string; title: string}
+      skill: {
+        skillId: string
+        revision: number
+        contentSha256: string
+        title: string
+      }
     }>
     startWorkspaceSkillRun: (
       skillId: string,
@@ -49,10 +54,7 @@ export const pinSkill = async (
     skillId,
     expected.revision ? {revision: expected.revision} : {},
   )
-  if (
-    expected.contentSha256 &&
-    expected.contentSha256 !== skill.contentSha256
-  )
+  if (expected.contentSha256 && expected.contentSha256 !== skill.contentSha256)
     throw new Error(
       `Skill ${skillId} revision ${skill.revision} is not the version you approved (content hash differs). Read it again with \`assethub skills get ${skillId}\` and ask before running.`,
     )
@@ -87,6 +89,7 @@ export const describeSkillRunProgress = (
   previous: WorkspaceSkillRun | undefined,
   next: WorkspaceSkillRun,
 ): string[] => {
+  if (next.goal) return describeGoalRunProgress(previous, next)
   const lines: string[] = []
   const before = new Map(
     (previous?.steps ?? []).map(step => [stepKey(step), step.status]),
@@ -118,20 +121,74 @@ export const describeSkillRunProgress = (
   if (previous?.status !== next.status) {
     if (next.status === 'budget_exhausted')
       lines.push(
-        `Paused: the spending limit is reached (${next.budget.spentCredits} of ${next.budget.credits} credits used).`,
+        `Paused: ${next.budget.spentCredits} credits used and not done yet. Ask whether to keep going, then: assethub skills run-resume ${next.skillId} ${next.runId} --wait`,
       )
     if (next.status === 'completed') lines.push('Finished.')
     if (next.status === 'failed')
       lines.push(
         `Stopped: ${next.outcome?.reason ?? 'the skill could not finish this image'}.`,
       )
-    if (next.status === 'cancelled') lines.push('Stopped: the run was cancelled.')
+    if (next.status === 'cancelled')
+      lines.push('Stopped: the run was cancelled.')
+  }
+  return lines
+}
+
+/** A check's short name: the bold lead of its acceptance text. */
+// An answer option comes from the run, so it is quoted to be safe to paste into a shell.
+const shellArg = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`
+
+const checkName = (text: string) =>
+  text.replace(/\*\*/g, '').split(':')[0].trim().slice(0, 80)
+
+/** Progress lines for a V8 goal run: its current step, judged checks, question, end. */
+const describeGoalRunProgress = (
+  previous: WorkspaceSkillRun | undefined,
+  next: WorkspaceSkillRun,
+): string[] => {
+  const goal = next.goal!
+  const before = previous?.goal
+  const lines: string[] = []
+  if (goal.now && goal.now !== before?.now) lines.push(`Now: ${goal.now}`)
+  const tries = new Map(
+    (before?.checks ?? []).map(c => [c.acceptanceId, c.tries]),
+  )
+  for (const check of goal.checks) {
+    if (check.tries === (tries.get(check.acceptanceId) ?? 0)) continue
+    if (check.verdict !== 'passed' && check.verdict !== 'failed') continue
+    lines.push(
+      `Check "${checkName(check.text)}" ${check.verdict} (try ${check.tries})${check.note ? `: ${check.note}` : ''}`,
+    )
+  }
+  if (goal.result !== before?.result) {
+    const {passed, failed, notChecked} = goal.counts
+    const tally = `${passed} passed, ${failed} failed, ${notChecked} not checked`
+    if (goal.result === 'waiting' && goal.question) {
+      const [first, ...rest] = goal.question.options
+      lines.push(
+        `Needs your answer: ${goal.question.question} Answer with: assethub skills run-answer ${next.skillId} ${next.runId} --answer ${shellArg(first ?? 'your answer')}${rest.length ? ` (or ${rest.map(shellArg).join(', ')})` : ''}`,
+      )
+    }
+    if (goal.result === 'budget_exhausted')
+      lines.push(
+        `Paused: ${next.budget.spentCredits} credits used and not done yet. Ask whether to keep going, then: assethub skills run-resume ${next.skillId} ${next.runId} --wait`,
+      )
+    if (goal.result === 'completed') lines.push(`Finished: ${tally}.`)
+    if (goal.result === 'needs_review')
+      lines.push(
+        `Needs review: ${tally}. Not checked is not passed; look over the model.`,
+      )
+    if (goal.result === 'failed')
+      lines.push(`Needs a fix: ${tally}. ${goal.reason ?? ''}`.trim())
+    if (goal.result === 'cancelled')
+      lines.push(`Stopped: ${goal.reason ?? 'the run was stopped'}.`)
   }
   return lines
 }
 
 /** A run stops moving at a terminal status, and also when paused at its limit. */
 export const isSkillRunSettled = (run: WorkspaceSkillRun) =>
+  run.goal?.result === 'waiting' ||
   run.status === 'budget_exhausted' ||
   TERMINAL_WORKSPACE_SKILL_RUN_STATUSES.includes(run.status)
 
@@ -177,7 +234,9 @@ export const waitForSkillRun = async (input: {
     if (!run) {
       if (now() >= deadline) {
         if (previous) return {run: previous, timedOut: true}
-        throw new Error(`Could not read skill run ${input.runId}: the server did not answer.`)
+        throw new Error(
+          `Could not read skill run ${input.runId}: the server did not answer.`,
+        )
       }
       await sleep(input.pollMs ?? 5_000)
       continue
@@ -222,14 +281,20 @@ const downloadAsset = async (input: {
   fetchImpl: typeof fetch
 }): Promise<string> => {
   const {url} = await input.client.v2.getAsset(input.assetId)
-  const response = await input.fetchImpl(url, {signal: AbortSignal.timeout(120_000)})
+  const response = await input.fetchImpl(url, {
+    signal: AbortSignal.timeout(120_000),
+  })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   const mime = response.headers.get('content-type')?.split(';')[0] ?? ''
-  const extension = EXTENSIONS[mime] ?? (extname(new URL(url).pathname) || '.bin')
+  const extension =
+    EXTENSIONS[mime] ?? (extname(new URL(url).pathname) || '.bin')
   if (!response.body) throw new Error('empty response')
   await mkdir(input.outDir, {recursive: true})
   for (let n = 1; ; n++) {
-    const path = join(input.outDir, `${input.base}${n === 1 ? '' : `-${n}`}${extension}`)
+    const path = join(
+      input.outDir,
+      `${input.base}${n === 1 ? '' : `-${n}`}${extension}`,
+    )
     let handle
     try {
       handle = await open(path, 'wx')
@@ -262,7 +327,10 @@ export const saveSkillRunOutputs = async (input: {
   /** The original file's name, used as the stem; defaults to the skill. */
   sourceFileName?: string
   fetchImpl?: typeof fetch
-}): Promise<{saved: {assetId: string; path: string}[]; failed: {assetId: string; error: string}[]}> => {
+}): Promise<{
+  saved: {assetId: string; path: string}[]
+  failed: {assetId: string; error: string}[]
+}> => {
   const base = `${stemOf(input.sourceFileName)}.${slug(input.skillTitle)}`
   const saved: {assetId: string; path: string}[] = []
   const failed: {assetId: string; error: string}[] = []
@@ -277,10 +345,18 @@ export const saveSkillRunOutputs = async (input: {
     try {
       saved.push({
         assetId,
-        path: await downloadAsset({...input, assetId, base, fetchImpl: input.fetchImpl ?? fetch}),
+        path: await downloadAsset({
+          ...input,
+          assetId,
+          base,
+          fetchImpl: input.fetchImpl ?? fetch,
+        }),
       })
     } catch (error) {
-      failed.push({assetId, error: error instanceof Error ? error.message : String(error)})
+      failed.push({
+        assetId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
   return {saved, failed}
@@ -308,15 +384,31 @@ export const saveSkillRunAttempts = async (input: {
   outDir: string
   sourceFileName?: string
   fetchImpl?: typeof fetch
-}): Promise<{saved: SavedAttempt[]; failed: {assetId: string; error: string}[]}> => {
+}): Promise<{
+  saved: SavedAttempt[]
+  failed: {assetId: string; error: string}[]
+}> => {
   const prefix = `${stemOf(input.sourceFileName)}.${slug(input.skillTitle)}`
   const saved: SavedAttempt[] = []
   const failed: {assetId: string; error: string}[] = []
   const seen = new Set<string>()
-  const images = input.run.steps.filter(step => step.stage === 'image')
+  // A goal run has no step list: its tries are the drafts each stage made,
+  // judged as a whole by the checklist, so each one stays "unchecked".
+  const images = input.run.goal
+    ? input.run.goal.drafts.map((draft, index) => ({
+        stepId: draft.stage,
+        stage: 'image',
+        attempt: index + 1,
+        artifactId: undefined as string | undefined,
+        assetId: draft.assetId.startsWith('mesh_') ? undefined : draft.assetId,
+        part: draft.part,
+      }))
+    : input.run.steps.filter(step => step.stage === 'image')
   // A verdict may name its part; older servers send none.
-  const checked = (input.run.verdicts as (WorkspaceSkillRun['verdicts'][number] & {part?: string})[])
-    .filter(v => v.pass !== null)
+  const checked = input.run.goal
+    ? []
+    : (input.run.verdicts as (WorkspaceSkillRun['verdicts'][number] & {part?: string})[])
+        .filter(v => v.pass !== null)
   // A verdict names its review step ("review"), not the image it judged
   // ("isolate"), so the try is matched by attempt. Only when that is
   // unambiguous: with several images per try (one per part) the checks cannot
@@ -336,8 +428,8 @@ export const saveSkillRunAttempts = async (input: {
   const checkOf = (step: (typeof images)[number]) => {
     const verdict = verdictFor(step)
     if (verdict) return {check: verdict.pass ? 'passed' : 'rejected', reason: verdict.reason} as const
-    if (!step.part) return {check: 'unchecked'} as const
-    if (finals.has(step.artifactId)) return {check: 'passed'} as const
+    if (!step.part || input.run.goal) return {check: 'unchecked'} as const
+    if (step.artifactId && finals.has(step.artifactId)) return {check: 'passed'} as const
     if (images.some(other => other.part === step.part && other.attempt > step.attempt))
       return {check: 'rejected'} as const
     return {check: 'unchecked'} as const
@@ -363,7 +455,10 @@ export const saveSkillRunAttempts = async (input: {
         path,
       })
     } catch (error) {
-      failed.push({assetId: step.assetId, error: error instanceof Error ? error.message : String(error)})
+      failed.push({
+        assetId: step.assetId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
   return {saved, failed}
@@ -373,8 +468,8 @@ export const saveSkillRunAttempts = async (input: {
 export const nextSkillRunAction = (
   run: WorkspaceSkillRun,
 ): string | undefined => {
-  if (run.status === 'budget_exhausted')
-    return `Ask before spending more, then: assethub skills run-resume ${run.skillId} ${run.runId} --add-credits <n> --wait`
+  if (run.status === 'budget_exhausted' || run.goal?.resumable)
+    return `Ask whether to keep going, then: assethub skills run-resume ${run.skillId} ${run.runId} --wait (add --add-credits <n> only if the server asks for an amount)`
   if (run.status === 'running')
     return `Still running on the server. Check again with: assethub skills run-status ${run.skillId} ${run.runId} --wait`
   if (run.status === 'completed')
@@ -382,8 +477,28 @@ export const nextSkillRunAction = (
   return undefined
 }
 
-
 const RUNNABLE_SCHEMA_VERSION = 'ag.memory-skill.v7'
+/** An authored goal skill: it chooses its own models, so a run can limit them. */
+const GOAL_SCHEMA_VERSION = 'ag.memory-skill.v8'
+
+const isRunnableRow = (row: SkillListRow) =>
+  (row.schemaVersion === RUNNABLE_SCHEMA_VERSION ||
+    row.schemaVersion === GOAL_SCHEMA_VERSION) &&
+  row.mode !== 'off'
+
+/**
+ * Whether the workspace lists `skillId` as a goal skill. Goal skills come
+ * ahead of the first page, so one page answers it.
+ */
+export const isListedGoalSkill = async (
+  listPage: (
+    cursor: string | undefined,
+  ) => Promise<{items: SkillListRow[]; nextCursor: string | null}>,
+  skillId: string,
+) =>
+  (await listPage(undefined)).items.some(
+    row => row.skillId === skillId && row.schemaVersion === GOAL_SCHEMA_VERSION,
+  )
 
 export type SkillListRow = {
   skillId: string
@@ -392,6 +507,9 @@ export type SkillListRow = {
   mode: string
   revision: number
   taskKind: string | null
+  recommendedModels?: {image: string[]; mesh: string[]}
+  official?: boolean
+  staffOnly?: boolean
 }
 
 export type RunnableSkill = {
@@ -402,11 +520,19 @@ export type RunnableSkill = {
   taskKind: string | null
   /** Other runnable skills with the same summary: ask which one before running. */
   sameSummaryAs?: string[]
+  /** A goal skill: it chooses its own models (`--image-model` / `--mesh-model` limit them). */
+  goal?: true
+  /** Goal skills: the catalog models the skill recommends, per kind. */
+  recommendedModels?: {image: string[]; mesh: string[]}
+  /** Goal skills: an AssetHub official release (installs on its first run). */
+  official?: true
+  /** Goal skills: an official release only AssetHub staff can run so far. */
+  staffOnly?: true
 }
 
 /**
- * The skills `skills run` accepts — v7 and not switched off, the same rule as
- * the canvas "Use skill" node — across every page of the list. Look-alikes
+ * The skills `skills run` accepts — v7 or a V8 goal skill, not switched off,
+ * the same rule as the canvas "Use skill" node — across every page of the list. Look-alikes
  * are flagged so an agent asks instead of guessing by name.
  */
 export const listRunnableSkills = async (
@@ -421,12 +547,13 @@ export const listRunnableSkills = async (
     rows.push(...page.items)
     cursor = page.nextCursor ?? undefined
   } while (cursor)
-  const runnable = rows.filter(
-    row => row.schemaVersion === RUNNABLE_SCHEMA_VERSION && row.mode !== 'off',
-  )
+  const runnable = rows.filter(isRunnableRow)
   const bySummary = new Map<string, string[]>()
   for (const row of runnable)
-    bySummary.set(row.summary, [...(bySummary.get(row.summary) ?? []), row.skillId])
+    bySummary.set(row.summary, [
+      ...(bySummary.get(row.summary) ?? []),
+      row.skillId,
+    ])
   const items: RunnableSkill[] = runnable.map(row => {
     const twins = bySummary.get(row.summary)!.filter(id => id !== row.skillId)
     return {
@@ -436,6 +563,16 @@ export const listRunnableSkills = async (
       mode: row.mode,
       taskKind: row.taskKind,
       ...(twins.length > 0 ? {sameSummaryAs: twins} : {}),
+      ...(row.schemaVersion === GOAL_SCHEMA_VERSION
+        ? {
+            goal: true as const,
+            ...(row.recommendedModels
+              ? {recommendedModels: row.recommendedModels}
+              : {}),
+            ...(row.official ? {official: true as const} : {}),
+            ...(row.staffOnly ? {staffOnly: true as const} : {}),
+          }
+        : {}),
     }
   })
   const off = rows.filter(
@@ -456,5 +593,22 @@ export const listRunnableSkills = async (
               : 'No skill in this workspace can run on an image yet. Build one with the Skill Builder, or install one from AssetHub (`assethub skills official list`).',
         }
       : {}),
+  }
+}
+
+/**
+ * `--image-model` / `--mesh-model` (repeatable) as a goal run's model limit,
+ * like the Use skill card's dropdowns: no flag for a kind is Auto (not limited).
+ */
+export const goalModelLimit = (args: {
+  image: string[]
+  mesh: string[]
+}): {models?: {image?: string[]; mesh?: string[]}} => {
+  if (!args.image.length && !args.mesh.length) return {}
+  return {
+    models: {
+      ...(args.image.length ? {image: [...new Set(args.image)]} : {}),
+      ...(args.mesh.length ? {mesh: [...new Set(args.mesh)]} : {}),
+    },
   }
 }

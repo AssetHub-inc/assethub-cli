@@ -1,5 +1,8 @@
 import {describe, expect, it, vi} from 'vitest'
-import {describeError, trustSystemCertificates} from '../networkErrors.js'
+import {AssetHubApiError} from '@assethub/api-client'
+import {describeError, isFeatureNotAvailableError, trustSystemCertificates} from '../networkErrors.js'
+import {MeshReviewSyncError} from '../meshReview/syncMeshReview.js'
+import {explainMeshReviewError} from '../meshReview/errors.js'
 
 describe('describeError', () => {
   it('appends the cause that fetch hides behind "fetch failed"', () => {
@@ -44,5 +47,28 @@ describe('trustSystemCertificates', () => {
     }
     expect(trustSystemCertificates(tls)).toBe(false)
     expect(tls.setDefaultCACertificates).not.toHaveBeenCalled()
+  })
+})
+
+describe('isFeatureNotAvailableError', () => {
+  const unknownEndpoint = 'No such endpoint. See https://app.assethub.io/api/v2/openapi.json for the available operations.'
+  const apiError = (status: number, code: string, message: string) =>
+    new AssetHubApiError({status, code, message, payload: {}})
+
+  it('recognises the 404 an internal-only route gives a key without access', () => {
+    expect(isFeatureNotAvailableError(apiError(404, 'NOT_FOUND', unknownEndpoint))).toBe(true)
+    expect(isFeatureNotAvailableError(new MeshReviewSyncError('NOT_FOUND', `${unknownEndpoint} (NOT_FOUND).`, {status: 404}))).toBe(true)
+  })
+
+  it('leaves other not-found answers alone', () => {
+    expect(isFeatureNotAvailableError(apiError(404, 'NOT_FOUND', 'Run not found'))).toBe(false)
+    expect(isFeatureNotAvailableError(apiError(404, 'SKILL_NOT_FOUND', unknownEndpoint))).toBe(false)
+    expect(isFeatureNotAvailableError(apiError(500, 'NOT_FOUND', unknownEndpoint))).toBe(false)
+    expect(isFeatureNotAvailableError(new Error(unknownEndpoint))).toBe(false)
+  })
+
+  it('words a mesh-review denial as not yet available', () => {
+    const error = new MeshReviewSyncError('NOT_FOUND', `${unknownEndpoint} (NOT_FOUND).`, {status: 404})
+    expect(explainMeshReviewError(error, {profile: 'default'})).toBe('This feature is not yet available for this account.')
   })
 })
