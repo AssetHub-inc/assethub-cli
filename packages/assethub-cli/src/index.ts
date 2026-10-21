@@ -643,7 +643,7 @@ Usage:
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
   assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: every skill skills run accepts, in one list: the workspace's own, official ones and, for staff, skills shared to staff; each row says its source)
-  assethub skills get <skill-id> [--revision <n>]
+  assethub skills get <skill-id> [--revision <n>]   (a runnable skill whose method cannot be read here yet, such as an official goal skill before its first run, returns its runnable-list entry with fullMethod: false)
   assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
   assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
   assethub skills update <skill-id> --input-json <json|@file|@->
@@ -8504,16 +8504,38 @@ export const commandSkills = async (
     return
   }
   if (subcommand === 'get') {
-    print(
-      await ctx.client.v2.getWorkspaceSkill(
-        requirePositional(positionals, 2, 'skill-id'),
-        {
-          revision: hasFlag(ctx.flags, 'revision')
-            ? parsePositiveIntegerFlag(ctx.flags, 'revision', 1)
-            : undefined,
-        },
-      ),
-    )
+    const skillId = requirePositional(positionals, 2, 'skill-id')
+    const revision = hasFlag(ctx.flags, 'revision')
+      ? parsePositiveIntegerFlag(ctx.flags, 'revision', 1)
+      : undefined
+    // The step-skill read answers 404/403 for a skill it does not hold: an
+    // official V8 release not installed yet, a goal skill or a staff share.
+    // Those are still runnable, so hand back their runnable-list entry, as
+    // `skills run` does, instead of an error before the person can choose.
+    const skill = await ctx.client.v2
+      .getWorkspaceSkill(skillId, {revision})
+      .catch(async error => {
+        if (
+          revision !== undefined ||
+          !(error instanceof AssetHubApiError) ||
+          !(
+            error.status === 404 ||
+            (error.status === 403 && error.code === 'WORKSPACE_SKILL_FORBIDDEN')
+          )
+        )
+          throw error
+        const listed = await findRunnableSkill(
+          () => runnableSkillList(ctx),
+          skillId,
+        )
+        if (!listed) throw error
+        return {
+          ...listed,
+          fullMethod: false,
+          note: 'Runnable, but its full method cannot be read before it runs here. Choose it from its summary (and recommendedModels for a goal skill); run it with skills run <skillId>.',
+        }
+      })
+    print(skill)
     return
   }
   if (subcommand === 'memory') {

@@ -130,7 +130,7 @@ Usage:
   assethub memory memorize --canvas <id> [--nodes <shape-id>,<shape-id>,...] [--wait] [--timeout <s>]
   assethub memory replay <memory-id> --source <asset-id> [--wait] [--timeout <s>]
   assethub skills list [--runnable] [--cursor <cursor>]   (--runnable: every skill skills run accepts, in one list: the workspace's own, official ones and, for staff, skills shared to staff; each row says its source)
-  assethub skills get <skill-id> [--revision <n>]
+  assethub skills get <skill-id> [--revision <n>]   (a runnable skill whose method cannot be read here yet, such as an official goal skill before its first run, returns its runnable-list entry with fullMethod: false)
   assethub skills memory <skill-id> [--revision <n>] [--images <dir>]
   assethub skills learn --input-json <json|@file|@-> --operation-id <uuid>
   assethub skills update <skill-id> --input-json <json|@file|@->
