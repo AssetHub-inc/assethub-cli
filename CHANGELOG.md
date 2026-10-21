@@ -6,6 +6,7 @@ No SDK change; CLI 0.1.63 still uses SDK 0.1.22.
 
 - `skills get <skill-id>` no longer fails with 403 `WORKSPACE_SKILL_FORBIDDEN` (or 404) for a skill `skills list --runnable` shows but the server cannot read here yet: an official V8 goal skill before its first run, or a skill shared to staff. It returns that skill's runnable-list entry with `fullMethod: false`. Any other 403 or 404 is unchanged.
 - The bundled skill no longer asks for a spending limit on goal skills and starts every skill run without `--budget`. A limit is asked for only when the server answers 422 `SKILL_RUN_BUDGET_REQUIRED`, and a paused run continues with plain `run-resume`. This matches the server: goal runs, and step runs under `skill_run_internal_limit`, pause every 5000 credits and ignore a budget.
+- When it offers a goal skill, the bundled skill now says which models it uses: Auto, picking from the skill's `recommendedModels`. If the person names a model, it is passed with `--mesh-model` / `--image-model`.
 
 ## CLI 0.1.62
 
