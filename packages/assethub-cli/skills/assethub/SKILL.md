@@ -217,8 +217,10 @@ A row with `goal: true` in `skills list --runnable` is a goal skill: it plans it
 - **It asked a question.** The run pauses (`goal.result: "waiting"`, exit 0) and stderr prints `Needs your answer: <question> Answer with: assethub skills run-answer <skill-id> <run-id> --answer <option>`, with the other options after it. Ask the person exactly that question, with those options, one round. Never answer it yourself. Then continue the **same** run:
 
   ```bash
-  assethub skills run-answer <skill-id> <run-id> --answer "<their choice>" --out-dir <folder of the original>
+  assethub skills run-answer <skill-id> <run-id> --answer <their choice, as the CLI quoted it> --out-dir <folder of the original>
   ```
+
+  The options come from the run, not from the person, so copy the chosen one exactly as the `Needs your answer` line quoted it (the CLI wraps each option in single quotes). Never put an option inside double quotes and never retype it: a `$(...)` or backtick inside one would run in the shell.
 
   Without `--wait` it returns once the answer is in; follow it with `skills run-status` as above.
 - **Stop it** ("stop", "that's enough", "keep what you have"): `assethub skills run-stop <skill-id> <run-id> --out-dir <folder of the original>`. It stops after its current step, keeps everything made so far and ends `cancelled`. Ask first only when the person did not ask for it.
