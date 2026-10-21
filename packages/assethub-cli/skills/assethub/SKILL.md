@@ -164,7 +164,7 @@ When the person asks you to **make or change** something (an image, a view, part
    > - **Drecom pose correction**: if you meant fixing the pose to an A-pose
    > - **Do it without a skill**
    >
-   > Charged to **Personal**. A skill run has no price up front; it stops and asks before spending past its limit.
+   > Charged to **<selected workspace name>**. A skill run has no price up front; it stops and asks before spending past its limit.
 
 4. **Nothing fits** (nothing in `skills list --runnable`): say it once ("Your team doesn't have a skill for this yet, so I'll do it directly.") and continue with the normal work below, still asking before anything paid.
 
