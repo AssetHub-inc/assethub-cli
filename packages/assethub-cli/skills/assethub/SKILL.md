@@ -210,6 +210,23 @@ assethub skills run-resume <skill-id> <run-id> --add-credits 250 --out-dir <fold
 
 **Failed:** say why in one sentence from `outcome.reason`, and how many credits were used. If the JSON has `rejected` (the run's AI check said no to its last try), go to **When the AI check says no** below. Otherwise ask: **Try again with an extra instruction** (a new run, with its own limit) / **Use another skill** / **Stop for now**. Never retry on your own.
 
+#### Goal skills (V8): questions, stopping, your own
+
+A row with `goal: true` in `skills list --runnable` is a goal skill: it plans its own steps toward a goal and judges the result against its checks. Official ones are goal skills. Start it like any other with `skills run <skillId>`; no `--goal` flag and no install step (an official one installs on its first run). While a `--wait` runs, stderr says `Now: <step>` and `Check "<name>" passed|failed (try n)`; when you check with `run-status` instead, the same is in the JSON's `goal.now` and `goal.checks` (`verdict`, `tries`, `note`). Pass them on in the person's language.
+
+- **It asked a question.** The run pauses (`goal.result: "waiting"`, exit 0) and stderr prints `Needs your answer: <question> Answer with: assethub skills run-answer <skill-id> <run-id> --answer <option>`, with the other options after it. Ask the person exactly that question, with those options, one round. Never answer it yourself. Then continue the **same** run:
+
+  ```bash
+  assethub skills run-answer <skill-id> <run-id> --answer <their choice, as the CLI quoted it> --out-dir <folder of the original>
+  ```
+
+  The options come from the run, not from the person, so copy the chosen one exactly as the `Needs your answer` line quoted it (the CLI wraps each option in single quotes). Never put an option inside double quotes and never retype it: a `$(...)` or backtick inside one would run in the shell.
+
+  Without `--wait` it returns once the answer is in; follow it with `skills run-status` as above.
+- **Stop it** ("stop", "that's enough", "keep what you have"): `assethub skills run-stop <skill-id> <run-id> --out-dir <folder of the original>`. It stops after its current step, keeps everything made so far and ends `cancelled`. Ask first only when the person did not ask for it.
+- **How it ended** (`goal.result`): `completed` (all checks passed) · `needs_review` (some checks were not judged; not checked is not passed, so look the result over with the person) · `failed` (checks failed; say which from the `Check` lines and `goal.reason`) · `budget_exhausted` (paused; `run-resume` as above) · `cancelled`. A goal run that ends without a verified result still saves its drafts to `--out-dir`, named as tries; show them and say they were not verified.
+- **The person's own goal skill** (a folder with `skill.json` of `schemaVersion: "ag.memory-skill.v8"` and an optional `references/` folder): `assethub skills import-goal <folder>` stores it in the workspace (free). It then shows in `skills list --runnable`; run it with `skills run <skillId>`. Import only a folder the person gave you; never write or change a `skill.json` for them.
+
 #### When the AI check says no: fix it here
 
 A run can end `failed`, or pause at its limit (`budget_exhausted`), right after its own AI check rejected a try. The JSON then has `rejected: {attempt, reason}`. Don't stop there and don't start a blind new run. Continue the work yourself, in this session:

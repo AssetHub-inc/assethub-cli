@@ -1,5 +1,12 @@
 # Changelog
 
+## CLI 0.1.62
+
+No SDK change; CLI 0.1.62 still uses SDK 0.1.22.
+
+- The bundled skill now guides goal (V8) skill runs: answering a run's question with `skills run-answer`, stopping it with `skills run-stop`, how a goal run can end, and storing the person's own goal skill with `skills import-goal`.
+- The `skills import-goal` help no longer says to run the skill with `--goal`. Since 0.1.61, `skills run <skill-id>` finds a goal skill in the runnable list on its own; the flag still works.
+
 ## CLI 0.1.61 · SDK 0.1.22
 
 Publish SDK 0.1.22 before CLI 0.1.61.
