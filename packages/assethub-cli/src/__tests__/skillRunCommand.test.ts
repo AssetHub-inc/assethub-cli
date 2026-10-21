@@ -327,6 +327,40 @@ it('keeps the 403 for a forbidden skill that is not in the runnable list', async
   expect(seen.some(r => r.method === 'POST' && r.path.endsWith('/runs'))).toBe(false)
 })
 
+it('reads an official V8 skill that is not installed yet from the runnable list', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-get-'))
+  const result = await cli(['get', 'assethub-axe'], dir)
+  expect(result.code).toBe(0)
+  expect(result.json).toMatchObject({
+    skillId: 'assethub-axe',
+    summary: 'Axe',
+    source: 'workspace',
+    goal: true,
+    official: true,
+    staffOnly: true,
+    fullMethod: false,
+  })
+})
+
+it('reads a skill shared to staff from the runnable list', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-get-'))
+  const result = await cli(['get', 'shared-pluffy'], dir)
+  expect(result.code).toBe(0)
+  expect(result.json).toMatchObject({
+    skillId: 'shared-pluffy',
+    source: 'staff-share',
+    shareId: 's-1',
+    fullMethod: false,
+  })
+})
+
+it('keeps the 403 on skills get for a forbidden skill that is not in the runnable list', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'skills-get-'))
+  const result = await cli(['get', 'foreign-skill'], dir)
+  expect(result.code).toBe(2)
+  expect(result.json.error.code).toBe('WORKSPACE_SKILL_FORBIDDEN')
+})
+
 it('says plainly when this account cannot run skills', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'skills-run-'))
   runsDisabled = true

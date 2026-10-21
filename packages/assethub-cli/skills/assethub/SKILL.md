@@ -35,7 +35,7 @@ description: |
 > - "Share that skill with staff." (AssetHub staff only; it asks first)
 > - "Turn `crate.png` into a 3D model and download it to `./out`."
 >
-> Before anything that costs credits, the assistant asks you **one** question with the price when there is one up front (a skill run has none) and always the spending limit, and waits for your yes. Your original files are never overwritten; results are saved next to them as new files. If something stops halfway, the assistant continues the same job instead of paying for it twice.
+> Before anything that costs credits, the assistant asks you **one** question with the price when there is one up front (a skill run has none) and the spending limit when the job takes one, and waits for your yes. Your original files are never overwritten; results are saved next to them as new files. If something stops halfway, the assistant continues the same job instead of paying for it twice.
 
 ## Words used here
 
@@ -50,7 +50,7 @@ description: |
 
 ## Golden rules
 
-1. **Ask once before spending, then do exactly what was agreed.** State what will run, on which image, the price when the catalog or an estimate gives one (never invent one; a skill run has none), the spending limit, and which workspace pays. Wait for a yes. Never start paid work the person did not approve.
+1. **Ask once before spending, then do exactly what was agreed.** State what will run, on which image, the price when the catalog or an estimate gives one (never invent one; a skill run has none), the spending limit when the job takes one (see "Run it" for skills), and which workspace pays. Wait for a yes. Never start paid work the person did not approve.
 2. **Never pay twice for one job.** After a timeout, an interruption, or an unclear answer, continue the same job (same operation ID, `runs resume`, `skills run-status`, `skills run-resume`). Starting the command fresh is a second charge.
 3. **Never overwrite the person's files.** Save results as new files next to the originals.
 4. **Read before you call.** Use `api describe` for the exact input. Never guess parameter names or invent ids, prices, or commands.
@@ -59,7 +59,7 @@ description: |
 7. **Ask, don't assume.** Every choice goes through your question tool (see "Asking the person"), with your recommendation first.
 8. **A new skill always starts with an interview.** However the request is worded, and however much it already says, ask the rounds in "Make a new skill" and read the answers back before anything is built.
 9. **Make every image through AssetHub.** Never draw, generate or edit the person's pictures with your own image tool, a built-in generator, or code, even when that looks faster. Work done in AssetHub is checked, repeatable by the rest of the team, and kept on the canvas. If AssetHub cannot do what was asked, say so and ask what to do.
-10. **Run a skill as written.** Start it with `skills run`. Never copy a skill's steps into your own prompt, reword them, or swap its model: the skill's exact wording is what keeps its rules (agents that rewrote it broke them). The person's own wishes go in `--ask`.
+10. **Run a skill as written.** Start it with `skills run`. Never copy a skill's steps into your own prompt, reword them, or swap its model on your own (models the person names go in `--mesh-model` / `--image-model`): the skill's exact wording is what keeps its rules (agents that rewrote it broke them). The person's own wishes go in `--ask`.
 11. **Always give the canvas link.** Anything that runs on a canvas (a skill run, a shared run, an image, a mesh, a production) gets its link in your reply as soon as it starts, and again with the result: `https://app.assethub.io/workflow/<canvasId>` (or `canvas.url` / `execution.canvas.url` when the JSON has it). The person can watch it and find the result there later.
 12. **Show it, never just say it.** Every image a run, a try, a fix or a job saves: show it in the conversation: in Claude Code, open it with the Read tool (the Claude app shows it as a thumbnail in the chat) and give it as a markdown link, `[hero.turnaround-view.png](./hero.turnaround-view.png)`, so one click opens it. In Codex or Cursor, use your own image viewer the same way. Put the canvas link next to it. Never say "done" or "it passed" without showing the picture. On a long job, report each step and each AI check as it happens (see "Keep the person posted"), instead of going quiet until the end.
 
@@ -147,7 +147,7 @@ assethub skills get <skill-id>       # free
 - `list --runnable` returns every skill this account can run on an image, in one list: `skillId`, `summary` (title, then goal), `revision`, `mode`, and `source`: `workspace` (the workspace's own and installed skills, official V8 goal skills included), `staff-share` (shared to AssetHub staff, staff accounts only; `sharedFrom` names the workspace) or `showcase` (an official skill installed on its first run). `official` / `staffOnly` mark AssetHub official skills, `goal` a goal skill. Run any of them the same way, with `skills run <skillId>`. Plain `skills list` shows only the workspace's own skills, including older ones that only guide production runs and cannot run on an image.
 - A row with `sameSummaryAs` has a look-alike with the same title. Name both, say how they differ (read both with `get`), and ask which one. Never guess.
 - `items` empty: tell the person the `hint`, in plain words.
-- `get` gives the full method: its goal, when to use it, steps, the checks the result is judged against, and the `revision` and `contentSha256` you will pin.
+- `get` gives the full method: its goal, when to use it, steps, the checks the result is judged against, and the `revision` and `contentSha256` you will pin. For an official goal skill not installed yet, or a skill shared to staff, the full method cannot be read before it runs here: `get` then returns its list entry with `fullMethod: false`. Judge it from its `summary` (and `recommendedModels`), say so in one line, and run it without `--revision` / `--content-sha256`.
 
 ### 1. Before any work, check for a skill
 
@@ -156,16 +156,16 @@ When the person asks you to **make or change** something (an image, a view, part
 1. **Always** read `assethub skills list --runnable` (free) before you decide anything fits or nothing does. It is the one list of candidates: the workspace's own skills, official ones and, for staff, the skills shared to staff.
 
    Then match their request and their image against each title and summary.
-2. `skills get` the best one to three candidates. Check that the image fits the skill's "when to use" and that its goal is what they asked for.
-3. **One or more fit:** ask (the skill and the limit can share one round):
+2. `skills get` the best one to three candidates. Check that the image fits the skill's "when to use" and that its goal is what they asked for (from the summary when `fullMethod` is `false`).
+3. **One or more fit:** ask in one round. Add the spending-limit question only for a skill that takes one (see "Run it"); never for a goal skill (`goal: true`). For a goal skill, add one line with its models: Auto, then the names from its `recommendedModels` (names from `assethub models list`).
 
    > **Your team has a skill for this. Use it?**
    > - **Turnaround view (Recommended)**: makes one view from a front image, keeps face, clothes and proportions
    > - **Drecom pose correction**: if you meant fixing the pose to an A-pose
    > - **Do it without a skill**
    >
-   > **Spending limit?** Charged to **Personal**. Automatic corrections count toward it.
-   > - **500 credits (Recommended)** · **750 credits** · **1000 credits**
+   > Models: **Auto** (the skill picks from Meshy V7.1, Hunyuan3D 3.1, Hi3D v3.0 Quality). Name one if you want it.
+   > Charged to **<selected workspace name>**. A skill run has no price up front; it stops and asks before spending past its limit.
 
 4. **Nothing fits** (nothing in `skills list --runnable`): say it once ("Your team doesn't have a skill for this yet, so I'll do it directly.") and continue with the normal work below, still asking before anything paid.
 
@@ -175,17 +175,20 @@ A skill that is `off` cannot run. Say an editor of the workspace can turn it on,
 
 Running skills is not open to every account yet. If `skills run` answers `Running skills is not available on this account yet.`, tell the person exactly that and stop. Do not try other routes.
 
-There is no up-front price for a skill run; never invent one. Offer **500 credits (Recommended)**, **750** or **1000** unless the person names a limit: a skill corrects itself and retries each part, and lower limits (150 to 200) ran out halfway through real part-separation runs. It only spends what the run uses. The run always needs one, and it is their decision.
+There is no up-front price for a skill run; never invent one. Spending limits:
+
+- **Goal skills (`goal: true`, official ones included) take no limit.** Never pass `--budget` and never ask for one. The server stops the run each time it has used 5000 credits (`budget_exhausted`) and you ask whether to continue.
+- **Step skills:** start without `--budget` too. On more and more accounts the limit is internal, like a goal skill's. Only if the start answers 422 `SKILL_RUN_BUDGET_REQUIRED` (nothing is charged), ask for a limit: **500 credits (Recommended)**, **750** or **1000** unless the person names one (a skill corrects itself and retries each part; 150 to 200 ran out halfway through real part-separation runs; it only spends what the run uses). Then run the identical command again with `--budget <n>`.
 
 ```bash
-assethub skills run <skill-id> --file ./hero.png --budget 500 --revision <n> --content-sha256 <sha256>
+assethub skills run <skill-id> --file ./hero.png --revision <n> --content-sha256 <sha256>
 ```
 
 - `--file` uploads a picture from this computer to the canvas first; `--image-asset <asset-id>` uses one already in AssetHub instead. Exactly one of the two. With `--image-asset` there is no original folder, so also pass `--out-dir <folder>` (it is created if missing); without it the results stay on the canvas only.
 - Without `--wait` it returns as soon as the run starts; then follow it as in "Keep the person posted" below.
 - `--revision` / `--content-sha256` come from `skills get`: the version the person approved. If the skill was edited since, the run is refused instead of charged; read it again and ask again.
 - `--ask "<text>"` passes the person's own instructions ("keep the scarf"). `--canvas <id>` picks the canvas; without it, the CLI uses one canvas per folder.
-- Only when the person asks to limit which models a skill may use: `--image-model <id>` / `--mesh-model <id>` (repeat for more; ids from `assethub models list --domain imageGen` or `--domain meshGen`). Leaving a kind out is Auto, no limit. It works for skills that choose their own models (goal skills); a skill with fixed steps refuses the flags before anything is charged.
+- Models (goal skills only): Auto is the default; pass no flag for it. When the person names a model, in the ask or later, pass `--mesh-model <id>` / `--image-model <id>` (repeat for more; ids and names from `assethub models list --domain meshGen` or `--domain imageGen`; any listed model works, not only the recommended ones). Never offer models for a skill with fixed steps: it refuses the flags before anything is charged.
 - The first stderr line shows the operation ID. **If the command is interrupted, run the identical command again with `--operation-id <that id>`.** It reconnects to the same run; it never starts a second one.
 - While it runs, stderr gives one plain line per step and per AI check ("Try 1: Making the image - done.", "AI check (try 1): the fingers look fused. Correcting it automatically."). Pass them on in the person's language.
 - **Keep the person posted.** `--wait` only hands you those lines when the run ends, which can be many minutes of silence. For anything that will take more than a minute or two (a skill run, a resume, a shared run), start it **without** `--wait`, then check every minute or so with `assethub skills run-status <skill-id> <run-id> --attempts --out-dir <folder of the original>` (free, never charges). Each time, say what is new in one line ("Hair: try 1 done, the AI check wants the fringe longer; trying again"), and show every new try image it saved. Stop checking when the status is no longer `running`. If your tool can run a command in the background and tell you when it ends, `--wait` in the background is fine too, as long as you still check and report in between.
@@ -197,16 +200,18 @@ assethub skills run <skill-id> --file ./hero.png --budget 500 --revision <n> --c
 
 **Lost track of a run?** A new session, a closed window or a laptop that slept knows no run ID. Run `assethub skills run-list` (free): it lists the skill runs started from this folder, newest first, each with its status and the next command. `--file <image>` narrows it to one picture; `--all` shows every folder on this computer. Continue the one the person means with `assethub skills run-status <skill-id> <run-id> --wait` (results are saved next to the original) or `skills run-resume`. Never start a new run for work that may still be running.
 
-**Paused at the limit** (`budget_exhausted`, exit 0). Nothing is lost. Ask with exactly two options:
+**Paused at the limit** (`budget_exhausted`, exit 0). Nothing is lost. Say what it used so far (`budget.spentCredits`) and ask with exactly two options:
 
-> - **Raise the limit by 250 and continue (Recommended)**: new limit 750, same run
+> - **Continue (Recommended)**: same run, up to another 5000 credits
 > - **Keep what's done and stop**
 
-Base the amount on what one step cost so far (`budget.spentCredits`, `budget.remainingCredits`); never quote a number you cannot back. On yes, continue the **same** run:
+On yes, continue the **same** run:
 
 ```bash
-assethub skills run-resume <skill-id> <run-id> --add-credits 250 --out-dir <folder of the original>
+assethub skills run-resume <skill-id> <run-id> --out-dir <folder of the original>
 ```
+
+Only a run started with `--budget` needs an amount to continue: offer **Raise the limit by 250 and continue** (based on what one step cost so far; never quote a number you cannot back) and pass `--add-credits 250`. If a resume answers that it needs `addCredits`, ask the same way.
 
 **Failed:** say why in one sentence from `outcome.reason`, and how many credits were used. If the JSON has `rejected` (the run's AI check said no to its last try), go to **When the AI check says no** below. Otherwise ask: **Try again with an extra instruction** (a new run, with its own limit) / **Use another skill** / **Stop for now**. Never retry on your own.
 
@@ -379,7 +384,7 @@ Every change here (share, stop) needs its own `--operation-id`; after an unclear
 - Check what is shared: `assethub api call "GET /workspace-skills/{skillId}/staff-share" --path-json "@skill.json"` (`revision` is `null` when it is not shared).
 - Stop sharing ("stop sharing it", "unshare"): `assethub api call "POST /workspace-skills/{skillId}/staff-share/stop" --path-json "@skill.json" --operation-id <a new UUID you write out>`. Staff can then no longer start or resume runs of it. Results they already have stay.
 
-**Staff running a skill someone shared.** Shared skills are in `skills list --runnable` with `source: "staff-share"`; the person never has to name one. On a canvas, staff pick them in the Use skill node. From the CLI, run one like any other skill, with the same one round (skill and limit): `assethub skills run <skillId> --file <image> --budget <n>`. The CLI starts it through its share, in this workspace, which pays. Follow it with `skills run-status` and record the verdict with `skills run-verdict` as usual. 409 `SHARE_STOPPED` means the owner stopped sharing it: say so, and offer the workspace's own skills instead.
+**Staff running a skill someone shared.** Shared skills are in `skills list --runnable` with `source: "staff-share"`; the person never has to name one. On a canvas, staff pick them in the Use skill node. From the CLI, run one like any other skill, with the same one round: `assethub skills run <skillId> --file <image>` (a limit only if the start asks for one, as in "Run it"). The CLI starts it through its share, in this workspace, which pays. Follow it with `skills run-status` and record the verdict with `skills run-verdict` as usual. 409 `SHARE_STOPPED` means the owner stopped sharing it: say so, and offer the workspace's own skills instead.
 
 ## Other work: images, meshes, parts, production
 
@@ -446,7 +451,7 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> --report 
 ## Cost safety
 
 - `production run --order-id … --mission-id …` defaults to `full_auto`, which never pauses for a person. **Always pass `--max-cost-credits <n>`** (the `--image` form uses `--max-cost <n>`). The server caps `--max-iterations` at 5. Over MCP, always set `maxCostCredits` on `production_run`.
-- `skills run` always needs `--budget`; there is no default.
+- `skills run` takes no `--budget` for a goal skill; a step skill needs one only when the start answers 422 `SKILL_RUN_BUDGET_REQUIRED`. Either way a run stops to ask before going past its limit.
 - There is no balance command; find the credit routes with `assethub api search credit`.
 - Prefer a dedicated, scoped API key for agent work over a full-access one.
 
@@ -459,7 +464,7 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> --report 
 | "What happened to my run?" in a new session | `assethub skills run-list` (this folder) or `--all`, then `skills run-status <skill-id> <run-id> --wait`. |
 | `Running skills is not available on this account yet.` | Tell the person exactly that. Stop. |
 | A skill run refused because the version changed | `skills get` again, describe what changed, ask again before running. |
-| `budget_exhausted` | Offer "Raise the limit by x and continue" or "Keep this try and stop"; resume the same run. |
+| `budget_exhausted` | Offer "Continue" (or "Raise the limit by x" for a run started with `--budget`) or "Keep this try and stop"; resume the same run. |
 | Missing key / 401 | `assethub auth login --api-key-stdin`, or set `ASSETHUB_API_KEY`. Personal key: `assethub workspace use <id>`. |
 | `WORKSPACE_REQUIRED` / `No workspace selected` | Ask which workspace ("Pick the workspace with the person"), then `assethub workspace use <id>`, then run the same command again. |
 | "The mesh has extra limbs" and similar | Usually the input: stray lines, shadows, inconsistent views. Clean the image first (`image generate --file <image> --prompt "remove stray lines and shadows, plain background"`, or `parts compare --preprocess-prompt <text>`) before switching models. |
