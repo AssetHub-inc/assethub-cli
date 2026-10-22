@@ -10,7 +10,7 @@ Use AssetHub from your terminal or TypeScript applications. Generate image and
 
 ## Install and connect
 
-Use Node.js 22.23.4 or newer (or 24.22.1 or newer) and npm. Older 22.x and 24.x releases, and Node.js 20, are missing the October 2026 security fixes (CVE-2026-111497).
+Use Node.js 22.23.4+, 24.22.1+ or 26.12.1+ and npm. Older 22.x and 24.x releases, and Node.js 20, are missing the October 2026 security fixes (CVE-2026-111497).
 
 ```sh
 npm install -g @assethub/cli
