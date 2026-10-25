@@ -16,6 +16,7 @@ export type MeshReviewDeps = {
     args: Extract<MeshReviewArgs, {mode: 'run'}>
     auth: MeshReviewDeps['auth']
     cliPath: string
+    signal?: AbortSignal
   }) => Promise<MeshReviewSession>
   signal?: AbortSignal
   log: (line: string) => void
@@ -129,7 +130,7 @@ export const runMeshReviewCommand = async (
   }
   const session =
     !args.noSync && !args.dryRun && deps.prepareSession
-      ? await deps.prepareSession({args, auth: deps.auth, cliPath})
+      ? await deps.prepareSession({args, auth: deps.auth, cliPath, ...(deps.signal ? {signal: deps.signal} : {})})
       : null
   try {
     if (session) {
@@ -238,6 +239,7 @@ export const runMeshReviewCommand = async (
         result: {synced: false, findingsPath: engine.findingsPath},
       }
     }
+    await session?.markEngineCompleted?.()
     const result = await sync(
       engine.findingsPath,
       args.project as string,

@@ -106,13 +106,18 @@ export const runEngine = async (
   })
   const exitCode = await new Promise<number>(resolveExit => {
     const child = spawnImpl(command, args, {stdio: ['ignore', 2, 2], detached: process.platform !== 'win32', env: env as NodeJS.ProcessEnv})
+    let killTimer: ReturnType<typeof setTimeout> | undefined
     const interrupt = () => {
+      killTimer = setTimeout(() => {
+        try { if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL') } catch { child.kill('SIGKILL') }
+      }, 2000)
+      killTimer.unref()
       try { if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGTERM'); else child.kill('SIGTERM') } catch { child.kill('SIGTERM') }
     }
     options.signal?.addEventListener('abort', interrupt, {once: true})
     if (options.signal?.aborted) interrupt()
     child.on('error', () => resolveExit(2))
-    child.on('close', code => {options.signal?.removeEventListener('abort', interrupt);resolveExit(options.signal?.aborted ? 130 : code ?? 2)})
+    child.on('close', code => {clearTimeout(killTimer);options.signal?.removeEventListener('abort', interrupt);resolveExit(options.signal?.aborted ? 130 : code ?? 2)})
   })
   return {exitCode, findingsPath: join(out, 'findings.json')}
 }

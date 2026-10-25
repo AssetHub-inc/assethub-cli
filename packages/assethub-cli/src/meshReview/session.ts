@@ -10,6 +10,7 @@ import {
 } from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {dirname, join, resolve, sep} from 'node:path'
+import {writePrivateFileAtomic} from '../hooks/paths.js'
 import type {MeshReviewRunArgs} from './args.js'
 import {acquireMeshReviewLock} from './sessionLock.js'
 import {meshReviewCall, MESH_REVIEW_API_PREFIX} from './syncMeshReview.js'
@@ -21,6 +22,7 @@ export type MeshReviewSession = {
   clientRunKey: string
   status: string
   findingsPath?: string
+  markEngineCompleted?: () => Promise<void>
   fail: () => Promise<void>
   release?: () => Promise<void>
 }
@@ -38,15 +40,17 @@ const hashFile = async (file: string): Promise<string> => {
   return hash.digest('hex')
 }
 const inside = (path: string, directory: string) =>
-  path === directory || path.startsWith(`${directory}${sep}`)
+  path === directory || path.startsWith(directory.endsWith(sep) ? directory : `${directory}${sep}`)
 
 const fingerprint = async (
   args: MeshReviewRunArgs,
   cliPath: string,
   out?: string,
+  signal?: AbortSignal,
 ): Promise<string> => {
   const files = new Set<string>()
   const visit = async (raw: string): Promise<void> => {
+    signal?.throwIfAborted()
     const path = resolve(raw)
     if (out && inside(path, out)) return
     const info = await lstat(path)
@@ -112,16 +116,19 @@ export const prepareMeshReviewSession = async ({
   auth,
   cliPath,
   fetchImpl = fetch,
+  signal,
 }: {
   args: MeshReviewRunArgs
   auth: Auth
   cliPath: string
   fetchImpl?: typeof fetch
+  signal?: AbortSignal
 }): Promise<MeshReviewSession> => {
   const requestHash = await fingerprint(
     args,
     cliPath,
     args.out ? resolve(args.out) : undefined,
+    signal,
   )
   const identity = {
     baseUrl: auth.baseUrl.replace(/\/+$/, ''),
@@ -144,6 +151,11 @@ export const prepareMeshReviewSession = async ({
   const release = await acquireMeshReviewLock(out)
   try {
     const path = join(out, MESH_REVIEW_SESSION_FILE)
+    signal?.throwIfAborted()
+    const findings = join(out, 'findings.json')
+    const prior = await stat(path).catch(() => null)
+    if (!prior && (await stat(findings).catch(() => null)))
+      throw new Error('Existing findings have no owning review session. Use a different output directory.')
     const initial = {...identity, clientRunKey: sha256(randomUUID())}
     try {
       await writeFile(path, JSON.stringify(initial, null, 2), {
@@ -172,6 +184,12 @@ export const prepareMeshReviewSession = async ({
       throw new Error(
         'Review inputs, options or workspace changed. Use a different output directory for a new run.',
       )
+    if (await stat(findings).catch(() => null)) {
+      if (typeof stored.engineCompletedSha256 !== 'string' ||
+          stored.engineCompletedSha256 !== await hashFile(findings))
+        throw new Error('Findings have no valid engine completion receipt. Use a different output directory.')
+    }
+    signal?.throwIfAborted()
     const headers = {
       authorization: `Bearer ${auth.apiKey}`,
       'content-type': 'application/json',
@@ -180,6 +198,7 @@ export const prepareMeshReviewSession = async ({
     const base = `${identity.baseUrl}${MESH_REVIEW_API_PREFIX}`
     const response = await meshReviewCall(fetchImpl, `${base}/runs`, {
       method: 'POST',
+      ...(signal ? {signal} : {}),
       headers,
       body: JSON.stringify({
         project: args.project,
@@ -190,12 +209,8 @@ export const prepareMeshReviewSession = async ({
       }),
     })
     const run = response.data as {runId: string; status: string}
-    await writeFile(
-      path,
-      JSON.stringify({...stored, runId: run.runId}, null, 2),
-      {mode: 0o600},
-    )
-    const findings = join(out, 'findings.json')
+    stored.runId = run.runId
+    await writePrivateFileAtomic(path, JSON.stringify(stored, null, 2))
     return {
       out,
       runId: run.runId,
@@ -205,6 +220,10 @@ export const prepareMeshReviewSession = async ({
         ? {findingsPath: findings}
         : {}),
       release,
+      markEngineCompleted: async () => {
+        stored.engineCompletedSha256 = await hashFile(findings)
+        await writePrivateFileAtomic(path, JSON.stringify(stored, null, 2))
+      },
       fail: async () => {
         await meshReviewCall(
           fetchImpl,

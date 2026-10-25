@@ -38,7 +38,7 @@ describe('CLI review lifecycle', () => {
   it('registers and prints the report link before the engine, then completes the same run', async () => {
     const events: string[] = []
     const fail = vi.fn()
-    const sync = vi.fn(async () => result)
+    const sync = vi.fn(async () => {events.push('sync'); return result})
     const outcome = await runMeshReviewCommand(args, {
       auth,
       findEngineCli: async () => '/engine/cli.py',
@@ -49,6 +49,7 @@ describe('CLI review lifecycle', () => {
           runId: 'run',
           clientRunKey: 'a'.repeat(64),
           status: 'running',
+          markEngineCompleted: async () => {events.push('engine-completed')},
           fail,
         }
       },
@@ -64,6 +65,8 @@ describe('CLI review lifecycle', () => {
     expect(events.indexOf('engine')).toBeGreaterThan(
       events.findIndex(line => line.includes('/control/mesh-reviews/run')),
     )
+    expect(events.indexOf('engine-completed')).toBeGreaterThan(events.indexOf('engine'))
+    expect(events.indexOf('sync')).toBeGreaterThan(events.indexOf('engine-completed'))
     expect(sync).toHaveBeenCalledWith(
       expect.objectContaining({clientRunKey: 'a'.repeat(64)}),
     )
@@ -335,6 +338,7 @@ it('pins exact findings and evidence before upload, rejecting edits with unchang
     summary: {error: 0, warn: 0, info: 0},
   }
   await writeFile(path, JSON.stringify(doc))
+  await session.markEngineCompleted?.()
   await expect(
     syncMeshReview({
       findingsPath: path,
@@ -361,7 +365,39 @@ it('pins exact findings and evidence before upload, rejecting edits with unchang
   const calls = fetchImpl.mock.calls.length
   await writeFile(path, JSON.stringify({...doc, config: {changed: true}}))
   await expect(syncMeshReview(input)).rejects.toThrow(
-    /Findings or rendered evidence changed/,
+    /Findings or rendered evidence changed|completion receipt/,
   )
   expect(fetchImpl).toHaveBeenCalledTimes(calls)
+})
+
+// @testdoc A new session cannot claim findings left by a different or unsynced analysis.
+it('rejects stale findings before registering a new run', async () => {
+  const f = await sessionFixture()
+  await mkdir(f.args.out, {recursive: true})
+  await writeFile(join(f.args.out, 'findings.json'), '{}')
+  await expect(prepareMeshReviewSession({...f, auth})).rejects.toThrow(/no owning review session/)
+  expect(f.fetchImpl).not.toHaveBeenCalled()
+})
+
+// @testdoc Only a successful engine completion receipt makes findings resumable; edits invalidate it.
+it('resumes only engine-completed findings with the same bytes', async () => {
+  const f = await sessionFixture()
+  const session = await prepareMeshReviewSession({...f, auth})
+  const findings = join(session.out, 'findings.json')
+  await writeFile(findings, '{"schema":"mesh-review/v1"}')
+  await session.release?.()
+  await expect(prepareMeshReviewSession({...f, auth})).rejects.toThrow(/completion receipt/)
+  await session.markEngineCompleted?.()
+  const resumed = await prepareMeshReviewSession({...f, auth})
+  expect(resumed.findingsPath).toBe(findings)
+  await resumed.release?.()
+  await writeFile(findings, '{}')
+  await expect(prepareMeshReviewSession({...f, auth})).rejects.toThrow(/completion receipt/)
+})
+
+// @testdoc An interrupt during preparation prevents registering a server run.
+it('does not register an already interrupted review', async () => {
+  const f = await sessionFixture()
+  await expect(prepareMeshReviewSession({...f, auth, signal: AbortSignal.abort()})).rejects.toThrow()
+  expect(f.fetchImpl).not.toHaveBeenCalled()
 })

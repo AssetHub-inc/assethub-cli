@@ -7085,7 +7085,7 @@ const commandMeshReview = async (
 ): Promise<void> => {
   const args = parseMeshReviewArgs(subcommand, positionals, ctx.flags as never)
   const controller = new AbortController()
-  activeLocalMeshReviewAbort = controller
+  activeLocalMeshReviewAbort = args.mode === 'run' || args.mode === 'sync' ? controller : undefined
   try {
     const outcome = await runMeshReviewCommand(args, {
       auth: ctx.auth,
@@ -9392,7 +9392,7 @@ const isMainModule = (() => {
 
 if (isMainModule) {
   trustSystemCertificates(tls)
-  process.once('SIGINT', () => {
+  process.on('SIGINT', () => {
     if (activeLocalMeshReviewAbort) {
       activeLocalMeshReviewAbort.abort()
       return

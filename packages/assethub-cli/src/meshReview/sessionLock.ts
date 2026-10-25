@@ -18,11 +18,16 @@ export const acquireMeshReviewLock = async (
   }
   const token = randomUUID()
   // shortcut: hard-killed owners require inspection before lock removal; use a supervised lease for remote execution.
-  await writeFile(
+  try {
+    await writeFile(
     join(path, 'owner.json'),
     JSON.stringify({pid: process.pid, token}),
     {mode: 0o600},
-  )
+    )
+  } catch (error) {
+    await rm(path, {recursive: true, force: true})
+    throw error
+  }
   return async () => {
     const owner: {token?: string} = await readFile(
       join(path, 'owner.json'),

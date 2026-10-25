@@ -1,6 +1,8 @@
 // meshReviewEngine.test.ts
-import {describe, expect, it} from 'vitest'
-import {buildEngineCommand, findEngineCli} from '../meshReview/runEngine.js'
+import {EventEmitter} from 'node:events'
+import type {spawn} from 'node:child_process'
+import {describe, expect, it, vi} from 'vitest'
+import {buildEngineCommand, findEngineCli, runEngine} from '../meshReview/runEngine.js'
 
 describe('findEngineCli', () => {
   const exists = (set: string[]) => async (p: string) => set.includes(p)
@@ -37,4 +39,23 @@ describe('buildEngineCommand', () => {
 it('forwards an explicit HP phase without changing the default command', () => {
   const cmd = buildEngineCommand({python: 'python3', cliPath: '/r/cli.py', inputs: ['/delivery'], out: '/out', baseline: undefined, config: undefined, skipHp: false, noRender: false, phase: 'high_poly'})
   expect(cmd.args).toEqual(['/r/cli.py', '/delivery', '--out', '/out', '--phase', 'high_poly'])
+})
+
+// @testdoc Interrupts terminate the engine and escalate after a bounded grace period before releasing ownership.
+it('force-stops an engine that ignores graceful interruption', async () => {
+  vi.useFakeTimers()
+  try {
+    const child = Object.assign(new EventEmitter(), {kill: vi.fn()})
+    const controller = new AbortController()
+    const pending = runEngine({cliPath: '/cli.py', inputs: ['/mesh'], out: '/out', baseline: undefined, config: undefined, skipHp: false, noRender: false, signal: controller.signal}, (() => child) as unknown as typeof spawn)
+    controller.abort()
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL')
+    child.emit('close', null)
+    expect(await pending).toMatchObject({exitCode: 130})
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    vi.useRealTimers()
+  }
 })
