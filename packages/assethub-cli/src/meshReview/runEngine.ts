@@ -38,6 +38,7 @@ export const findEngineCli = async ({
 
 export const buildEngineCommand = (o: {
   python: string
+  phase?: 'mesh_generation' | 'high_poly' | 'low_poly' | 'texture' | undefined
   cliPath: string
   inputs: string[]
   out: string
@@ -56,6 +57,7 @@ export const buildEngineCommand = (o: {
     o.out,
     ...(o.baseline != null ? ['--baseline', o.baseline] : []),
     ...(o.config != null ? ['--config', o.config] : []),
+    ...(o.phase ? ['--phase', o.phase] : []),
     ...(o.skipHp ? ['--skip-hp'] : []),
     ...(o.noRender ? ['--no-render'] : []),
     ...(o.reference != null ? ['--reference', o.reference] : []),
@@ -64,7 +66,9 @@ export const buildEngineCommand = (o: {
 })
 
 export type RunEngineOptions = {
+  phase?: 'mesh_generation' | 'high_poly' | 'low_poly' | 'texture' | undefined
   cliPath: string
+  signal?: AbortSignal
   inputs: string[]
   out: string | undefined
   baseline: string | undefined
@@ -91,6 +95,7 @@ export const runEngine = async (
     python: env.MESH_REVIEW_PYTHON ?? 'python3',
     cliPath: options.cliPath,
     inputs: options.inputs,
+    phase: options.phase,
     out,
     baseline: options.baseline,
     config: options.config,
@@ -100,9 +105,14 @@ export const runEngine = async (
     noConcept: options.noConcept,
   })
   const exitCode = await new Promise<number>(resolveExit => {
-    const child = spawnImpl(command, args, {stdio: ['ignore', 2, 2], env: env as NodeJS.ProcessEnv})
+    const child = spawnImpl(command, args, {stdio: ['ignore', 2, 2], detached: process.platform !== 'win32', env: env as NodeJS.ProcessEnv})
+    const interrupt = () => {
+      try { if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGTERM'); else child.kill('SIGTERM') } catch { child.kill('SIGTERM') }
+    }
+    options.signal?.addEventListener('abort', interrupt, {once: true})
+    if (options.signal?.aborted) interrupt()
     child.on('error', () => resolveExit(2))
-    child.on('close', code => resolveExit(code ?? 2))
+    child.on('close', code => {options.signal?.removeEventListener('abort', interrupt);resolveExit(options.signal?.aborted ? 130 : code ?? 2)})
   })
   return {exitCode, findingsPath: join(out, 'findings.json')}
 }

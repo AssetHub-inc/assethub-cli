@@ -170,6 +170,7 @@ import {batchReporter, runReporter} from './progressReport.js'
 
 import {parseMeshReviewArgs} from './meshReview/args.js'
 import {runMeshReviewCommand} from './meshReview/command.js'
+import {prepareMeshReviewSession} from './meshReview/session.js'
 import {explainMeshReviewError, formatMeshReviewProjectCreated, formatMeshReviewProjects} from './meshReview/errors.js'
 import {createMeshReviewProject, listMeshReviewProjects} from './meshReview/projects.js'
 import {findEngineCli, runEngine} from './meshReview/runEngine.js'
@@ -633,7 +634,7 @@ Usage:
   assethub production interventions <order-id>
   assethub production resume <run-id|order-id> [--expected-resume-count <n>] [--wait] [--timeout-ms <ms>] [--download --out-dir <dir>]   (after a fix, pick a stopped or stalled graph run back up; no new start fee; new generation uses credits)
   assethub runs upload <path> [--graph-id <id>] [--stream-id <id>] [--rev <n>] [--description <text>] [--tag <tag>...] [--skip-register] [--dry-run]
-  assethub mesh-review run <folder...> --project <name-or-id> [--asset <key>] [--out <dir>] [--baseline <findings.json>] [--config <toml>] [--reference <front.png>[,<side.png>[,<back.png>]] | --no-concept "<reason>"] [--skip-hp] [--no-render] [--no-sync] [--dry-run] [--engine-dir <path>]   (internal: runs the review engine in local headless Blender, then syncs; exit 0 clean, 1 errors found, 2 failure)
+  assethub mesh-review run <folder...> --project <name-or-id> [--asset <key>] [--out <dir>] [--baseline <findings.json>] [--review-config <toml>] [--reference <front.png>[,<side.png>[,<back.png>]] | --no-concept "<reason>"] [--phase mesh_generation|high_poly|low_poly|texture] [--skip-hp] [--no-render] [--no-sync] [--dry-run] [--engine-dir <path>]   (internal: registers a live Web review, runs local headless Blender, then syncs to the same report; exit 0 clean, 1 errors found, 2 failure)
   assethub mesh-review sync <findings.json> --project <name-or-id> [--asset <key>] [--dry-run]   (internal: upload a run made earlier; repeat the same command to resume)
   assethub mesh-review projects [--json]   (internal: list the projects of this key's workspace, id + name)
   assethub mesh-review projects create <name> [--json]   (internal: create a Production Control project in this key's workspace; an existing project of that name is returned, not duplicated)
@@ -7075,16 +7076,22 @@ const commandRuns = async (
  * syncs findings + renders to Production Control; `mesh-review sync <findings.json>` uploads a
  * run made earlier. Repeating a command after an uncertain response resumes the same run.
  */
+let activeLocalMeshReviewAbort: AbortController | undefined
+
 const commandMeshReview = async (
   subcommand: string | undefined,
   positionals: string[],
   ctx: CommandContext,
 ): Promise<void> => {
   const args = parseMeshReviewArgs(subcommand, positionals, ctx.flags as never)
+  const controller = new AbortController()
+  activeLocalMeshReviewAbort = controller
   try {
     const outcome = await runMeshReviewCommand(args, {
       auth: ctx.auth,
+      signal: controller.signal,
       runEngine,
+      prepareSession: prepareMeshReviewSession,
       sync: syncMeshReview,
       listProjects: listMeshReviewProjects,
       createProject: createMeshReviewProject,
@@ -7106,6 +7113,8 @@ const commandMeshReview = async (
       return
     }
     throw error
+  } finally {
+    activeLocalMeshReviewAbort = undefined
   }
 }
 
@@ -9384,6 +9393,10 @@ const isMainModule = (() => {
 if (isMainModule) {
   trustSystemCertificates(tls)
   process.once('SIGINT', () => {
+    if (activeLocalMeshReviewAbort) {
+      activeLocalMeshReviewAbort.abort()
+      return
+    }
     print({
       error: {
         code: 'INTERRUPTED',

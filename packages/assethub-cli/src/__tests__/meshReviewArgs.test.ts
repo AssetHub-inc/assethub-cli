@@ -5,6 +5,16 @@ import {parseMeshReviewArgs} from '../meshReview/args.js'
 const flags = (entries: Record<string, string | boolean | string[]>) => entries as never
 
 describe('parseMeshReviewArgs', () => {
+  it('keeps the review recipe separate from global auth configuration', () => {
+    const argv = ['mesh-review', 'run', '/delivery']
+    expect(parseMeshReviewArgs('run', argv, flags({project: 'p', config: '/auth.json', 'review-config': '/review.toml'})))
+      .toMatchObject({config: '/review.toml'})
+    expect(parseMeshReviewArgs('run', argv, flags({project: 'p', config: '/auth.json'})))
+      .toMatchObject({config: undefined})
+    expect(() => parseMeshReviewArgs('run', argv, flags({project: 'p', 'review-config': true})))
+      .toThrow(/--review-config/)
+  })
+
   it('parses run with defaults, deriving the asset key from the first input', () => {
     const args = parseMeshReviewArgs('run', ['mesh-review', 'run', '/d/Axe Blade'], flags({project: 'Axe'}))
     expect(args).toMatchObject({mode: 'run', inputs: ['/d/Axe Blade'], project: 'Axe', assetKey: 'Axe_Blade', skipHp: false, noSync: false})
@@ -48,4 +58,12 @@ describe('parseMeshReviewArgs concept comparison flags', () => {
 it('derives the sync asset key from the folder of a bare findings path', () => {
   const parsed = parseMeshReviewArgs('sync', ['mesh-review', 'sync', 'findings.json'], flags({'dry-run': true}))
   expect(parsed).toMatchObject({mode: 'sync', assetKey: expect.not.stringContaining('findings')})
+})
+
+it('selects a supported phase and prevents conflicting HP flags', () => {
+  const run = (f: Record<string, string | boolean>) => parseMeshReviewArgs('run', ['mesh-review', 'run', '/delivery'], flags({'no-sync': true, ...f}))
+  expect(run({phase: 'high_poly'})).toMatchObject({phase: 'high_poly'})
+  expect(() => run({phase: 'image'})).toThrow(/--phase/)
+  expect(() => run({phase: true})).toThrow(/--phase/)
+  expect(() => run({phase: 'high_poly', 'skip-hp': true})).toThrow(/--skip-hp/)
 })

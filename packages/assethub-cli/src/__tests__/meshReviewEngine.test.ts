@@ -33,3 +33,8 @@ describe('buildEngineCommand', () => {
     expect(cmd.args).toEqual(['/r/tools/mesh-review/cli.py', '/d/a', '--out', '/o', '--baseline', '/b/findings.json', '--skip-hp'])
   })
 })
+
+it('forwards an explicit HP phase without changing the default command', () => {
+  const cmd = buildEngineCommand({python: 'python3', cliPath: '/r/cli.py', inputs: ['/delivery'], out: '/out', baseline: undefined, config: undefined, skipHp: false, noRender: false, phase: 'high_poly'})
+  expect(cmd.args).toEqual(['/r/cli.py', '/delivery', '--out', '/out', '--phase', 'high_poly'])
+})

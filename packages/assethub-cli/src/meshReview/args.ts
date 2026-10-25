@@ -6,6 +6,7 @@ type FlagsLike = Record<string, FlagValue>
 
 export type MeshReviewRunArgs = {
   mode: 'run'
+  phase?: 'mesh_generation' | 'high_poly' | 'low_poly' | 'texture' | undefined
   inputs: string[]
   project: string | undefined
   assetKey: string | undefined
@@ -122,14 +123,21 @@ export const parseMeshReviewArgs = (
   if (project == null && !noSync && !dryRun) {
     throw new Error('assethub mesh-review run needs --project <name-or-id> (or --no-sync to only run the engine).')
   }
+  const rawPhase = str(flags, 'phase')
+  const phase = (['mesh_generation', 'high_poly', 'low_poly', 'texture'] as const).find(value => value === rawPhase)
+  if (flags.phase !== undefined && !phase) throw new Error('--phase must be mesh_generation, high_poly, low_poly or texture.')
+  if (phase === 'high_poly' && bool(flags, 'skip-hp')) throw new Error('--phase high_poly cannot be combined with --skip-hp.')
+  const config = str(flags, 'review-config')
+  if (flags['review-config'] !== undefined && !config) throw new Error('--review-config needs the path to a review TOML file.')
   return {
     mode: 'run',
+    ...(phase ? {phase} : {}),
     inputs,
     project,
     assetKey: resolveAsset(flags, inputs[0] as string),
     out: str(flags, 'out'),
     baseline: str(flags, 'baseline'),
-    config: str(flags, 'config'),
+    config,
     skipHp: bool(flags, 'skip-hp'),
     noRender: bool(flags, 'no-render'),
     noSync,

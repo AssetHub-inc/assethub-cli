@@ -1279,3 +1279,9 @@ The same existing server operations are discoverable through `assethub api searc
 routing`, MCP `operation_search` / `operation_describe` / `operation_call`, and
 hosted chat operation tools. They share admission, validation, billing and
 receipts; public actors cannot discover or call these Internal endpoints.
+
+### Live internal mesh review
+
+`mesh-review run delivery --project <id> --asset Axe --phase mesh_generation --review-config review.toml --out review` prints its internal Web report URL before starting local Blender. Completed findings go to that same run; repeating the command resumes the saved session. Global `--config` remains the auth JSON path.
+
+Use a new output directory when inputs, references, engine or configuration change. Output JSON and render hashes are pinned at first upload. Without `--out`, state is retained under `~/.assethub/state/mesh-reviews`. A hard kill may leave a running row and `.mesh-review-lock`; inspect the owner PID and Blender children before manually removing it. `--no-sync` preserves local-only execution. Source alignment and technical findings do not approve delivery.
