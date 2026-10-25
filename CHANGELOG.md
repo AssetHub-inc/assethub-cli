@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.64
+
+- Internal mesh review registers its Web report before local Blender starts and resumes the same run after uncertain uploads. Durable identity and an exclusive output lock prevent duplicate/conflicting review versions. SIGINT stops local analysis and records failure when reachable.
+- `--review-config` supplies the review TOML separately from global auth `--config`; `--phase mesh_generation|high_poly|low_poly|texture` selects the candidate stage. Finished-result sync and local-only mode remain available.
+- Requires the coordinated AssetHub Web release (assethub-web #8964) and existing internal workspace permissions. The local engine remains an explicit checkout/`--engine-dir` dependency; this does not add a remote generation service or art acceptance.
+
 ## CLI 0.1.63
 
 No SDK change; CLI 0.1.63 still uses SDK 0.1.22.

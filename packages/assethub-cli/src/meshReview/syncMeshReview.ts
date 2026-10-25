@@ -4,14 +4,16 @@
 // Order: create run (idempotent on the client run key) -> upload each render to its
 // signed URL -> complete with the findings.
 //
-// RESUME. The client run key is a pure function of (project, asset, exact findings bytes),
-// so repeating the same command resumes the same server run instead of creating a second
-// one. Nothing is recorded as "progress": the server already knows which renders landed
+// RESUME. Standalone sync derives its key from project, asset and exact findings bytes;
+// a registered run instead reuses its durable session key and immutable output hashes.
+// Repeating the same command resumes the same server run instead of creating another. Nothing is recorded as "progress": the server already knows which renders landed
 // (complete answers MISSING_RENDERS with the exact list).
 
 import {createHash} from 'node:crypto'
 import {readFile, realpath, stat, writeFile} from 'node:fs/promises'
-import {dirname, isAbsolute, join, relative} from 'node:path'
+import {dirname, join, sep} from 'node:path'
+import {writePrivateFileAtomic} from '../hooks/paths.js'
+import {acquireMeshReviewLock} from './sessionLock.js'
 
 export const MESH_REVIEW_API_PREFIX = '/api/v2/production/mesh-reviews'
 export const MESH_REVIEW_MAX_FINDINGS_BYTES = 4 * 1024 * 1024
@@ -54,6 +56,8 @@ export type SyncResult = {
 }
 export type SyncInput = {
   findingsPath: string
+  clientRunKey?: string
+  signal?: AbortSignal
   project: string
   assetKey: string
   baseUrl: string
@@ -284,8 +288,7 @@ const planRenders = async (findingsDir: string, doc: ComparisonDoc,
   for (const path of paths) {
     const file = join(findingsDir, path)
     const resolved = await realpath(file).catch(() => null)
-    const inside = resolved && relative(root, resolved)
-    if (resolved && (!inside || inside.startsWith('..') || isAbsolute(inside)))
+    if (resolved && !resolved.startsWith(root.endsWith(sep) ? root : `${root}${sep}`))
       throw new MeshReviewSyncError(
         'findings_invalid',
         `Render ${path} resolves outside the review directory.`,
@@ -330,8 +333,9 @@ const uploadRender = async (fetchImpl: typeof fetch, signedUrl: string, render: 
   }
 }
 
-export const syncMeshReview = async (input: SyncInput): Promise<SyncResult> => {
-  const fetchImpl = input.fetchImpl ?? globalThis.fetch.bind(globalThis)
+const syncOwnedMeshReview = async (input: SyncInput): Promise<SyncResult> => {
+  const fetchBase = input.fetchImpl ?? globalThis.fetch.bind(globalThis)
+  const fetchImpl: typeof fetch = (url, init) => fetchBase(url, {...init, ...(input.signal ? {signal: input.signal} : {})})
   const onProgress = input.onProgress ?? (() => {})
   const sleep = input.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)))
   const base = `${input.baseUrl.replace(/\/+$/, '')}${MESH_REVIEW_API_PREFIX}`
@@ -360,8 +364,21 @@ export const syncMeshReview = async (input: SyncInput): Promise<SyncResult> => {
   }
   const dir = dirname(input.findingsPath)
   const renders = await planRenders(dir, doc)
-  const clientRunKey = computeClientRunKey({project: input.project, assetKey: input.assetKey, findingsBytes,
-  })
+  const sessionPath = join(dir, 'mesh-review-session.json')
+  const session: unknown = await readFile(sessionPath, 'utf8').then(JSON.parse, error => { if (error?.code === 'ENOENT') return null; throw error })
+  let clientRunKey = input.clientRunKey
+  if (session !== null) {
+    const credentialScope = input.workspaceId ? `workspace:${input.workspaceId}` : `key:${sha256(input.apiKey)}`
+    if (!record(session) || session.project !== input.project || session.assetKey !== input.assetKey || session.baseUrl !== input.baseUrl.replace(/\/+$/, '') || session.workspaceId !== (input.workspaceId ?? null) || session.credentialScope !== credentialScope || typeof session.clientRunKey !== 'string' || !HASH.test(session.clientRunKey) || (clientRunKey && clientRunKey !== session.clientRunKey)) throw new MeshReviewSyncError('session_mismatch', 'Review session belongs to different inputs or workspace.')
+    if (session.engineCompletedSha256 !== sha256(findingsBytes)) throw new MeshReviewSyncError('session_output_changed', 'Findings have no matching engine completion receipt. Use a new review output directory.')
+    const hashes: Array<[string, string]> = []
+    for (const render of renders) hashes.push([render.path, sha256(await readFile(render.file))])
+    const outputSha256 = sha256(JSON.stringify({findings: sha256(findingsBytes), renders: hashes}))
+    if (session.outputSha256 && session.outputSha256 !== outputSha256) throw new MeshReviewSyncError('session_output_changed', 'Findings or rendered evidence changed after this review started uploading. Use a new review output directory.')
+    await writePrivateFileAtomic(sessionPath, JSON.stringify({...session, outputSha256}, null, 2))
+    clientRunKey = session.clientRunKey
+  }
+  clientRunKey ??= computeClientRunKey({project: input.project, assetKey: input.assetKey, findingsBytes})
 
   const created = await meshReviewCall(fetchImpl, `${base}/runs`, {
     method: 'POST',
@@ -445,4 +462,12 @@ export const syncMeshReview = async (input: SyncInput): Promise<SyncResult> => {
   const result = completed.data as Omit<SyncResult, 'rendersUploaded'>
   onProgress({kind: 'complete', runId: run.runId})
   return {...result, rendersUploaded}
+}
+
+
+/** The run command already owns its session lock; standalone sync must not race a local engine. */
+export const syncMeshReview = async (input: SyncInput): Promise<SyncResult> => {
+  const dir = dirname(input.findingsPath)
+  const release = !input.clientRunKey ? await acquireMeshReviewLock(dir) : undefined
+  try { return await syncOwnedMeshReview(input) } finally { await release?.() }
 }
