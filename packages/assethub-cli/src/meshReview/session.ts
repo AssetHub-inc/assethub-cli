@@ -29,10 +29,7 @@ export type MeshReviewSession = {
 type Auth = {baseUrl: string; apiKey: string; workspaceId?: string | undefined}
 const sha256 = (value: string) =>
   createHash('sha256').update(value).digest('hex')
-export const meshReviewCredentialScope = (auth: Auth) =>
-  auth.workspaceId
-    ? `workspace:${auth.workspaceId}`
-    : `key:${sha256(auth.apiKey)}`
+export const meshReviewCredentialScope = (auth: Auth) => `key:${sha256(auth.apiKey)}`
 
 const hashFile = async (file: string): Promise<string> => {
   const hash = createHash('sha256')

@@ -368,7 +368,7 @@ const syncOwnedMeshReview = async (input: SyncInput): Promise<SyncResult> => {
   const session: unknown = await readFile(sessionPath, 'utf8').then(JSON.parse, error => { if (error?.code === 'ENOENT') return null; throw error })
   let clientRunKey = input.clientRunKey
   if (session !== null) {
-    const credentialScope = input.workspaceId ? `workspace:${input.workspaceId}` : `key:${sha256(input.apiKey)}`
+    const credentialScope = `key:${sha256(input.apiKey)}`
     if (!record(session) || session.project !== input.project || session.assetKey !== input.assetKey || session.baseUrl !== input.baseUrl.replace(/\/+$/, '') || session.workspaceId !== (input.workspaceId ?? null) || session.credentialScope !== credentialScope || typeof session.clientRunKey !== 'string' || !HASH.test(session.clientRunKey) || (clientRunKey && clientRunKey !== session.clientRunKey)) throw new MeshReviewSyncError('session_mismatch', 'Review session belongs to different inputs or workspace.')
     if (session.engineCompletedSha256 !== sha256(findingsBytes)) throw new MeshReviewSyncError('session_output_changed', 'Findings have no matching engine completion receipt. Use a new review output directory.')
     const hashes: Array<[string, string]> = []

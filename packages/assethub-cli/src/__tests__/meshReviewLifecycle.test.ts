@@ -401,3 +401,13 @@ it('does not register an already interrupted review', async () => {
   await expect(prepareMeshReviewSession({...f, auth, signal: AbortSignal.abort()})).rejects.toThrow()
   expect(f.fetchImpl).not.toHaveBeenCalled()
 })
+
+// @testdoc Switching API profiles inside the same workspace cannot resume another credential's run.
+it('binds a workspace session to the original credential', async () => {
+  const f = await sessionFixture()
+  const scoped = {...auth, workspaceId: 'workspace'}
+  const first = await prepareMeshReviewSession({...f, auth: scoped})
+  await first.release?.()
+  await expect(prepareMeshReviewSession({...f, auth: {...scoped, apiKey: 'another-actor-key'}})).rejects.toThrow(/workspace changed/)
+  expect(f.fetchImpl).toHaveBeenCalledOnce()
+})
