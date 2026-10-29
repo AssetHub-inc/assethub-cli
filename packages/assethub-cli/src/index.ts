@@ -17,14 +17,24 @@ import {buildAssemblyExperiment} from './assemblyExperiment.js'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
 import {
   AGENT_IDS,
+  cliHome,
+  detectAgents,
   parseAgentIds,
   syncInstalledSkill,
   type AgentId,
 } from './agentSetup.js'
 import {
+  describePull,
+  planPush,
+  pullSkills,
+  pushSkills,
+  useSkillRevision,
+} from './teamSkills.js'
+import {
   confirmNo,
   confirmYes,
   defaultFileDeps,
+  findOnPath,
   formatSetupSummary,
   pickFromList,
   promptHidden,
@@ -664,6 +674,9 @@ Usage:
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
   assethub skills run-resume <skill-id> <run-id> [--add-credits <n>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID: continues past the limit; --add-credits only where the server still asks for an amount)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
+  assethub skills push <skill-folder|plugin-folder> [--note <text>] [--id <skill-id>] [--dry-run] [--yes] [--on-top]   (save a local agent skill, its scripts and references, as a team skill; a Claude Code plugin folder saves each of its skills; shows every file first and blocks secrets, private links and paths for one computer; --yes only after the person agreed)
+  assethub skills pull [--agent claude-code|codex|cursor...] [--replace-local <skill-id>]... [--dry-run] [--quiet]   (copy the newest team skills to ~/.agents/skills and link them into each agent; a copy you changed is kept; runs nothing it downloads)
+  assethub skills use <skill-id>@<revision|latest>   (pin one team skill revision on this computer, or follow the newest again)
   assethub skills import-goal <skill-folder|skill.json>   (store an authored ag.memory-skill.v8 skill and its references/ files in the workspace; it then shows in skills list --runnable; run it with skills run <skill-id>)
   assethub skills run-answer <skill-id> <run-id> --answer <option> [--wait]   (a goal run that asked a question continues with your answer)
   assethub skills run-stop <skill-id> <run-id>   (a goal run stops after its current step; everything made so far is kept)
@@ -8007,6 +8020,118 @@ const skillRunTitle = async (ctx: CommandContext, skillId: string) => {
   }
 }
 
+/** The agents to link team skills into: --agent, else every agent found here. */
+const teamSkillAgents = async (flags: Flags): Promise<AgentId[]> => {
+  const chosen = getFlagValues(flags, 'agent')
+  if (chosen.length > 0) return parseAgentIds(chosen)
+  return detectAgents(cliHome(), name => findOnPath(name), env.CODEX_HOME?.trim() || undefined)
+}
+
+/**
+ * `skills push | pull | use`: team skills, ordinary agent skill folders kept
+ * in the workspace (see teamSkills.ts). Push shows everything it would send
+ * and needs the person's yes; pull never runs anything it downloads.
+ */
+const commandTeamSkills = async (
+  subcommand: 'push' | 'pull' | 'use',
+  positionals: string[],
+  ctx: CommandContext,
+) => {
+  const home = cliHome()
+  const api = ctx.client.v2
+  if (subcommand === 'push') {
+    const path = requirePositional(positionals, 2, 'skill folder or plugin folder')
+    const {plan, folders} = await planPush(path, home, getFlag(ctx.flags, 'id'))
+    for (const skill of plan.skills) {
+      stderr.write(
+        `${skill.name} (${skill.skillId}) ${skill.baseRevision ? `rev ${skill.baseRevision} -> next revision` : 'new team skill'}${skill.source?.plugin ? `, from plugin ${skill.source.plugin}${skill.source.pluginVersion ? ` ${skill.source.pluginVersion}` : ''}` : ''}\n`,
+      )
+      stderr.write(`  Files: ${skill.files.join(', ')}\n`)
+      for (const skipped of skill.skipped) stderr.write(`  Not sent: ${skipped.path} (${skipped.reason})\n`)
+    }
+    if (plan.problems.length > 0) {
+      for (const problem of plan.problems)
+        stderr.write(`  ${problem.path}${problem.line ? `:${problem.line}` : ''}  ${problem.kind}: ${problem.text}\n`)
+      throw new Error(
+        `Not sent: ${plan.problems.length} problem(s) above. Remove secrets and links; put paths for one computer in local.json (it is never sent), then push again.`,
+      )
+    }
+    if (hasFlag(ctx.flags, 'dry-run')) {
+      print({dryRun: true, ...plan})
+      return
+    }
+    const workspace = ctx.auth.workspaceId ? ` ${ctx.auth.workspaceId}` : ''
+    if (!hasFlag(ctx.flags, 'yes')) {
+      if (!(stdin.isTTY && stderr.isTTY))
+        throw new Error(
+          'Ask the person first: show them the files above and ask "Share with the AssetHub team?". Only after they say yes, run this again with --yes.',
+        )
+      if (!(await confirmNo(`Share ${plan.skills.length} skill(s) with your AssetHub workspace${workspace}?`))) {
+        stderr.write('Nothing was sent.\n')
+        return
+      }
+    }
+    try {
+      const results = await pushSkills(api, home, folders, {
+        note: getFlag(ctx.flags, 'note'),
+        onTop: hasFlag(ctx.flags, 'on-top'),
+      })
+      for (const result of results)
+        stderr.write(
+          result.created
+            ? `Saved ${result.skillId} rev ${result.revision} to the team.\n`
+            : `${result.skillId}: the team already has exactly this as rev ${result.revision}; nothing new was saved.\n`,
+        )
+      print({items: results})
+    } catch (error) {
+      if (error instanceof AssetHubApiError && error.code === 'SKILL_PACKAGE_STALE') {
+        const latest = error.details?.latest as {revision?: number; author?: string | null; note?: string | null} | undefined
+        throw new Error(
+          `${latest?.author ?? 'Someone'} saved rev ${latest?.revision ?? '?'} after your copy${latest?.note ? ` (${latest.note})` : ''}. Nothing was saved. To get theirs: assethub skills pull. To save yours on top as the next revision: rerun with --on-top.`,
+        )
+      }
+      throw error
+    }
+    return
+  }
+  const agents = await teamSkillAgents(ctx.flags)
+  if (subcommand === 'use') {
+    const target = requirePositional(positionals, 2, '<skill-id>@<revision|latest>')
+    const match = /^([a-z0-9-]+)@(\d+|latest)$/.exec(target)
+    if (!match) throw new Error('Use: assethub skills use <skill-id>@<revision>, or <skill-id>@latest to follow the newest again.')
+    const item = await useSkillRevision(api, home, agents, match[1], match[2] === 'latest' ? 'latest' : Number(match[2]))
+    stderr.write(
+      match[2] === 'latest'
+        ? `${item.skillId} follows the newest team revision again (rev ${item.revision}).\n`
+        : `${item.skillId} is pinned to rev ${item.revision}; pull leaves it there until: assethub skills use ${item.skillId}@latest\n`,
+    )
+    print(item)
+    return
+  }
+  // pull: at the start of a session. --quiet stays silent when the network or
+  // the feature is not there, so a session never starts with an error.
+  const quiet = hasFlag(ctx.flags, 'quiet')
+  let items
+  try {
+    items = await pullSkills(api, home, agents, {
+      dryRun: hasFlag(ctx.flags, 'dry-run'),
+      replaceLocal: getFlagValues(ctx.flags, 'replace-local'),
+    })
+  } catch (error) {
+    // Accounts without team skills (403/404) start every session silently.
+    if (quiet && error instanceof AssetHubApiError && (error.status === 403 || error.status === 404)) return
+    if (quiet) {
+      stderr.write(`Team skills not checked (${error instanceof Error ? error.message.slice(0, 120) : 'error'}); using the copies on this computer.\n`)
+      return
+    }
+    throw error
+  }
+  const lines = describePull(items)
+  if (lines.length > 0) stderr.write(`Team skills updated\n${lines.map(line => `  ${line}\n`).join('')}`)
+  if (quiet) return
+  print({items})
+}
+
 /**
  * Wait for a skill run, saying each change in one plain line on stderr, then
  * save what it made (when there is a folder to save into) and print the end
@@ -8491,6 +8616,10 @@ export const commandSkills = async (
     await commandSkillRun(subcommand, positionals, ctx)
     return
   }
+  if (subcommand === 'push' || subcommand === 'pull' || subcommand === 'use') {
+    await commandTeamSkills(subcommand, positionals, ctx)
+    return
+  }
   if (subcommand === 'import-goal') {
     const path = requirePositional(positionals, 2, 'skill folder or skill.json')
     print(
@@ -8904,7 +9033,7 @@ export const commandSkills = async (
     return
   }
   throw new Error(
-    'Use skills list|get|run|run-list|run-status|run-resume|run-verdict|memory|learn|update|controls|prepare|proposal|accept|validate|schema|build|build-status|build-enhance|build-accept|build-discard|official',
+    'Use skills list|get|push|pull|use|run|run-list|run-status|run-resume|run-verdict|memory|learn|update|controls|prepare|proposal|accept|validate|schema|build|build-status|build-enhance|build-accept|build-discard|official',
   )
 }
 

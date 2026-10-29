@@ -299,12 +299,14 @@ export const skillLinkTarget = (
     ? {target: canonical, type: 'junction'}
     : {target: relative(agentSkillsDir, canonical), type: 'dir'}
 
-const linkSkill = async (
+/** Links `<agentSkillsDir>/<name>` to the canonical copy; a folder that is not our link is left alone. */
+export const linkSkill = async (
   agentSkillsDir: string,
   canonical: string,
   dryRun: boolean,
+  name: string = SKILL_NAME,
 ): Promise<{path: string; status: LinkStatus}> => {
-  const link = join(agentSkillsDir, SKILL_NAME)
+  const link = join(agentSkillsDir, name)
   const {target, type} = skillLinkTarget(platform, agentSkillsDir, canonical)
   let existing: Awaited<ReturnType<typeof lstat>> | undefined
   try {
