@@ -18,6 +18,7 @@ import {
 import {cliVersion, mcpConfig, validatedBaseUrl} from './setup.js'
 import type {HookClient} from './hooks/types.js'
 import type {InstallHooks} from './setupHooksBridge.js'
+import {pathIncludes, type WindowsPathDeps} from './windowsPath.js'
 
 export type StepStatus = 'ok' | 'fail' | 'skip'
 /** What a step did to local state: nothing, a write, or (dry run) a write it would make. */
@@ -33,7 +34,7 @@ export type SetupStep = {
 
 // The steps `--only` and `--skip` name, in the order setup runs them. `agents`
 // is not one: the mcp and skills steps need it.
-export const SETUP_STEPS = ['login', 'workspace', 'mcp', 'skills', 'auto-update', 'app-env', 'hook', 'doctor'] as const
+export const SETUP_STEPS = ['path', 'login', 'workspace', 'mcp', 'skills', 'auto-update', 'app-env', 'hook', 'doctor'] as const
 export type SetupStepName = (typeof SETUP_STEPS)[number]
 
 export type SetupResult = {
@@ -137,6 +138,8 @@ export type SetupDeps = {
   canSelfUpdate: () => Promise<boolean>
   /** ASSETHUB_NO_AUTO_UPDATE, ASSETHUB_NO_UPDATE_CHECK or CI turn it off for this environment. */
   autoUpdateBlockedByEnv: boolean
+  /** Windows: reads and extends the persistent PATH so `assethub` works in new windows. */
+  windowsPath?: WindowsPathDeps
 }
 
 export const redactKey = (key: string): string => `ah_…${key.slice(-4)}`
@@ -300,6 +303,11 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     steps.push({name: 'agents', status: 'skip', detail: 'no coding agent found; the skill is installed without agent links'})
   else if (needsAgents)
     steps.push({name: 'agents', status: 'ok', detail: `${listJoin(agentNames)}${options.agents ? '' : ' (detected)'}`})
+
+  if (!skipped('path') && deps.platform === 'win32' && deps.windowsPath) {
+    const step = await ensureCommandOnPath(options, deps, deps.windowsPath)
+    if (step) steps.push(step)
+  }
 
   const wantClaude = agents.includes('claude-code')
   const wantCodex = agents.includes('codex')
@@ -799,6 +807,34 @@ const skillsStep = (report: SkillsReport, dryRun: boolean): SetupStep => {
   }
 }
 
+const ensureCommandOnPath = async (
+  options: SetupOptions,
+  deps: SetupDeps,
+  windowsPath: WindowsPathDeps,
+): Promise<SetupStep | undefined> => {
+  const name = 'path'
+  const dir = await windowsPath.commandDir()
+  if (!dir) return undefined
+  if (pathIncludes(await windowsPath.persistentPath(), dir))
+    return {name, status: 'ok', detail: `\`assethub\` is on PATH (${dir})`, path: dir}
+  if (options.dryRun)
+    return {name, status: 'skip', detail: `would add ${dir} to your PATH (dry run)`, change: 'would-update', path: dir}
+  const consent =
+    options.yes ||
+    (deps.interactive && (await deps.confirm(`Add ${dir} to your PATH so \`assethub\` works in every new window?`)))
+  if (!consent)
+    return {
+      name,
+      status: 'skip',
+      detail: `\`assethub\` is not on PATH, so new windows say it is not recognized; re-run \`assethub setup --yes\` or add ${dir} to your User PATH`,
+      path: dir,
+    }
+  const added = await windowsPath.addToUserPath(dir)
+  return added.ok
+    ? {name, status: 'ok', detail: `added ${dir} to your PATH; open a new window to use \`assethub\``, change: 'updated', path: dir}
+    : {name, status: 'fail', detail: `could not add ${dir} to your PATH${added.detail ? `: ${added.detail}` : ''}`, path: dir}
+}
+
 const APP_ENV_MISSING = `Claude and Codex apps cannot see ${API_KEY_ENV} yet, so their MCP calls get HTTP 401`
 
 const ensureAppEnv = async (options: SetupOptions, deps: SetupDeps, key: string): Promise<SetupStep> => {
@@ -866,9 +902,13 @@ export const findOnPath = async (name: string, pathValue = process.env.PATH ?? '
   return undefined
 }
 
-export const runProcess = (file: string, args: string[]): Promise<{code: number; output: string}> =>
+export const runProcess = (
+  file: string,
+  args: string[],
+  env?: Record<string, string>,
+): Promise<{code: number; output: string}> =>
   new Promise(done => {
-    execFile(file, args, {timeout: 60_000}, (error, stdout, stderr) => {
+    execFile(file, args, {timeout: 60_000, ...(env ? {env: {...process.env, ...env}} : {})}, (error, stdout, stderr) => {
       const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0
       done({code, output: `${stdout}${stderr}`})
     })

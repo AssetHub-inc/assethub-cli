@@ -44,7 +44,8 @@ import {
   isFeatureNotAvailableError,
   trustSystemCertificates,
 } from './networkErrors.js'
-import {createNodeUpdateDeps, runUpdate} from './update.js'
+import {createNodeUpdateDeps, detectInstall, runUpdate} from './update.js'
+import {createWindowsPathDeps, npmShimDir} from './windowsPath.js'
 import {
   autoUpdateEnabled,
   claimRefreshAttempt,
@@ -2926,7 +2927,7 @@ const parseSetupSelection = (
     )
     if (unknown.length > 0)
       throw new Error(
-        `Unknown setup step for --${name}: ${unknown.join(', ')}. Steps: login, workspace, mcp, skills, auto-update, app-env, doctor.`,
+        `Unknown setup step for --${name}: ${unknown.join(', ')}. Steps: ${SETUP_STEPS.join(', ')}.`,
       )
     return values as SetupStepName[]
   }
@@ -3052,6 +3053,18 @@ const setupRun = async (
         realpathSync(argv[1] ?? fileURLToPath(import.meta.url)),
       ),
     autoUpdateBlockedByEnv: !autoUpdateEnabled(undefined, env),
+    ...(process.platform === 'win32'
+      ? {
+          windowsPath: createWindowsPathDeps(async () => {
+            const update = createNodeUpdateDeps([])
+            const root = await update.npmGlobalRoot()
+            const install = detectInstall(await update.binPath(), root)
+            return root && install.kind === 'global' && install.installer === 'npm'
+              ? npmShimDir(root, 'win32')
+              : undefined
+          }),
+        }
+      : {}),
     resolveAuth: async () => {
       const auth = await resolveAuth(base)
       return {
@@ -3123,7 +3136,7 @@ export const commandSetup = async (
  */
 const setupCheck = async (flags: Flags) => {
   const {options, deps} = await setupRun(flags, installSessionHooks, {
-    skip: ['login', 'workspace', 'auto-update', 'app-env', 'hook', 'doctor'],
+    skip: ['path', 'login', 'workspace', 'auto-update', 'app-env', 'hook', 'doctor'],
     dryRun: true,
     quietLog: true,
   })
