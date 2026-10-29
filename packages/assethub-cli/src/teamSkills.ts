@@ -9,6 +9,7 @@
  * has it. A copy the person changed is never overwritten: it stays theirs
  * until they push it or ask for the team's. Nothing is run at pull time.
  */
+import {isUtf8} from 'node:buffer'
 import {createHash} from 'node:crypto'
 import {mkdir, readdir, readFile, rename, rm, stat, writeFile} from 'node:fs/promises'
 import {basename, join, relative, sep} from 'node:path'
@@ -127,7 +128,8 @@ export const readSkillFolder = async (
       continue
     }
     const buffer = await readFile(path)
-    if (buffer.includes(0)) {
+    // NUL bytes, or bytes that are not UTF-8, mean a binary that text would corrupt.
+    if (buffer.includes(0) || !isUtf8(buffer)) {
       skipped.push({path: rel, reason: 'not a text file'})
       continue
     }
@@ -262,6 +264,16 @@ export const writeLock = async (home: string, lock: TeamSkillLock) => {
 
 const isTeamCopy = async (dir: string) => (await readTextIfExists(join(dir, MARKER))) !== undefined
 
+/** The sha the copy had when pull wrote it, kept in its marker so a lost lock file never hides an edit. */
+const markerLocalSha = async (dir: string): Promise<string | undefined> => {
+  try {
+    const marker = JSON.parse((await readTextIfExists(join(dir, MARKER))) ?? '{}') as {localSha256?: unknown}
+    return typeof marker.localSha256 === 'string' ? marker.localSha256 : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** sha of the folder as it is now, read the way a push would read it. */
 const currentSha = async (dir: string) => filesSha256((await readSkillFolder(dir)).files)
 
@@ -282,7 +294,8 @@ const writeTeamCopy = async (dir: string, pkg: SkillPackage) => {
   if (settings !== undefined) await writeFile(join(staging, LOCAL_SETTINGS), settings)
   await writeFile(
     join(staging, MARKER),
-    `${JSON.stringify({skillId: pkg.skillId, revision: pkg.revision, filesSha256: pkg.filesSha256}, null, 2)}\n`,
+    // The files are written exactly as received, so their local sha is known before reading them back.
+    `${JSON.stringify({skillId: pkg.skillId, revision: pkg.revision, filesSha256: pkg.filesSha256, localSha256: filesSha256(pkg.files)}, null, 2)}\n`,
   )
   const hadCopy = await isDirectory(dir)
   if (hadCopy) await rename(dir, previous)
@@ -372,13 +385,23 @@ export const pushSkills = async (
 ): Promise<PushResult[]> => {
   const lock = await readLock(home)
   const results: PushResult[] = []
+  // Check every skill against the team's latest before saving any, so a
+  // plugin push never stops halfway with only some of its skills saved.
+  const latest = new Map((await api.listSkillPackages()).items.map(item => [item.skillId, item]))
+  if (!options.onTop) {
+    const stale = folders
+      .map(folder => latest.get(folder.skillId))
+      .find((item, index) => {
+        const folder = folders[index]
+        return item && item.revision > (lock.skills[folder.skillId]?.revision ?? 0) && item.filesSha256 !== filesSha256(folder.files)
+      })
+    if (stale)
+      throw Object.assign(new Error(`${stale.skillId} has a newer team revision`), {code: 'SKILL_PACKAGE_STALE', details: {latest: stale}})
+  }
+  try {
   for (const folder of folders) {
     const known = lock.skills[folder.skillId]
-    let baseRevision: number | null = known?.revision ?? null
-    if (options.onTop) {
-      const latest = (await api.listSkillPackages()).items.find(item => item.skillId === folder.skillId)
-      baseRevision = latest?.revision ?? null
-    }
+    const baseRevision: number | null = options.onTop ? (latest.get(folder.skillId)?.revision ?? null) : (known?.revision ?? null)
     const saved = await api.pushSkillPackage({
       skillId: folder.skillId,
       name: folder.name,
@@ -400,7 +423,10 @@ export const pushSkills = async (
       ...(known?.pinned ? {pinned: true} : {}),
     }
   }
-  await writeLock(home, lock)
+  } finally {
+    // Whatever was saved before an error is recorded, so the next push starts from it.
+    await writeLock(home, lock)
+  }
   return results
 }
 
@@ -451,8 +477,16 @@ export const pullSkills = async (
       items.push({...base, status: 'kept-existing', links: []})
       continue
     }
-    const edited = exists && known?.localSha256 !== undefined && (await currentSha(dir)) !== known.localSha256
-    if (known?.pinned && exists && !edited) {
+    // Without a recorded sha (lost lock, old marker) the copy counts as edited: keeping it is the safe side.
+    const expectedSha = known?.localSha256 ?? (exists ? await markerLocalSha(dir) : undefined)
+    const edited = exists && (expectedSha === undefined || (await currentSha(dir)) !== expectedSha)
+    if (known?.pinned && !edited) {
+      // A pinned copy that was deleted comes back at its pinned revision.
+      if (!exists && !dryRun) {
+        const pkg = await api.getSkillPackage(summary.skillId, {revision: known.revision})
+        await writeTeamCopy(dir, pkg)
+        lock.skills[summary.skillId] = {...known, localSha256: await currentSha(dir)}
+      }
       items.push({...base, revision: known.revision, status: 'pinned', links: await linkAgents(home, agents, summary.skillId, dryRun)})
       continue
     }

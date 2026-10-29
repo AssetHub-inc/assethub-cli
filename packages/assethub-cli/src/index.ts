@@ -8084,8 +8084,8 @@ const commandTeamSkills = async (
         )
       print({items: results})
     } catch (error) {
-      if (error instanceof AssetHubApiError && error.code === 'SKILL_PACKAGE_STALE') {
-        const latest = error.details?.latest as {revision?: number; author?: string | null; note?: string | null} | undefined
+      if ((error as {code?: unknown} | null)?.code === 'SKILL_PACKAGE_STALE') {
+        const latest = (error as {details?: Record<string, unknown>}).details?.latest as {revision?: number; author?: string | null; note?: string | null} | undefined
         throw new Error(
           `${latest?.author ?? 'Someone'} saved rev ${latest?.revision ?? '?'} after your copy${latest?.note ? ` (${latest.note})` : ''}. Nothing was saved. To get theirs: assethub skills pull. To save yours on top as the next revision: rerun with --on-top.`,
         )

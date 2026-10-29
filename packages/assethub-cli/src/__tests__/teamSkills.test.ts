@@ -95,6 +95,7 @@ describe('reading a skill folder', () => {
       'SKILL.md': RIG_SKILL.replace(/\n/g, '\r\n'),
       'scripts/rig_adapt.py': 'print("hi")\r\n',
       'templates/PL018.mb': Buffer.from([0x4d, 0x00, 0x01]),
+      'templates/latin1.bin': Buffer.from([0x4d, 0xe9, 0xff, 0x41]),
       'local.json': '{"maya": "C:/Users/gino/maya"}',
       '.DS_Store': 'x',
     })
@@ -103,7 +104,7 @@ describe('reading a skill folder', () => {
     expect(folder.description).toBe('Adapt a CC2 template rig to a new character')
     expect(Object.keys(folder.files)).toEqual(['SKILL.md', 'scripts/rig_adapt.py'])
     expect(folder.files['scripts/rig_adapt.py']).toBe('print("hi")\n')
-    expect(folder.skipped.map(s => s.path).sort()).toEqual(['local.json', 'templates/PL018.mb'])
+    expect(folder.skipped.map(s => s.path).sort()).toEqual(['local.json', 'templates/PL018.mb', 'templates/latin1.bin'])
   })
 
   it('reads every skill of a Claude Code plugin with its name and version', async () => {
@@ -262,4 +263,46 @@ describe('push then pull', () => {
     expect((await readLock(ivan)).skills['cc2-rig-adapt']).toMatchObject({revision: 2})
     expect((await readLock(ivan)).skills['cc2-rig-adapt'].pinned).toBeUndefined()
   })
+  it('saves none of a plugin\'s skills when one of them is behind the team', async () => {
+    const api = fakeApi()
+    const plugin = join(root, 'plugin')
+    await writeSkill(plugin, {
+      'skills/a/SKILL.md': '---\nname: skill-a\n---\n',
+      'skills/b/SKILL.md': '---\nname: skill-b\n---\n',
+    })
+    const other = join(root, 'other-b')
+    await writeSkill(other, {'SKILL.md': '---\nname: skill-b\n---\nteammate version\n'})
+    await pushSkills(api, ivan, (await planPush(other, ivan)).folders)
+    await expect(pushSkills(api, gino, (await planPush(plugin, gino)).folders)).rejects.toMatchObject({code: 'SKILL_PACKAGE_STALE'})
+    expect(api.rows.map(row => row.skillId)).toEqual(['skill-b'])
+  })
+
+  it('brings back a pinned copy that was deleted, at its pinned revision', async () => {
+    const api = fakeApi()
+    const src = join(root, 'src')
+    await writeSkill(src, {'SKILL.md': RIG_SKILL})
+    await pushSkills(api, gino, (await planPush(src, gino)).folders)
+    await writeSkill(src, {'notes.md': 'v2\n'})
+    await pushSkills(api, gino, (await planPush(src, gino)).folders)
+    await useSkillRevision(api, ivan, ['claude-code'], 'cc2-rig-adapt', 1)
+    await rm(join(ivan, '.agents', 'skills', 'cc2-rig-adapt'), {recursive: true})
+    expect((await pullSkills(api, ivan, ['claude-code']))[0]).toMatchObject({status: 'pinned', revision: 1})
+    expect((await readLock(ivan)).skills['cc2-rig-adapt']).toMatchObject({revision: 1, pinned: true})
+  })
+
+  it('keeps an edited copy even when the lock file was lost', async () => {
+    const api = fakeApi()
+    const src = join(root, 'src')
+    await writeSkill(src, {'SKILL.md': RIG_SKILL})
+    await pushSkills(api, gino, (await planPush(src, gino)).folders)
+    await pullSkills(api, ivan, ['claude-code'])
+    const installed = join(ivan, '.agents', 'skills', 'cc2-rig-adapt')
+    await writeFile(join(installed, 'SKILL.md'), `${RIG_SKILL}\nmine\n`)
+    await rm(join(ivan, '.agents', 'skills', '.assethub-team-skills.json'))
+    await writeSkill(src, {'notes.md': 'v2\n'})
+    await pushSkills(api, gino, (await planPush(src, gino)).folders)
+    expect((await pullSkills(api, ivan, ['claude-code']))[0].status).toBe('kept-local')
+    expect(await readFile(join(installed, 'SKILL.md'), 'utf8')).toContain('mine')
+  })
 })
+
