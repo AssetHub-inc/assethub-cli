@@ -304,11 +304,6 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
   else if (needsAgents)
     steps.push({name: 'agents', status: 'ok', detail: `${listJoin(agentNames)}${options.agents ? '' : ' (detected)'}`})
 
-  if (!skipped('path') && deps.platform === 'win32' && deps.windowsPath) {
-    const step = await ensureCommandOnPath(options, deps, deps.windowsPath)
-    if (step) steps.push(step)
-  }
-
   const wantClaude = agents.includes('claude-code')
   const wantCodex = agents.includes('codex')
   const hookClients: HookClient[] = [...(wantClaude ? (['claude'] as const) : []), ...(wantCodex ? (['codex'] as const) : [])]
@@ -329,6 +324,12 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
       {name: 'hook', status: 'fail', detail: hookRefusal},
       'Run `assethub setup --save-sessions` inside the project folder whose sessions should be saved, or run it without --save-sessions.',
     )
+
+  // After the early refusals, so a PATH change is never hidden by one.
+  if (!skipped('path') && deps.platform === 'win32' && deps.windowsPath) {
+    const step = await ensureCommandOnPath(options, deps, deps.windowsPath)
+    if (step) steps.push(step)
+  }
 
   // 1. Login (reuses the existing `auth login` path through deps.login). With
   // login skipped, a saved key is still used for app-env and doctor if there is one.
