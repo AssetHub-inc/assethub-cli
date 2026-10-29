@@ -9,7 +9,7 @@ description: |
   - Rigging, animating, retopologizing, texturing, or converting a mesh
   - Any "I want …" request to make or change an asset, even when no skill is named ("I want a turnaround of hero.png", "bikin side view dong"): check the team's skills first, ask once, then run
   - Using, listing, or choosing a workspace skill / method ("use the clay skill on this", "スキルを使って", "which skills do we have?")
-  - Making a new skill or saving a way of working ("save skill", "make a skill from this", "save this as our method", "スキルにして", "bikin skill buat turnaround"), as a Claude plugin skill or an AssetHub workspace skill
+  - Making a new skill or saving a way of working ("make a skill from this", "save this as our method", "スキルにして", "bikin skill buat turnaround")
   - Sharing a skill with AssetHub staff, or running one staff shared ("share it with staff", "stop sharing it", "which shared skills can I use?")
   - Running a 3D production pipeline, checking a job, or recovering a run
   - Asking what models or operations are available, or what something will cost
@@ -45,7 +45,6 @@ description: |
 | **Canvas** | A board in the AssetHub web app where every step of a job appears. Each job here lands on one; `assethub canvas open <id>` shows it. |
 | **Asset** | A stored image or mesh, named by an id like `img_…` or `mesh_…`. |
 | **Workspace skill** | A saved, approved method for this workspace ("de-shadow a figure, then make it clay"). It lives on the AssetHub server, not on this computer, and runs there. Not the same thing as this file, which is a skill for the *assistant*. |
-| **Plugin skill** | A skill the team packaged as a Claude plugin and published to its Claude organization's plugin library (for example `/drecom-colour-mask-parts`). Once added, it shows in your own list of skills for this session and runs on this computer, not on AssetHub. |
 | **Run** | One use of a workspace skill (or a production pipeline) on one image. |
 | **Operation ID** | A UUID you attach to anything paid. Sending the same request with the same ID again returns the same job and never charges twice. |
 
@@ -56,9 +55,9 @@ description: |
 3. **Never overwrite the person's files.** Save results as new files next to the originals.
 4. **Read before you call.** Use `api describe` for the exact input. Never guess parameter names or invent ids, prices, or commands.
 5. **Talk like the person talks.** Answer in their language. For artists, no commands, ids, revision numbers, or JSON in the reply; one plain sentence per step.
-6. **Check the team's skills before you work.** A request to make or change something starts with `skills list --runnable` (free; it lists every skill this account can run, staff-shared ones included) **and** the plugin skills already in your own skill list for this session (see "Before any work"). The team's method beats one you invent.
+6. **Check the team's skills before you work.** A request to make or change something starts with `skills list --runnable` (free; it lists every skill this account can run, staff-shared ones included, see "Before any work"). The team's method beats one you invent.
 7. **Ask, don't assume.** Every choice goes through your question tool (see "Asking the person"), with your recommendation first.
-8. **Saving a skill starts with one question: where it lives.** "Save skill", "make a skill", 「スキルにして」 or "bikin skill" first asks whether it becomes a plugin skill or an AssetHub workspace skill (see "Save a way of working"). A plugin skill follows "Save it as a plugin skill". An AssetHub workspace skill always starts with the interview in "Make a new AssetHub workspace skill", and the answers are read back before anything is built.
+8. **A new skill always starts with an interview.** However the request is worded, and however much it already says, ask the rounds in "Make a new skill" and read the answers back before anything is built.
 9. **Make every image through AssetHub.** Never draw, generate or edit the person's pictures with your own image tool, a built-in generator, or code, even when that looks faster. Work done in AssetHub is checked, repeatable by the rest of the team, and kept on the canvas. If AssetHub cannot do what was asked, say so and ask what to do.
 10. **Run a skill as written.** Start it with `skills run`. Never copy a skill's steps into your own prompt, reword them, or swap its model on your own (models the person names go in `--mesh-model` / `--image-model`): the skill's exact wording is what keeps its rules (agents that rewrote it broke them). The person's own wishes go in `--ask`.
 11. **Always give the canvas link.** Anything that runs on a canvas (a skill run, a shared run, an image, a mesh, a production) gets its link in your reply as soon as it starts, and again with the result: `https://app.assethub.io/workflow/<canvasId>` (or `canvas.url` / `execution.canvas.url` when the JSON has it). The person can watch it and find the result there later.
@@ -154,9 +153,9 @@ assethub skills get <skill-id>       # free
 
 When the person asks you to **make or change** something (an image, a view, parts, a cleanup), look for a team skill first, before planning the work yourself. Skip this only when they already named a skill or only asked a question.
 
-1. **Always** read `assethub skills list --runnable` (free) before you decide anything fits or nothing does. It lists the workspace's own skills, official ones and, for staff, the skills shared to staff. **Also look through your own list of skills for this session** for plugin skills the person has added (for example `/drecom-colour-mask-parts`, `/drecom-code-meshes`): those are the team's methods too. In Claude Code, `claude plugin list --json` (free) also shows plugins that are installed but turned off. If one fits, ask the person to turn it on rather than redoing its work. The organization's plugin library only shows in Claude (Customize → Plugins → From your organization), not in that list. So when the request names the team's client work ("Drecom", "Mandrake", "colour mask") and no plugin skill for it is loaded, say once that the team may already have a plugin for it there, and ask whether to wait while they add it.
+1. **Always** read `assethub skills list --runnable` (free) before you decide anything fits or nothing does. It is the one list of candidates: the workspace's own skills, official ones and, for staff, the skills shared to staff.
 
-   Then match their request and their image against each title and summary, from both lists.
+   Then match their request and their image against each title and summary.
 2. `skills get` the best one to three candidates. Check that the image fits the skill's "when to use" and that its goal is what they asked for (from the summary when `fullMethod` is `false`).
 3. **One or more fit:** ask in one round. Add the spending-limit question only for a skill that takes one (see "Run it"); never for a goal skill (`goal: true`). For a goal skill, add one line with its models: Auto, then the names from its `recommendedModels` (names from `assethub models list`).
 
@@ -168,8 +167,7 @@ When the person asks you to **make or change** something (an image, a view, part
    > Models: **Auto** (the skill picks from Meshy V7.1, Hunyuan3D 3.1, Hi3D v3.0 Quality). Name one if you want it.
    > Charged to **<selected workspace name>**. A skill run has no price up front; it stops and asks before spending past its limit.
 
-   A **plugin skill** that fits goes in the same question, named as the team's plugin ("**Drecom colour mask parts** (your team's plugin)"). If it is picked, follow that skill's own instructions here on this computer, still asking before anything paid, and pass `--canvas <id>` to every AssetHub command it runs so the results land on one canvas.
-4. **Nothing fits** (nothing in `skills list --runnable` and no plugin skill): say it once ("Your team doesn't have a skill for this yet, so I'll do it directly.") and continue with the normal work below, still asking before anything paid.
+4. **Nothing fits** (nothing in `skills list --runnable`): say it once ("Your team doesn't have a skill for this yet, so I'll do it directly.") and continue with the normal work below, still asking before anything paid.
 
 A skill that is `off` cannot run. Say an editor of the workspace can turn it on, and offer the closest runnable one. Never switch a skill on yourself. If the person picks a skill you did not recommend, run it, but say: "Not the recommended skill for this image. Check the result carefully."
 
@@ -275,44 +273,11 @@ Recording is not open to every account yet, and each person records one answer p
   Offer **Fix it here** only for an image result: it is an image edit, so for a mesh or any other file leave it out and offer the other two. Recommend **Generate again** instead when most of the image is wrong (the wrong subject, pose or outfit overall), since an edit cannot rescue that.
   - **Fix it here:** follow steps 4 and 5 of "When the AI check says no", starting from the saved result instead of a rejected try, with the person's note as the reason. Then show the fix and ask whether it looks right, but don't record it with `run-verdict`: this result already has its answer, and a second one is ignored. The same limit applies: at most two local fixes, each a new file next to the original.
   - **Generate again:** say "The next generation will use: “…”" with the new instructions (they replace the old ones), then start a new paid run with its own limit, passing them as `--ask`.
-- **Looks right:** ask what next: the same skill on another image (or the next view), or done. If the result did **not** come from a skill, you may add **Make this a skill** once (it starts "Save a way of working"). Do not offer it again in the same conversation.
+- **Looks right:** ask what next: the same skill on another image (or the next view), or done. If the result did **not** come from a skill, you may add **Make this a skill** once (it starts the Q&A in "Make a new skill"). Do not offer it again in the same conversation.
 
-### 4. Save a way of working
+### 4. Make a new skill: always a Q&A first
 
-"Save skill", "save this as our method", "make a skill from this", 「スキルにして」, "bikin skill buat turnaround": first ask once where it should live.
-
-> **Where should this skill live?**
-> - **Your team's Claude plugin**: runs on this computer (Blender, Maya, local files). Teammates add it from your Claude organization's plugin library.
-> - **An AssetHub workspace skill**: runs on AssetHub. Anyone in the workspace can run it from the canvas or the CLI, clients included.
-
-Recommend the plugin to AssetHub staff (`assethub api search staff` finds the staff routes) and when the work used local tools or scripts. Recommend the AssetHub workspace skill to everyone else. The plugin goes to "Save it as a plugin skill". The workspace skill goes to "Make a new AssetHub workspace skill" (the interview).
-
-#### Save it as a plugin skill
-
-1. **Update, don't copy.** Look for a plugin that already holds this method: a plugin skill in your list for this session, or the plugin folder the person keeps on this computer (ask where if you don't know). If one exists, update it. Never make a second plugin for the same method ("… v4"); that leaves everyone who added the first one on the old version.
-2. **Write it from this conversation, in their words.** Give the goal, when to use it, the steps actually taken (the AssetHub commands, the models, the settings), what they kept and what they rejected and why (these become the checks), and every correction they gave. If earlier parts of the conversation were summarized away, say so and ask them to point you at the scripts or the canvas. Never invent a step that did not happen.
-3. **Bring the scripts.** Copy only the scripts that actually ran into the skill's `scripts/` folder, and name them in the steps. Before saving, check each one:
-   - no API keys, tokens or passwords;
-   - no paths that only exist on this computer (`C:\Users\<name>\…`, `/Users/<name>/…`): ask for them on the first run instead;
-   - no client files.
-4. **Keep the evidence on AssetHub.** Every AssetHub command in the steps passes `--canvas <id>`, so each run of the skill lands on a canvas.
-5. **Plugin layout.**
-   - `<plugin>/.claude-plugin/plugin.json` holds `name`, `version`, `description` and `author`.
-   - Each skill lives in `<plugin>/skills/<skill-name>/SKILL.md`. Its frontmatter has `name` and a `description` that says when to use it, in the words people actually type.
-   - Scripts go in `<plugin>/skills/<skill-name>/scripts/`.
-6. **Bump the version.** For a fix, raise the last number (`0.4.0` → `0.4.1`). For a new step or new learnings, raise the middle number (`0.4.0` → `0.5.0`). Add one dated line to `CHANGELOG.md` saying what changed today. A new plugin starts at `0.1.0`.
-7. **Read it back** in one question:
-   - the plugin name and version (old → new);
-   - what changed, in one line;
-   - the steps;
-   - the scripts it carries.
-   
-   Then say plainly: "The organization's plugin library is visible to everyone in your Claude organization. Leave out anything a client contract keeps private." Ask: **Save it (Recommended)** / **Change something** / **Cancel**.
-8. **After saving,** say where the folder is and that the next step is to publish this version to the organization's plugin library in Claude, the way the team publishes its other plugins. Teammates then add it, or update to the new version, from there. If they can't publish, whoever manages the library can.
-
-#### Make a new AssetHub workspace skill: always a Q&A first
-
-Any request to create an AssetHub workspace skill starts this interview: "make a skill from this", "save this as our method", "bikin skill buat turnaround", 「スキルにして」, or a skill the person describes from scratch. **Never call `assethub skills build` (not even `--dry-run`) until rounds 1 to 3 are answered and the person has said yes to the summary in round 4.** Do not skip a round because the request already sounds complete. Put what they said into the options as the Recommended answer and let them confirm it.
+Any request to create a skill starts this interview: "make a skill from this", "save this as our method", "bikin skill buat turnaround", 「スキルにして」, or a skill the person describes from scratch. **Never call `assethub skills build` (not even `--dry-run`) until rounds 1 to 3 are answered and the person has said yes to the summary in round 4.** Do not skip a round because the request already sounds complete. Put what they said into the options as the Recommended answer and let them confirm it.
 
 A skill is learned from real results on a canvas, never from free text alone. Draft every option yourself from what happened (the operations on the canvas, the result they liked, what they corrected), so they mostly pick. Four rounds, one at a time. After each round, say back in one line what you understood ("So: an image skill that makes one side view from a front image, learned from the canvas we just used.") before asking the next.
 
