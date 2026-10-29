@@ -2,6 +2,7 @@
 // folder, which is not always on the user's PATH (for example when a chat agent
 // ran the install). Setup reads and extends the persistent User PATH so
 // `assethub` works in every new window.
+import {posix, win32} from 'node:path'
 import {runProcess} from './setupCommand.js'
 
 export type WindowsPathDeps = {
@@ -15,10 +16,10 @@ export type WindowsPathDeps = {
 
 /** The npm prefix, where npm puts command shims: the parent of `npm root -g` on Windows. */
 export const npmShimDir = (npmGlobalRoot: string, platform: NodeJS.Platform): string => {
-  const root = npmGlobalRoot.replace(/[\\/]+$/, '')
-  const parent = root.replace(/[\\/][^\\/]+$/, '')
+  // path.win32 keeps a drive-root prefix absolute (C:\node_modules -> C:\).
+  if (platform === 'win32') return win32.dirname(win32.normalize(npmGlobalRoot.replace(/[\\/]+$/, '') || npmGlobalRoot))
   // Elsewhere npm root is <prefix>/lib/node_modules and shims are in <prefix>/bin.
-  return platform === 'win32' ? parent : `${parent.replace(/[\\/][^\\/]+$/, '')}/bin`
+  return posix.join(posix.dirname(posix.dirname(npmGlobalRoot.replace(/\/+$/, ''))), 'bin')
 }
 
 const normalize = (dir: string) => dir.trim().replace(/^"|"$/g, '').replace(/[\\/]+$/, '').toLowerCase()

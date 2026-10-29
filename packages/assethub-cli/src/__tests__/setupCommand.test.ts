@@ -1169,6 +1169,7 @@ describe('setup path step (Windows)', () => {
 
   it('finds the npm shim folder from `npm root -g`', () => {
     expect(npmShimDir('C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules', 'win32')).toBe(NPM_DIR)
+    expect(npmShimDir('C:\\node_modules', 'win32')).toBe('C:\\')
     expect(npmShimDir('/usr/local/lib/node_modules/', 'linux')).toBe('/usr/local/bin')
     expect(pathIncludes(['c:\\users\\u\\appdata\\roaming\\npm\\'], NPM_DIR)).toBe(true)
   })
