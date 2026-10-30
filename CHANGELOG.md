@@ -2,12 +2,11 @@
 
 ## CLI 0.1.65 · SDK 0.1.23
 
-Publish SDK 0.1.23 before CLI 0.1.65. Needs the AssetHub Web team-skills routes (`/api/v2/workspace-skills/packages`), internal accounts only behind a gate.
+Publish SDK 0.1.23 before CLI 0.1.65. Needs the AssetHub Web team-skills routes (`/api/v2/workspace-skills/packages`), behind a feature gate.
 
-- Team skills: `skills push <folder>` saves an ordinary agent skill folder (SKILL.md, scripts, references) to the workspace with a new revision; a Claude Code plugin folder saves each of its skills with the plugin's name and version. It lists every file, leaves out binaries and `local.json`, and blocks keys, signed links, secret files and paths on one computer. Without a terminal it needs `--yes`, which the bundled skill passes only after the person agreed. A newer revision saved by a teammate stops the push (`--on-top` saves on top).
+- Team skills: `skills push <folder>` saves an ordinary agent skill folder (SKILL.md, scripts, references) to the workspace with a new revision; a Claude Code plugin folder saves each of its skills with the plugin's name and version. It lists every file, leaves out binaries and `local.json`, and blocks keys, signed links, secret files and paths on one computer. Without a terminal it needs `--yes`. A newer revision saved by a teammate stops the push (`--on-top` saves on top).
 - `skills pull` copies the newest team skills to `~/.agents/skills/<id>` and links them into Claude Code, Codex and Cursor, one line per change. A copy the person changed is kept (`--replace-local <id>` takes the team's); `local.json` is never replaced; nothing downloaded is run. `--quiet` is silent for accounts without team skills.
 - `skills use <id>@<n>` pins a revision on this computer; `<id>@latest` follows the newest again.
-- The bundled skill pulls team skills at the start of a session, says "save skill" about a skill folder means `skills push`, and offers to save a way of working once it worked.
 - SDK adds `pushSkillPackage`, `listSkillPackages` and `getSkillPackage`.
 
 ## CLI 0.1.64

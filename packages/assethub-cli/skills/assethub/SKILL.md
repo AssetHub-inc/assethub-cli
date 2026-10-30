@@ -10,7 +10,6 @@ description: |
   - Any "I want …" request to make or change an asset, even when no skill is named ("I want a turnaround of hero.png", "bikin side view dong"): check the team's skills first, ask once, then run
   - Using, listing, or choosing a workspace skill / method ("use the clay skill on this", "スキルを使って", "which skills do we have?")
   - Making a new skill or saving a way of working ("make a skill from this", "save this as our method", "スキルにして", "bikin skill buat turnaround")
-  - Saving or sharing an agent skill the person wrote or improved here (a SKILL.md folder, its scripts, a Claude Code plugin): "save skill", "save this skill for the team", "push my skill", "share my plugin", "スキルを保存", "simpan skill"
   - Sharing a skill with AssetHub staff, or running one staff shared ("share it with staff", "stop sharing it", "which shared skills can I use?")
   - Running a 3D production pipeline, checking a job, or recovering a run
   - Asking what models or operations are available, or what something will cost
@@ -88,14 +87,6 @@ assethub update --check
 - Do not update while another `assethub` command is still running. Server jobs are unaffected by an update; continue them afterwards with their ids.
 
 Auto-update is on by default, so this usually says `up_to_date`. A stderr line `updated itself from … to …` means the same as an update: re-read this file after that command. Never turn auto-update off for the person.
-
-### 1b. Get the team's skills (free)
-
-```bash
-assethub skills pull --quiet
-```
-
-It copies the newest team skills into this computer's agents and prints one line per change ("rig-adapt rev 3 -> rev 4 (Alex: fingers in one pass)"). Tell the person those lines once, in a sentence. Nothing it downloads is run. A copy they changed is kept and the line says so: offer **Keep mine and share it** (`skills push` that folder) / **Use the team's** (`skills pull --replace-local <id>`). No output means nothing changed; an error line means it could not check (offline): carry on.
 
 ### 2. Pick the workspace with the person (free)
 
@@ -394,23 +385,6 @@ Every change here (share, stop) needs its own `--operation-id`; after an unclear
 - Stop sharing ("stop sharing it", "unshare"): `assethub api call "POST /workspace-skills/{skillId}/staff-share/stop" --path-json "@skill.json" --operation-id <a new UUID you write out>`. Staff can then no longer start or resume runs of it. Results they already have stay.
 
 **Staff running a skill someone shared.** Shared skills are in `skills list --runnable` with `source: "staff-share"`; the person never has to name one. On a canvas, staff pick them in the Use skill node. From the CLI, run one like any other skill, with the same one round: `assethub skills run <skillId> --file <image>` (a limit only if the start asks for one, as in "Run it"). The CLI starts it through its share, in this workspace, which pays. Follow it with `skills run-status` and record the verdict with `skills run-verdict` as usual. 409 `SHARE_STOPPED` means the owner stopped sharing it: say so, and offer the workspace's own skills instead.
-
-### 6. Team skills: save the agent skills you write, so everyone has them
-
-A team skill is an ordinary skill folder (`SKILL.md` plus its `scripts/` and `references/`) that runs here, on the person's computer, in Claude Code, Codex or Cursor. It is not the workspace skill of sections 1 to 4: those are learned from canvas results by `skills build` and run on AssetHub. If they say "save skill" about a SKILL.md folder or plugin you wrote or changed together, it is this. If they mean "make a method from this canvas result", it is section 4. Unsure: ask that one question.
-
-When they say "save skill", or at the end of a session in which you changed a skill:
-
-1. Put everything the skill needs in its folder: copy the scripts you wrote into `scripts/`, notes and checklists into `references/`, and make `SKILL.md` say when to use them. Paths that differ per computer (a Maya folder, `C:\Users\<name>`) go in `local.json` beside SKILL.md, which is never sent, and SKILL.md says to read them from there. A skill pulled from the team lives in `~/.agents/skills/<id>/`: improve that folder, not a copy.
-2. `assethub skills push <folder> --dry-run` (free). It lists the files, what is left out (binaries, `local.json`) and anything that blocks the push: keys, private or signed links, secret files, paths on one computer. Fix the blockers and run it again.
-3. Show the person the name, the files (with the full text of any script that is new or changed) and a one-line note of what changed, then ask once: **Share with the AssetHub team (Recommended)** / **Only keep it here**. Only after they say share: `assethub skills push <folder> --note "<what changed, in their words>" --yes`. Never pass `--yes` without that answer.
-4. Say the result in one line: "Saved rig-adapt rev 4 to the team." If it says a teammate saved a newer revision first, tell them who and what, and ask: **Get theirs first** (`skills pull`) / **Save mine on top** (rerun with `--on-top`).
-
-A Claude Code plugin folder (with `.claude-plugin/plugin.json`) saves each of its skills, keeping the plugin's name and version in the record; its hooks and commands are not sent. To bring in a plugin installed from the claude.ai library, push its folder under `~/.claude/plugins/`.
-
-**Offer it yourself.** When a way of working just worked (the person said it looks right, or you finished something you will clearly do again), ask once: "Save these steps as a team skill?" **Save skill (Recommended)** / **Not now**. Ask at most once per session.
-
-- Go back to an older revision on this computer: `assethub skills use <id>@<n>`; follow the newest again: `assethub skills use <id>@latest`.
 
 ## Other work: images, meshes, parts, production
 
