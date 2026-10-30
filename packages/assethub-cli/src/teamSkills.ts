@@ -542,7 +542,7 @@ export const useSkillRevision = async (
   }
 }
 
-/** One plain line per change, for the start of a session. Unchanged skills say nothing. */
+/** One plain line per change, for each new request. Unchanged skills say nothing. */
 export const describePull = (items: PullItem[]): string[] =>
   items.flatMap(item => {
     const by = [item.author, item.note].filter(Boolean).join(': ')

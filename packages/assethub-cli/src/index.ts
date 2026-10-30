@@ -8133,7 +8133,7 @@ const commandTeamSkills = async (
     print(item)
     return
   }
-  // pull: at the start of a session. --quiet stays silent when the network or
+  // pull: before each new request. --quiet stays silent when the network or
   // the feature is not there, so a session never starts with an error.
   const quiet = hasFlag(ctx.flags, 'quiet')
   let items
