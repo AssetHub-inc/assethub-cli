@@ -1,5 +1,14 @@
 # Changelog
 
+## CLI 0.1.66 · SDK 0.1.24
+
+Publish SDK 0.1.24 before CLI 0.1.66. Needs the AssetHub Web staff-share route for team skills (`PUT /api/v2/workspace-skills/packages/{skillId}/staff-share`); without it `--staff` and `unshare` answer 404.
+
+- `skills push <folder> --staff` also shares the saved skill with AssetHub staff in every workspace (staff accounts only). The share follows the newest revision, so later pushes reach them on their next pull. Without a terminal an agent must ask "Share this with all AssetHub staff, in every workspace?" before using `--yes`.
+- `skills unshare <id>` stops sharing; copies already pulled stay.
+- `skills pull` names the workspace a shared skill comes from. A skill of the person's own workspace wins over a shared one with the same id.
+- SDK adds `setSkillPackageStaffShare`; package summaries carry `sharedWithStaff` and `sharedFrom`.
+
 ## CLI 0.1.65 · SDK 0.1.23
 
 Publish SDK 0.1.23 before CLI 0.1.65. Needs the AssetHub Web team-skills routes (`/api/v2/workspace-skills/packages`), behind a feature gate.

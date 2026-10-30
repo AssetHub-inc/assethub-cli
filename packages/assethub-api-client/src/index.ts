@@ -54,6 +54,7 @@ import type {
   SkillPackage,
   SkillPackagePushed,
   SkillPackagePushInput,
+  SkillPackageStaffShare,
   SkillPackageSummary,
   WorkspaceSkillReview,
 } from './workspaceSkills.js'
@@ -134,6 +135,7 @@ export type {
   SkillPackage,
   SkillPackagePushed,
   SkillPackagePushInput,
+  SkillPackageStaffShare,
   SkillPackageSummary,
 } from './workspaceSkills.js'
 export type {
@@ -2805,6 +2807,19 @@ export class AssetHubClient {
           'v2',
           `/workspace-skills/packages/${encodeURIComponent(skillId)}${options.revision === undefined ? '' : `?revision=${options.revision}`}`,
           {method: 'GET'},
+        )
+      ).data,
+
+    /** Shares a team skill with AssetHub staff in every workspace (`shared: false` stops). Staff only. */
+    setSkillPackageStaffShare: async (
+      skillId: string,
+      shared: boolean,
+    ): Promise<SkillPackageStaffShare> =>
+      (
+        await this.request<SkillPackageStaffShare>(
+          'v2',
+          `/workspace-skills/packages/${encodeURIComponent(skillId)}/staff-share`,
+          {method: 'PUT', body: JSON.stringify({shared})},
         )
       ).data,
 

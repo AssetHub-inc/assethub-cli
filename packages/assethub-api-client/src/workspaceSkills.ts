@@ -1080,6 +1080,10 @@ export type SkillPackageSummary = {
   /** Display name of whoever saved this revision. */
   author: string | null
   createdAt: string
+  /** Shared with AssetHub staff in every workspace; it follows the newest revision. */
+  sharedWithStaff?: boolean
+  /** The workspace a skill shared with staff comes from; null for this workspace's own. */
+  sharedFrom?: string | null
 }
 
 export type SkillPackage = SkillPackageSummary & {
@@ -1096,6 +1100,13 @@ export type SkillPackagePushInput = {
   /** The revision this copy started from; a newer saved revision answers 409. Null for a first save. */
   baseRevision?: number | null
   source?: {plugin?: string; pluginVersion?: string}
+}
+
+export type SkillPackageStaffShare = {
+  skillId: string
+  sharedWithStaff: boolean
+  /** The newest revision, which staff pull while it is shared. */
+  revision: number
 }
 
 export type SkillPackagePushed = SkillPackageSummary & {

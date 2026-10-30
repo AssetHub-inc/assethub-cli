@@ -325,6 +325,7 @@ export type TeamSkillsApi = {
   pushSkillPackage(body: SkillPackagePushInput): Promise<SkillPackagePushed>
   listSkillPackages(): Promise<{items: SkillPackageSummary[]}>
   getSkillPackage(skillId: string, options?: {revision?: number}): Promise<SkillPackage>
+  setSkillPackageStaffShare(skillId: string, shared: boolean): Promise<{skillId: string; sharedWithStaff: boolean; revision: number}>
 }
 
 export type PushPlan = {
@@ -370,18 +371,19 @@ export const planPush = async (path: string, home: string, idOverride?: string):
   }
 }
 
-export type PushResult = {skillId: string; revision: number; created: boolean; previousRevision: number | null}
+export type PushResult = {skillId: string; revision: number; created: boolean; previousRevision: number | null; sharedWithStaff?: boolean}
 
 /**
  * Saves each planned skill. The caller has already shown the plan and had the
  * person agree. `onTop` saves on top of a newer team revision instead of
- * stopping, for when the person chose that after the 409.
+ * stopping, for when the person chose that after the 409. `staff` also shares
+ * each saved skill with staff in every workspace, once the person agreed to that.
  */
 export const pushSkills = async (
   api: TeamSkillsApi,
   home: string,
   folders: SkillFolder[],
-  options: {note?: string; onTop?: boolean} = {},
+  options: {note?: string; onTop?: boolean; staff?: boolean} = {},
 ): Promise<PushResult[]> => {
   const lock = await readLock(home)
   const results: PushResult[] = []
@@ -411,7 +413,8 @@ export const pushSkills = async (
       baseRevision,
       ...(folder.source ? {source: folder.source} : {}),
     })
-    results.push({skillId: saved.skillId, revision: saved.revision, created: saved.created, previousRevision: known?.revision ?? null})
+    const result: PushResult = {skillId: saved.skillId, revision: saved.revision, created: saved.created, previousRevision: known?.revision ?? null}
+    results.push(result)
     // Pushing the installed copy makes it the team's revision, so a later pull
     // does not mistake the person's own change for a local edit.
     const installed = join(teamSkillsDir(home), folder.skillId)
@@ -422,6 +425,8 @@ export const pushSkills = async (
       ...(localSha256 ? {localSha256} : {}),
       ...(known?.pinned ? {pinned: true} : {}),
     }
+    // The share follows the newest revision, so sharing again is harmless.
+    if (options.staff) result.sharedWithStaff = (await api.setSkillPackageStaffShare(saved.skillId, true)).sharedWithStaff
   }
   } finally {
     // Whatever was saved before an error is recorded, so the next push starts from it.
@@ -447,6 +452,8 @@ export type PullItem = {
   previousRevision: number | null
   author: string | null
   note: string | null
+  /** The workspace a skill shared with staff comes from; null for this workspace's own. */
+  sharedFrom: string | null
   links: {agent: AgentId; status: LinkStatus}[]
 }
 
@@ -471,6 +478,7 @@ export const pullSkills = async (
       previousRevision: known?.revision ?? null,
       author: summary.author,
       note: summary.note,
+      sharedFrom: summary.sharedFrom ?? null,
     }
     const exists = await isDirectory(dir)
     if (exists && !(await isTeamCopy(dir))) {
@@ -538,6 +546,7 @@ export const useSkillRevision = async (
     previousRevision: known?.revision ?? null,
     author: pkg.author,
     note: pkg.note,
+    sharedFrom: pkg.sharedFrom ?? null,
     links: await linkAgents(home, agents, skillId, false),
   }
 }
@@ -546,7 +555,8 @@ export const useSkillRevision = async (
 export const describePull = (items: PullItem[]): string[] =>
   items.flatMap(item => {
     const by = [item.author, item.note].filter(Boolean).join(': ')
-    const tail = by ? ` (${by})` : ''
+    const from = item.sharedFrom ? `shared with staff from ${item.sharedFrom}` : ''
+    const tail = by || from ? ` (${[from, by].filter(Boolean).join('; ')})` : ''
     if (item.status === 'installed') return [`New team skill: ${item.skillId} rev ${item.revision}${tail}`]
     if (item.status === 'updated') return [`${item.skillId} rev ${item.previousRevision ?? '?'} -> rev ${item.revision}${tail}`]
     if (item.status === 'kept-local')
