@@ -31,6 +31,7 @@ import {env, pid, platform} from 'node:process'
 import {fileURLToPath} from 'node:url'
 import {cliVersion, validatedBaseUrl} from './setup.js'
 import {compareVersions} from './update.js'
+import {applyTeamSkillsSection, readTeamSkillsFlag, writeTeamSkillsFlag} from './teamSkillsGuide.js'
 
 export const AGENT_IDS = ['claude-code', 'codex', 'cursor'] as const
 export type AgentId = (typeof AGENT_IDS)[number]
@@ -234,6 +235,9 @@ const replaceSkillDir = async (
   await mkdir(dirname(target), {recursive: true})
   await cp(source, staging, {recursive: true})
   await writeFile(join(staging, VERSION_MARKER), `${version}\n`)
+  // Team skills are internal-only: their guide is added only on a computer
+  // whose account has them, so every other install keeps the bundled guide.
+  await applyTeamSkillsSection(staging, await readTeamSkillsFlag(cliHome()))
   const hadTarget = await isDirectory(target)
   if (hadTarget) await rename(target, previous)
   try {
@@ -351,6 +355,27 @@ export const syncInstalledSkill = async (): Promise<void> => {
     const source = packagedSkillDir()
     if (!(await isDirectory(source))) return
     await replaceSkillDir(source, target, version)
+  } catch {
+    // best effort
+  }
+}
+
+/**
+ * Records whether this computer's account has team skills and rewrites the
+ * installed guide to match: the bundled SKILL.md, plus the team skills section
+ * only when it does. Never throws; a guide that cannot be rewritten stays as it was.
+ */
+export const refreshTeamSkillsGuide = async (
+  home: string,
+  enabled: boolean,
+): Promise<void> => {
+  try {
+    if ((await readTeamSkillsFlag(home)) === enabled) return
+    await writeTeamSkillsFlag(home, enabled)
+    const target = canonicalSkillDir(home)
+    if ((await readMarker(target)) === undefined) return
+    await cp(join(packagedSkillDir(), 'SKILL.md'), join(target, 'SKILL.md'))
+    await applyTeamSkillsSection(target, enabled)
   } catch {
     // best effort
   }

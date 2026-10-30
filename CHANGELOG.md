@@ -7,6 +7,8 @@ Publish SDK 0.1.23 before CLI 0.1.65. Needs the AssetHub Web team-skills routes 
 - Team skills: `skills push <folder>` saves an ordinary agent skill folder (SKILL.md, scripts, references) to the workspace with a new revision; a Claude Code plugin folder saves each of its skills with the plugin's name and version. It lists every file, leaves out binaries and `local.json`, and blocks keys, signed links, secret files and paths on one computer. Without a terminal it needs `--yes`. A newer revision saved by a teammate stops the push (`--on-top` saves on top).
 - `skills pull` copies the newest team skills to `~/.agents/skills/<id>` and links them into Claude Code, Codex and Cursor, one line per change. A copy the person changed is kept (`--replace-local <id>` takes the team's); `local.json` is never replaced; nothing downloaded is run. `--quiet` is silent for accounts without team skills.
 - `skills use <id>@<n>` pins a revision on this computer; `<id>@latest` follows the newest again.
+- The bundled guide stays the same for everyone. Only on a computer whose account has team skills (checked by `assethub setup`, `skills pull` and `skills push`) does the CLI append a team skills section and a "save skill" trigger to the installed guide; it is dropped again when the account loses them. That section tells the agent to pull at the start of a session and to ask before every push, because a saved skill is shared with everyone in the workspace.
+- `skills push` says, before anything is sent, that the skill goes to everyone in the workspace, and an agent must ask the person for each push before using `--yes`.
 - SDK adds `pushSkillPackage`, `listSkillPackages` and `getSkillPackage`.
 
 ## CLI 0.1.64

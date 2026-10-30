@@ -119,6 +119,13 @@ export type SetupDeps = {
   confirmOptIn: (question: string) => Promise<boolean>
   /** Whether this login may save and upload coding-agent sessions (internal accounts for now). */
   canSaveSessions: (auth: SetupAuth) => Promise<boolean>
+  /**
+   * Whether this login has team skills (internal accounts for now). The answer
+   * decides whether the installed guide carries the team skills section.
+   * Optional so callers without it keep the bundled guide untouched.
+   */
+  teamSkillsAvailable?: (auth: SetupAuth) => Promise<boolean>
+  refreshTeamSkillsGuide?: (enabled: boolean) => Promise<void>
   diagnose: () => Promise<DoctorReport>
   findBinary: (name: string) => Promise<string | undefined>
   run: (file: string, args: string[]) => Promise<{code: number; output: string}>
@@ -611,6 +618,9 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
     try {
       skill = await deps.installSkills({root, agents, dryRun: options.dryRun})
       steps.push(skillsStep(skill, options.dryRun))
+      // Team skills (internal-only): add or drop their section of the guide.
+      if (!options.dryRun && auth && deps.teamSkillsAvailable && deps.refreshTeamSkillsGuide)
+        await deps.refreshTeamSkillsGuide(await deps.teamSkillsAvailable(auth))
     } catch (error) {
       steps.push({name: 'skills', status: 'fail', detail: error instanceof Error ? error.message : String(error)})
     }

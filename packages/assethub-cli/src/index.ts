@@ -20,6 +20,7 @@ import {
   cliHome,
   detectAgents,
   parseAgentIds,
+  refreshTeamSkillsGuide,
   syncInstalledSkill,
   type AgentId,
 } from './agentSetup.js'
@@ -3101,6 +3102,21 @@ const setupRun = async (
     confirm: confirmYes,
     confirmOptIn: confirmNo,
     canSaveSessions: auth => canUploadSessions(auth),
+    teamSkillsAvailable: async auth => {
+      try {
+        const response = await fetch(`${auth.baseUrl.replace(/\/$/, '')}/api/v2/workspace-skills/packages`, {
+          headers: {
+            authorization: `Bearer ${auth.apiKey}`,
+            ...(auth.workspaceId ? {'x-assethub-workspace': auth.workspaceId} : {}),
+          },
+          signal: AbortSignal.timeout(10_000),
+        })
+        return response.ok
+      } catch {
+        return false
+      }
+    },
+    refreshTeamSkillsGuide: enabled => refreshTeamSkillsGuide(cliHome(), enabled),
     diagnose: () =>
       diagnose({
         resolveAuth: () => resolveAuth(base),
@@ -8081,6 +8097,7 @@ const commandTeamSkills = async (
         note: getFlag(ctx.flags, 'note'),
         onTop: hasFlag(ctx.flags, 'on-top'),
       })
+      await refreshTeamSkillsGuide(home, true)
       for (const result of results)
         stderr.write(
           result.created
@@ -8123,14 +8140,18 @@ const commandTeamSkills = async (
       replaceLocal: getFlagValues(ctx.flags, 'replace-local'),
     })
   } catch (error) {
-    // Accounts without team skills (403/404) start every session silently.
-    if (quiet && error instanceof AssetHubApiError && (error.status === 403 || error.status === 404)) return
+    // Accounts without team skills (403/404) start every session silently,
+    // and the installed guide drops its team skills section.
+    const unavailable = error instanceof AssetHubApiError && (error.status === 403 || error.status === 404)
+    if (unavailable) await refreshTeamSkillsGuide(home, false)
+    if (quiet && unavailable) return
     if (quiet) {
       stderr.write(`Team skills not checked (${error instanceof Error ? error.message.slice(0, 120) : 'error'}); using the copies on this computer.\n`)
       return
     }
     throw error
   }
+  await refreshTeamSkillsGuide(home, true)
   const lines = describePull(items)
   if (lines.length > 0) stderr.write(`Team skills updated\n${lines.map(line => `  ${line}\n`).join('')}`)
   if (quiet) return
