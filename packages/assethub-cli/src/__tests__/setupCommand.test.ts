@@ -16,6 +16,7 @@ import {
   type SetupDeps,
   type SetupOptions,
 } from '../setupCommand.js'
+import {npmShimDir, pathIncludes, type WindowsPathDeps} from '../windowsPath.js'
 import {launchAgentPlist} from '../appEnv.js'
 import {defaultInstallHooks} from '../setupHooksBridge.js'
 import {sessionSaveDisclosure} from '../hooks/install.js'
@@ -1193,5 +1194,84 @@ describe('non-interactive workspace selection', () => {
   it('still asks for --workspace when there is more than one', async () => {
     const {deps} = makeDeps({resolveAuth: async () => ({apiKey: KEY, baseUrl: 'https://x.test', profile: 'default'})})
     await expect(runSetup(options({agents: ['codex']}), deps)).rejects.toThrow('No workspace selected')
+  })
+})
+
+describe('setup path step (Windows)', () => {
+  const NPM_DIR = 'C:\\Users\\u\\AppData\\Roaming\\npm'
+  const windowsPath = (entries: string[], over: Partial<WindowsPathDeps> = {}) => {
+    const added: string[] = []
+    const value: WindowsPathDeps = {
+      commandDir: async () => NPM_DIR,
+      persistentPath: async () => entries,
+      addToUserPath: async dir => {
+        added.push(dir)
+        return {ok: true, detail: ''}
+      },
+      ...over,
+    }
+    return {value, added}
+  }
+  const pathStep = (result: Awaited<ReturnType<typeof runSetup>>) => result.steps.find(s => s.name === 'path')
+
+  it('finds the npm shim folder from `npm root -g`', () => {
+    expect(npmShimDir('C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules', 'win32')).toBe(NPM_DIR)
+    expect(npmShimDir('C:\\node_modules', 'win32')).toBe('C:\\')
+    expect(npmShimDir('/usr/local/lib/node_modules/', 'linux')).toBe('/usr/local/bin')
+    expect(pathIncludes(['c:\\users\\u\\appdata\\roaming\\npm\\'], NPM_DIR)).toBe(true)
+  })
+
+  it('reports ok and changes nothing when the folder is already on PATH', async () => {
+    const wp = windowsPath(['C:\\Windows', `${NPM_DIR}\\`])
+    const result = await runSetup(options(), makeDeps({platform: 'win32', windowsPath: wp.value}).deps)
+    expect(pathStep(result)).toMatchObject({status: 'ok', path: NPM_DIR})
+    expect(wp.added).toEqual([])
+    expect(result.steps[1]?.name).toBe('path')
+  })
+
+  it('adds the folder to the User PATH with consent', async () => {
+    const wp = windowsPath(['C:\\Windows'])
+    const confirm = vi.fn(async () => true)
+    const result = await runSetup(
+      options({yes: false}),
+      makeDeps({platform: 'win32', interactive: true, confirm, windowsPath: wp.value}).deps,
+    )
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining(NPM_DIR))
+    expect(wp.added).toEqual([NPM_DIR])
+    expect(pathStep(result)).toMatchObject({status: 'ok', change: 'updated'})
+    expect(pathStep(result)?.detail).toContain('open a new window')
+  })
+
+  it('leaves PATH alone without consent, on a dry run, or when --skip path', async () => {
+    const declined = windowsPath([])
+    const no = await runSetup(
+      options({yes: false}),
+      makeDeps({platform: 'win32', interactive: true, confirm: async (q: string) => !q.includes('PATH'), windowsPath: declined.value}).deps,
+    )
+    expect(pathStep(no)).toMatchObject({status: 'skip'})
+    expect(pathStep(no)?.detail).toContain('not recognized')
+    const dry = windowsPath([])
+    const dryResult = await runSetup(options({dryRun: true}), makeDeps({platform: 'win32', windowsPath: dry.value}).deps)
+    expect(pathStep(dryResult)).toMatchObject({status: 'skip', change: 'would-update'})
+    const skippedPath = windowsPath([])
+    const skipped = await runSetup(options({skip: ['path']}), makeDeps({platform: 'win32', windowsPath: skippedPath.value}).deps)
+    expect(pathStep(skipped)).toBeUndefined()
+    expect([...declined.added, ...dry.added, ...skippedPath.added]).toEqual([])
+  })
+
+  it('fails plainly when Windows refuses the change', async () => {
+    const wp = windowsPath([], {addToUserPath: async () => ({ok: false, detail: 'access denied'})})
+    const result = await runSetup(options(), makeDeps({platform: 'win32', windowsPath: wp.value}).deps)
+    expect(pathStep(result)).toMatchObject({status: 'fail'})
+    expect(pathStep(result)?.detail).toContain('access denied')
+    expect(result.ok).toBe(false)
+  })
+
+  it('says nothing for npx or source installs, or off Windows', async () => {
+    const npx = windowsPath([], {commandDir: async () => undefined})
+    expect(pathStep(await runSetup(options(), makeDeps({platform: 'win32', windowsPath: npx.value}).deps))).toBeUndefined()
+    const linux = windowsPath([])
+    expect(pathStep(await runSetup(options(), makeDeps({windowsPath: linux.value}).deps))).toBeUndefined()
+    expect([...npx.added, ...linux.added]).toEqual([])
   })
 })
