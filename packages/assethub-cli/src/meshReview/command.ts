@@ -54,10 +54,16 @@ export const runMeshReviewCommand = async (
     project: string,
     assetKey: string,
     clientRunKey?: string,
+    previewMeshPath?: string,
+    visualSourceRoots?: string[],
+    visualExplicitSources?: string[],
   ): Promise<SyncResult> =>
     deps.sync({
       findingsPath,
       ...(clientRunKey ? {clientRunKey} : {}),
+      ...(previewMeshPath ? {previewMeshPath} : {}),
+      ...(visualSourceRoots ? {visualSourceRoots} : {}),
+      ...(visualExplicitSources ? {visualExplicitSources} : {}),
       ...(deps.signal ? {signal: deps.signal} : {}),
       project,
       assetKey,
@@ -66,7 +72,7 @@ export const runMeshReviewCommand = async (
       workspaceId: deps.auth.workspaceId,
       onProgress: event =>
         deps.log(
-          `[mesh-review] ${event.kind}${'path' in event ? ` ${event.path}` : ''}`,
+          `[mesh-review] ${event.kind}${'path' in event ? ` ${event.path}` : ''}${'credits' in event ? ` · maximum ${event.credits} credits` : ''}`,
         ),
     })
 
@@ -156,11 +162,15 @@ export const runMeshReviewCommand = async (
         }
     }
     if (session?.findingsPath) {
+      const files = args.inputs.filter(path => /\.(fbx|glb)$/i.test(path))
       const result = await sync(
         session.findingsPath,
         args.project as string,
         args.assetKey as string,
         session.clientRunKey,
+        files.length === 1 ? files[0] : undefined,
+        args.inputs,
+        args.reference?.split(','),
       )
       return {
         exitCode: result.status === 'needs_fix' ? 1 : 0,
@@ -240,11 +250,15 @@ export const runMeshReviewCommand = async (
       }
     }
     await session?.markEngineCompleted?.()
+    const files = args.inputs.filter(path => /\.(fbx|glb)$/i.test(path))
     const result = await sync(
       engine.findingsPath,
       args.project as string,
       args.assetKey as string,
       session?.clientRunKey,
+      files.length === 1 ? files[0] : undefined,
+      args.inputs,
+      args.reference?.split(','),
     )
     return {
       exitCode: engine.exitCode,
