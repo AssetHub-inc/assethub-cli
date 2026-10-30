@@ -150,6 +150,9 @@ Usage:
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
   assethub skills run-resume <skill-id> <run-id> [--add-credits <n>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID: continues past the limit; --add-credits only where the server still asks for an amount)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
+  assethub skills push <skill-folder|plugin-folder> [--note <text>] [--id <skill-id>] [--dry-run] [--yes] [--on-top]   (save a local agent skill, its scripts and references, as a team skill shared with everyone in the workspace; a Claude Code plugin folder saves each of its skills; shows every file first and blocks secrets, private links and paths for one computer; --yes only after the person agreed to this push)
+  assethub skills pull [--agent claude-code|codex|cursor...] [--replace-local <skill-id>]... [--dry-run] [--quiet]   (copy the newest team skills to ~/.agents/skills and link them into each agent; a copy you changed is kept; runs nothing it downloads)
+  assethub skills use <skill-id>@<revision|latest>   (pin one team skill revision on this computer, or follow the newest again)
   assethub skills import-goal <skill-folder|skill.json>   (store an authored ag.memory-skill.v8 skill and its references/ files in the workspace; it then shows in skills list --runnable; run it with skills run <skill-id>)
   assethub skills run-answer <skill-id> <run-id> --answer <option> [--wait]   (a goal run that asked a question continues with your answer)
   assethub skills run-stop <skill-id> <run-id>   (a goal run stops after its current step; everything made so far is kept)

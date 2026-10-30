@@ -1058,6 +1058,51 @@ export type WorkspaceGoalSkillImported = {
   files: number
 }
 
+/**
+ * A team skill package: an ordinary agent skill folder (SKILL.md plus its
+ * scripts and references) kept in the workspace with numbered revisions, so
+ * every teammate's Claude Code, Codex or Cursor gets the same copy. It runs on
+ * the person's own computer and never appears in the runnable skill list.
+ */
+export type SkillPackageSummary = {
+  skillId: string
+  name: string
+  description: string
+  revision: number
+  /** sha256 of the canonical JSON of `files`; equal content, equal sha. */
+  filesSha256: string
+  fileCount: number
+  bytes: number
+  /** One line on what changed in this revision. */
+  note: string | null
+  /** Where it came from, such as a Claude Code plugin and its semver. */
+  source: {plugin?: string; pluginVersion?: string} | null
+  /** Display name of whoever saved this revision. */
+  author: string | null
+  createdAt: string
+}
+
+export type SkillPackage = SkillPackageSummary & {
+  /** Relative path (forward slashes) to text, LF line endings. */
+  files: Record<string, string>
+}
+
+export type SkillPackagePushInput = {
+  skillId: string
+  name: string
+  description: string
+  files: Record<string, string>
+  note?: string
+  /** The revision this copy started from; a newer saved revision answers 409. Null for a first save. */
+  baseRevision?: number | null
+  source?: {plugin?: string; pluginVersion?: string}
+}
+
+export type SkillPackagePushed = SkillPackageSummary & {
+  /** False when identical content was already stored; that revision is returned. */
+  created: boolean
+}
+
 export type WorkspaceSkillRunResumeInput = {
   clientOperationId: string
   /** Required for a v7 run; a V8 goal run continues without it. */

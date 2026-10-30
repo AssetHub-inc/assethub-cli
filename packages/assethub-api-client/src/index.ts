@@ -50,7 +50,13 @@ export {
   WORKSPACE_SKILL_ENHANCE_SECTIONS,
 } from './workspaceSkills.js'
 export {createWorkspaceClient, WorkspaceClientError} from './workspaces.js'
-import type {WorkspaceSkillReview} from './workspaceSkills.js'
+import type {
+  SkillPackage,
+  SkillPackagePushed,
+  SkillPackagePushInput,
+  SkillPackageSummary,
+  WorkspaceSkillReview,
+} from './workspaceSkills.js'
 export type {
   WorkspaceSkillAdmissionDecision,
   SkillMemoryLinks,
@@ -125,6 +131,10 @@ export type {
   WorkspaceSkillRunHumanVerdictResult,
   WorkspaceGoalRunState,
   WorkspaceGoalSkillImported,
+  SkillPackage,
+  SkillPackagePushed,
+  SkillPackagePushInput,
+  SkillPackageSummary,
 } from './workspaceSkills.js'
 export type {
   Workspace,
@@ -2760,6 +2770,41 @@ export class AssetHubClient {
           'v2',
           '/workspace-skills/goal-skills',
           {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    /** Saves a team skill package; the same content again returns its existing revision. */
+    pushSkillPackage: async (
+      body: SkillPackagePushInput,
+    ): Promise<SkillPackagePushed> =>
+      (
+        await this.request<SkillPackagePushed>(
+          'v2',
+          '/workspace-skills/packages',
+          {method: 'POST', body: JSON.stringify(body)},
+        )
+      ).data,
+
+    /** The latest revision of every team skill package, without file bodies. */
+    listSkillPackages: async (): Promise<{items: SkillPackageSummary[]}> =>
+      (
+        await this.request<{items: SkillPackageSummary[]}>(
+          'v2',
+          '/workspace-skills/packages',
+          {method: 'GET'},
+        )
+      ).data,
+
+    /** One revision (the latest when none is given) with its files. */
+    getSkillPackage: async (
+      skillId: string,
+      options: {revision?: number} = {},
+    ): Promise<SkillPackage> =>
+      (
+        await this.request<SkillPackage>(
+          'v2',
+          `/workspace-skills/packages/${encodeURIComponent(skillId)}${options.revision === undefined ? '' : `?revision=${options.revision}`}`,
+          {method: 'GET'},
         )
       ).data,
 
