@@ -45,6 +45,7 @@ describe('the installed guide', () => {
     await installSkill({root: home, version: '9.9.9', dryRun: false})
     expect(await installed()).toBe(await bundled())
     expect(await installed()).not.toContain('Team skills')
+    expect(await installed()).not.toMatch(/skills list --runnable|workspace skill/i)
   })
 
   it('carries the team skills section once the account has team skills, and drops it again', async () => {
@@ -52,6 +53,8 @@ describe('the installed guide', () => {
     await refreshTeamSkillsGuide(home, true)
     expect(await readTeamSkillsFlag(home)).toBe(true)
     expect(await installed()).toContain('Save a skill: it is shared with everyone in the workspace, so always ask.')
+    expect(await installed()).toContain("## Workspace skills: the team's saved methods")
+    expect(await installed()).toContain('Using, listing, or choosing a workspace skill')
     await refreshTeamSkillsGuide(home, false)
     expect(await installed()).toBe(await bundled())
   })

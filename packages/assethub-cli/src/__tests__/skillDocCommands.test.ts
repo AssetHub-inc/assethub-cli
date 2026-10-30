@@ -7,10 +7,11 @@ import {usage} from '../index.js'
 // it names that this CLI does not have makes the assistant fail at that step,
 // so every one of them must appear in the CLI's own usage text.
 // A Windows checkout may turn the file's line endings into CRLF.
-const skill = readFileSync(
-  fileURLToPath(new URL('../../skills/assethub/SKILL.md', import.meta.url)),
-  'utf8',
-).replace(/\r\n/g, '\n')
+// The staff sections appended to it on staff computers count too.
+const skill = ['assethub/SKILL.md', 'workspace-skills.md', 'team-skills.md']
+  .map(file => readFileSync(fileURLToPath(new URL(`../../skills/${file}`, import.meta.url)), 'utf8'))
+  .join('\n')
+  .replace(/\r\n/g, '\n')
 
 const VERB = /^[a-z][a-z0-9-]*$/
 
