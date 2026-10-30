@@ -2,7 +2,7 @@
 
 ## CLI 0.1.66
 
-- Internal mesh reviews can upload the exact reviewed model for preview and automatically start the gated visual review using the verified original concept and bounded credits. Requires the coordinated AssetHub Web release.
+- Internal mesh reviews can upload the exact reviewed model and recorded video for preview, including bounded chunks for large models, and automatically start the gated visual review using the verified original concept and bounded credits. Requires the coordinated AssetHub Web release.
 
 ## CLI 0.1.65 · SDK 0.1.23
 

@@ -2,6 +2,12 @@
 import {describe, expect, it} from 'vitest'
 import {parseMeshReviewArgs} from '../meshReview/args.js'
 
+it('accepts explicit model and video paths for a saved review', () => {
+  const args = parseMeshReviewArgs('sync', ['mesh-review', 'sync', '/out/findings.json'], {project: 'p', 'preview-mesh': '/out/model.glb', 'preview-video': '/out/turntable.mp4'})
+  expect(args).toMatchObject({previewMeshPath: '/out/model.glb', previewVideoPath: '/out/turntable.mp4'})
+  expect(() => parseMeshReviewArgs('sync', ['mesh-review', 'sync', '/out/findings.json'], {project: 'p', 'preview-video': true})).toThrow(/--preview-video/)
+})
+
 const flags = (entries: Record<string, string | boolean | string[]>) => entries as never
 
 describe('parseMeshReviewArgs', () => {

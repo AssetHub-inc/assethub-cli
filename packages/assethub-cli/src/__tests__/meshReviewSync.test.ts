@@ -484,3 +484,55 @@ it('uploads the explicit reviewed model after completion and never follows an in
     expect(calls.filter(call => call.url.includes('/mesh-reviews/runs/') && call.url.endsWith('/model'))).toHaveLength(1)
   } finally {await rm(trial, {recursive: true, force: true})}
 })
+
+it('uploads only an explicit video whose hash and recorded mesh match', async () => {
+  const trial = await mkdtemp(join(tmpdir(), 'review-video-'))
+  try {
+    const videoPath = join(trial, 'turntable.mp4')
+    const bytes = Buffer.from('recorded video')
+    const videoHash = createHash('sha256').update(bytes).digest('hex')
+    const meshHash = 'a'.repeat(64)
+    await writeFile(videoPath, bytes)
+    const document = {schema: 'mesh-review/v1', inputs: [{path: 'axe.glb', role: 'final', sha256: meshHash}], config: {reviewMeshVideo: {schema: 'mesh-turntable/v1', meshSha256: meshHash, videoSha256: videoHash}}, findings: [], summary: {error: 0, warn: 0, info: 0}}
+    const findingsPath = join(trial, 'findings.json')
+    await writeFile(findingsPath, JSON.stringify(document))
+    const {calls, fetchImpl} = recorder(call => {
+      if (call.url.endsWith('/runs')) return ok({runId: RUN, created: true, uploads: [], modelPreviewEnabled: true})
+      if (call.url.endsWith('/complete')) return ok({runId: RUN, status: 'passed', summary: document.summary, baselineRunId: null, unchanged: false})
+      if (call.url.endsWith('/video')) return ok({signedUrl: 'https://storage.example/video'})
+      if (call.url === 'https://storage.example/video') return new Response('', {status: 200})
+      throw new Error('unexpected request')
+    })
+    const result = await syncMeshReview({...input(fetchImpl), findingsPath, previewVideoPath: videoPath})
+    expect(result.videoPreview).toBe('uploaded')
+    await writeFile(videoPath, 'different bytes')
+    const mismatch = await syncMeshReview({...input(fetchImpl), findingsPath, previewVideoPath: videoPath})
+    expect(mismatch.videoPreview).toBe('unavailable')
+    expect(calls.filter(call => call.url.includes('/mesh-reviews/runs/') && call.url.endsWith('/video'))).toHaveLength(1)
+  } finally {await rm(trial, {recursive: true, force: true})}
+})
+
+it('uploads a large recorded model as exactly two bounded chunks', async () => {
+  const trial = await mkdtemp(join(tmpdir(), 'review-model-chunks-'))
+  try {
+    const meshPath = join(trial, 'candidate.glb')
+    const bytes = Buffer.alloc(20 * 1024 * 1024 + 64, 7)
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    await writeFile(meshPath, bytes)
+    const document = {schema: 'mesh-review/v1', inputs: [{path: 'candidate.glb', role: 'final', sha256: hash}], config: {reviewMeshChunks: {schema: 'mesh-chunks/v1', meshSha256: hash, size: bytes.length}}, findings: [], summary: {error: 0, warn: 0, info: 0}}
+    const findingsPath = join(trial, 'findings.json')
+    await writeFile(findingsPath, JSON.stringify(document))
+    const {calls, fetchImpl} = recorder(call => {
+      if (call.url.endsWith('/runs')) return ok({runId: RUN, created: true, uploads: [], modelPreviewEnabled: true})
+      if (call.url.endsWith('/complete')) return ok({runId: RUN, status: 'passed', summary: document.summary, baselineRunId: null, unchanged: false})
+      if (call.url.endsWith('/model')) return ok({signedUrls: ['https://storage.example/0', 'https://storage.example/1']})
+      if (call.url.startsWith('https://storage.example/')) return new Response('', {status: 200})
+      throw new Error('unexpected request')
+    })
+    expect((await syncMeshReview({...input(fetchImpl), findingsPath, previewMeshPath: meshPath})).modelPreview).toBe('uploaded')
+    const chunks = calls.filter(call => call.url.startsWith('https://storage.example/'))
+    expect(chunks).toHaveLength(2)
+    expect(((chunks[0]?.body as FormData).get('') as File).size).toBe(20 * 1024 * 1024)
+    expect(((chunks[1]?.body as FormData).get('') as File).size).toBe(64)
+  } finally {await rm(trial, {recursive: true, force: true})}
+})

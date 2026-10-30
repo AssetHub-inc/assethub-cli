@@ -55,6 +55,7 @@ export const runMeshReviewCommand = async (
     assetKey: string,
     clientRunKey?: string,
     previewMeshPath?: string,
+    previewVideoPath?: string,
     visualSourceRoots?: string[],
     visualExplicitSources?: string[],
   ): Promise<SyncResult> =>
@@ -62,6 +63,7 @@ export const runMeshReviewCommand = async (
       findingsPath,
       ...(clientRunKey ? {clientRunKey} : {}),
       ...(previewMeshPath ? {previewMeshPath} : {}),
+      ...(previewVideoPath ? {previewVideoPath} : {}),
       ...(visualSourceRoots ? {visualSourceRoots} : {}),
       ...(visualExplicitSources ? {visualExplicitSources} : {}),
       ...(deps.signal ? {signal: deps.signal} : {}),
@@ -117,6 +119,9 @@ export const runMeshReviewCommand = async (
       args.findingsPath,
       args.project as string,
       args.assetKey as string,
+      undefined,
+      args.previewMeshPath,
+      args.previewVideoPath,
     )
     return {
       exitCode: result.summary.error > 0 ? 1 : 0,
@@ -169,6 +174,7 @@ export const runMeshReviewCommand = async (
         args.assetKey as string,
         session.clientRunKey,
         files.length === 1 ? files[0] : undefined,
+        undefined,
         args.inputs,
         args.reference?.split(','),
       )
@@ -257,6 +263,7 @@ export const runMeshReviewCommand = async (
       args.assetKey as string,
       session?.clientRunKey,
       files.length === 1 ? files[0] : undefined,
+      undefined,
       args.inputs,
       args.reference?.split(','),
     )
