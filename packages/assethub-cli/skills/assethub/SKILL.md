@@ -95,7 +95,7 @@ Auto-update is on by default, so this usually says `up_to_date`. A stderr line `
 assethub skills pull --quiet
 ```
 
-It copies the newest team skills into this computer's agents and prints one line per change ("cc2-rig-adapt rev 3 -> rev 4 (Gino: fingers in one pass)"). Tell the person those lines once, in a sentence. Nothing it downloads is run. A copy they changed is kept and the line says so: offer **Keep mine and share it** (`skills push` that folder) / **Use the team's** (`skills pull --replace-local <id>`). No output means nothing changed; an error line means it could not check (offline): carry on.
+It copies the newest team skills into this computer's agents and prints one line per change ("rig-adapt rev 3 -> rev 4 (Alex: fingers in one pass)"). Tell the person those lines once, in a sentence. Nothing it downloads is run. A copy they changed is kept and the line says so: offer **Keep mine and share it** (`skills push` that folder) / **Use the team's** (`skills pull --replace-local <id>`). No output means nothing changed; an error line means it could not check (offline): carry on.
 
 ### 2. Pick the workspace with the person (free)
 
@@ -404,7 +404,7 @@ When they say "save skill", or at the end of a session in which you changed a sk
 1. Put everything the skill needs in its folder: copy the scripts you wrote into `scripts/`, notes and checklists into `references/`, and make `SKILL.md` say when to use them. Paths that differ per computer (a Maya folder, `C:\Users\<name>`) go in `local.json` beside SKILL.md, which is never sent, and SKILL.md says to read them from there. A skill pulled from the team lives in `~/.agents/skills/<id>/`: improve that folder, not a copy.
 2. `assethub skills push <folder> --dry-run` (free). It lists the files, what is left out (binaries, `local.json`) and anything that blocks the push: keys, private or signed links, secret files, paths on one computer. Fix the blockers and run it again.
 3. Show the person the name, the files (with the full text of any script that is new or changed) and a one-line note of what changed, then ask once: **Share with the AssetHub team (Recommended)** / **Only keep it here**. Only after they say share: `assethub skills push <folder> --note "<what changed, in their words>" --yes`. Never pass `--yes` without that answer.
-4. Say the result in one line: "Saved cc2-rig-adapt rev 4 to the team." If it says a teammate saved a newer revision first, tell them who and what, and ask: **Get theirs first** (`skills pull`) / **Save mine on top** (rerun with `--on-top`).
+4. Say the result in one line: "Saved rig-adapt rev 4 to the team." If it says a teammate saved a newer revision first, tell them who and what, and ask: **Get theirs first** (`skills pull`) / **Save mine on top** (rerun with `--on-top`).
 
 A Claude Code plugin folder (with `.claude-plugin/plugin.json`) saves each of its skills, keeping the plugin's name and version in the record; its hooks and commands are not sent. To bring in a plugin installed from the claude.ai library, push its folder under `~/.claude/plugins/`.
 

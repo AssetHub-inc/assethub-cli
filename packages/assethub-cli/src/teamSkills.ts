@@ -45,7 +45,7 @@ export type SkillFolder = {
 
 // ── Reading a skill folder ───────────────────────────────────────────
 
-/** `Rig Adapt (CC2)` -> `rig-adapt-cc2`. */
+/** `Rig Adapt (V2)` -> `rig-adapt-v2`. */
 export const slugSkillId = (name: string): string =>
   name
     .toLowerCase()
