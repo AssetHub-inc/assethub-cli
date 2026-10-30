@@ -29,6 +29,8 @@ export type MeshReviewSyncArgs = {
   project: string | undefined
   assetKey: string | undefined
   dryRun: boolean
+  previewMeshPath?: string
+  previewVideoPath?: string
 }
 export type MeshReviewProjectsArgs = {mode: 'projects'; json: boolean}
 export type MeshReviewProjectCreateArgs = {mode: 'project-create'; name: string; json: boolean}
@@ -110,7 +112,11 @@ export const parseMeshReviewArgs = (
     if (project == null && !dryRun) throw new Error('assethub mesh-review sync needs --project <name-or-id>.')
     // The folder holding findings.json names the asset, for bare and Windows paths too.
     const parent = dirname(resolve(findingsPath))
-    return {mode: 'sync', findingsPath, project, assetKey: resolveAsset(flags, parent), dryRun}
+    const previewMeshPath = str(flags, 'preview-mesh')
+    const previewVideoPath = str(flags, 'preview-video')
+    if (flags['preview-mesh'] !== undefined && !previewMeshPath) throw new Error('--preview-mesh needs an explicit file path.')
+    if (flags['preview-video'] !== undefined && !previewVideoPath) throw new Error('--preview-video needs an explicit file path.')
+    return {mode: 'sync', findingsPath, project, assetKey: resolveAsset(flags, parent), dryRun, ...(previewMeshPath ? {previewMeshPath} : {}), ...(previewVideoPath ? {previewVideoPath} : {})}
   }
   if (subcommand !== 'run') {
     throw new Error('Unknown mesh-review command. Use "mesh-review run <folder>", "mesh-review sync <findings.json>" or "mesh-review projects".')

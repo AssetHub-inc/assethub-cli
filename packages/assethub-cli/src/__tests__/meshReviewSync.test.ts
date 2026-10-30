@@ -90,6 +90,36 @@ const happy = (call: Call): Response => {
   })
 }
 
+// @testdoc A finished review with the auto gate uploads its exact original and starts one priced visual operation.
+it('starts a visual automatically after a source-bound review completes', async () => {
+  const work = await mkdtemp(join(tmpdir(), 'mesh-review-auto-sync-'))
+  try {
+    const original = join(work, 'original.png')
+    const bytes = Buffer.from('source')
+    await writeFile(original, bytes)
+    const sha = createHash('sha256').update(bytes).digest('hex')
+    const doc = {schema: 'mesh-review/v1', inputs: [], findings: [], summary: {error: 0, warn: 0, info: 0}, config: {conceptReview: {schema: 'concept-review/v1', source: {referenceKind: 'concept', referenceSha256: sha}, views: []}, reviewExecution: {schema: 'review-execution/v1', checks: [], conceptReferenceSources: [{path: original, sha256: sha}]}}}
+    const findingsPath = join(work, 'findings.json')
+    await writeFile(findingsPath, JSON.stringify(doc))
+    const events: Array<{kind: string}> = []
+    const r = recorder(call => {
+      if (call.url.endsWith('/runs')) return ok({runId: RUN, created: true, uploads: [], autoVisualEnabled: true})
+      if (call.url.endsWith('/complete')) return ok({runId: RUN, status: 'passed', summary: doc.summary, baselineRunId: null, unchanged: false})
+      if (call.url.endsWith('/visual')) {
+        const body = JSON.parse(String(call.body)) as {action: string}
+        return body.action === 'prepare' ? ok({signedUrl: 'https://storage.example/source', visualMaxCredits: 63, briefMaxCredits: 2}) : ok({view: {jobId: 'job'}})
+      }
+      if (call.url === 'https://storage.example/source') return new Response('', {status: 200})
+      throw new Error('unexpected call')
+    })
+    const result = await syncMeshReview({...input(r.fetchImpl), findingsPath, visualSourceRoots: [work], onProgress: e => events.push(e)})
+    expect(result.visualReview).toBe('started')
+    expect(events).toContainEqual({kind: 'visual-quote', credits: 65})
+    expect(r.calls.filter(call => call.url.endsWith('/visual')).map(call => JSON.parse(String(call.body)).action)).toEqual(['prepare', 'start'])
+    expect(r.calls.find(call => call.url === 'https://storage.example/source')?.headers.authorization).toBeUndefined()
+  } finally {await rm(work, {recursive: true, force: true})}
+})
+
 describe('computeClientRunKey', () => {
   it('is deterministic and sensitive to project, asset and bytes', () => {
     const a = computeClientRunKey({project: 'p', assetKey: 'a', findingsBytes: Buffer.from('x'),
@@ -425,4 +455,84 @@ it('does not upload a render symlink that resolves outside the review directory'
     await rm(linked, {force: true})
     await rm(external, {recursive: true, force: true})
   }
+})
+
+// @testdoc Only an explicitly supplied, hash-matching reviewed mesh is uploaded for the gated preview.
+it('uploads the explicit reviewed model after completion and never follows an input metadata path', async () => {
+  const trial = await mkdtemp(join(tmpdir(), 'review-model-'))
+  try {
+    const meshPath = join(trial, 'candidate.fbx')
+    const bytes = Buffer.from('actual reviewed model')
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    await writeFile(meshPath, bytes)
+    const document = {schema: 'mesh-review/v1', inputs: [{path: '/untrusted/secret.fbx', role: 'final', sha256: hash}], config: {}, findings: [], summary: {error: 0, warn: 0, info: 0}}
+    const findingsPath = join(trial, 'findings.json')
+    await writeFile(findingsPath, JSON.stringify(document))
+    const {calls, fetchImpl} = recorder(call => {
+      if (call.url.endsWith('/runs')) return ok({runId: RUN, created: true, uploads: [], modelPreviewEnabled: true})
+      if (call.url.endsWith('/complete')) return ok({runId: RUN, status: 'passed', summary: document.summary, baselineRunId: null, unchanged: false})
+      if (call.url.endsWith('/model')) return ok({signedUrl: 'https://storage.example/model'})
+      if (call.url === 'https://storage.example/model') return new Response('', {status: 200})
+      throw new Error('unexpected request')
+    })
+    const result = await syncMeshReview({...input(fetchImpl), findingsPath, previewMeshPath: meshPath})
+    expect(result.modelPreview).toBe('uploaded')
+    expect(calls.filter(call => call.url.includes('/mesh-reviews/runs/') && call.url.endsWith('/model'))).toHaveLength(1)
+    await writeFile(meshPath, 'different bytes')
+    const resultMismatch = await syncMeshReview({...input(fetchImpl), findingsPath, previewMeshPath: meshPath})
+    expect(resultMismatch.modelPreview).toBe('unavailable')
+    expect(calls.filter(call => call.url.includes('/mesh-reviews/runs/') && call.url.endsWith('/model'))).toHaveLength(1)
+  } finally {await rm(trial, {recursive: true, force: true})}
+})
+
+it('uploads only an explicit video whose hash and recorded mesh match', async () => {
+  const trial = await mkdtemp(join(tmpdir(), 'review-video-'))
+  try {
+    const videoPath = join(trial, 'turntable.mp4')
+    const bytes = Buffer.from('recorded video')
+    const videoHash = createHash('sha256').update(bytes).digest('hex')
+    const meshHash = 'a'.repeat(64)
+    await writeFile(videoPath, bytes)
+    const document = {schema: 'mesh-review/v1', inputs: [{path: 'axe.glb', role: 'final', sha256: meshHash}], config: {reviewMeshVideo: {schema: 'mesh-turntable/v1', meshSha256: meshHash, videoSha256: videoHash}}, findings: [], summary: {error: 0, warn: 0, info: 0}}
+    const findingsPath = join(trial, 'findings.json')
+    await writeFile(findingsPath, JSON.stringify(document))
+    const {calls, fetchImpl} = recorder(call => {
+      if (call.url.endsWith('/runs')) return ok({runId: RUN, created: true, uploads: [], modelPreviewEnabled: true})
+      if (call.url.endsWith('/complete')) return ok({runId: RUN, status: 'passed', summary: document.summary, baselineRunId: null, unchanged: false})
+      if (call.url.endsWith('/video')) return ok({signedUrl: 'https://storage.example/video'})
+      if (call.url === 'https://storage.example/video') return new Response('', {status: 200})
+      throw new Error('unexpected request')
+    })
+    const result = await syncMeshReview({...input(fetchImpl), findingsPath, previewVideoPath: videoPath})
+    expect(result.videoPreview).toBe('uploaded')
+    await writeFile(videoPath, 'different bytes')
+    const mismatch = await syncMeshReview({...input(fetchImpl), findingsPath, previewVideoPath: videoPath})
+    expect(mismatch.videoPreview).toBe('unavailable')
+    expect(calls.filter(call => call.url.includes('/mesh-reviews/runs/') && call.url.endsWith('/video'))).toHaveLength(1)
+  } finally {await rm(trial, {recursive: true, force: true})}
+})
+
+it('uploads a large recorded model as exactly two bounded chunks', async () => {
+  const trial = await mkdtemp(join(tmpdir(), 'review-model-chunks-'))
+  try {
+    const meshPath = join(trial, 'candidate.glb')
+    const bytes = Buffer.alloc(20 * 1024 * 1024 + 64, 7)
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    await writeFile(meshPath, bytes)
+    const document = {schema: 'mesh-review/v1', inputs: [{path: 'candidate.glb', role: 'final', sha256: hash}], config: {reviewMeshChunks: {schema: 'mesh-chunks/v1', meshSha256: hash, size: bytes.length}}, findings: [], summary: {error: 0, warn: 0, info: 0}}
+    const findingsPath = join(trial, 'findings.json')
+    await writeFile(findingsPath, JSON.stringify(document))
+    const {calls, fetchImpl} = recorder(call => {
+      if (call.url.endsWith('/runs')) return ok({runId: RUN, created: true, uploads: [], modelPreviewEnabled: true})
+      if (call.url.endsWith('/complete')) return ok({runId: RUN, status: 'passed', summary: document.summary, baselineRunId: null, unchanged: false})
+      if (call.url.endsWith('/model')) return ok({signedUrls: ['https://storage.example/0', 'https://storage.example/1']})
+      if (call.url.startsWith('https://storage.example/')) return new Response('', {status: 200})
+      throw new Error('unexpected request')
+    })
+    expect((await syncMeshReview({...input(fetchImpl), findingsPath, previewMeshPath: meshPath})).modelPreview).toBe('uploaded')
+    const chunks = calls.filter(call => call.url.startsWith('https://storage.example/'))
+    expect(chunks).toHaveLength(2)
+    expect(((chunks[0]?.body as FormData).get('') as File).size).toBe(20 * 1024 * 1024)
+    expect(((chunks[1]?.body as FormData).get('') as File).size).toBe(64)
+  } finally {await rm(trial, {recursive: true, force: true})}
 })

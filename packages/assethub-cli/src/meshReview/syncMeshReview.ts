@@ -14,6 +14,7 @@ import {readFile, realpath, stat, writeFile} from 'node:fs/promises'
 import {dirname, join, sep} from 'node:path'
 import {writePrivateFileAtomic} from '../hooks/paths.js'
 import {acquireMeshReviewLock} from './sessionLock.js'
+import {startAutomaticVisual} from './autoVisual.js'
 
 export const MESH_REVIEW_API_PREFIX = '/api/v2/production/mesh-reviews'
 export const MESH_REVIEW_MAX_FINDINGS_BYTES = 4 * 1024 * 1024
@@ -46,6 +47,7 @@ export type SyncProgress =
   | {kind: 'create'; runId: string; created: boolean}
   | {kind: 'render'; index: number; total: number; path: string}
   | {kind: 'complete'; runId: string}
+  | {kind: 'visual-quote'; credits: number}
 export type SyncResult = {
   runId: string
   status: string
@@ -53,9 +55,17 @@ export type SyncResult = {
   baselineRunId: string | null
   unchanged: boolean
   rendersUploaded: number
+  modelPreview?: 'uploaded' | 'unavailable'
+  visualReview?: 'started' | 'no_source' | 'unavailable'
+  videoPreview?: 'uploaded' | 'unavailable'
 }
 export type SyncInput = {
   findingsPath: string
+  /** Explicit CLI input only; never read an arbitrary path from findings metadata. */
+  previewMeshPath?: string
+  previewVideoPath?: string
+  visualSourceRoots?: string[]
+  visualExplicitSources?: string[]
   clientRunKey?: string
   signal?: AbortSignal
   project: string
@@ -138,7 +148,7 @@ export const meshReviewCall = async (fetchImpl: typeof fetch, url: string, init:
   return payload
 }
 
-type ComparisonDoc = {config?: {conceptReview?: unknown; reviewExecution?: unknown}
+type ComparisonDoc = {inputs?: Array<{path?: string; role?: string; sha256?: string}>; config?: {conceptReview?: unknown; reviewExecution?: unknown; reviewMeshVideo?: unknown; reviewMeshChunks?: unknown}
   findings?: Array<{renders?: string[]}>}
 const record = (value: unknown): value is Record<string, unknown> => value != null && typeof value === 'object' && !Array.isArray(value)
 const comparisonPaths = (raw: unknown): string[] => {
@@ -393,6 +403,8 @@ const syncOwnedMeshReview = async (input: SyncInput): Promise<SyncResult> => {
   })
   const run = created.data as {runId: string
     created: boolean
+    modelPreviewEnabled?: boolean
+    autoVisualEnabled?: boolean
     uploads: Array<{path: string; signedUrl: string}>}
   onProgress({kind: 'create', runId: run.runId, created: run.created})
   await writeFile(
@@ -460,8 +472,66 @@ const syncOwnedMeshReview = async (input: SyncInput): Promise<SyncResult> => {
     completed = await complete()
   }
   const result = completed.data as Omit<SyncResult, 'rendersUploaded'>
+  let modelPreview: SyncResult['modelPreview']
+  if (run.modelPreviewEnabled && input.previewMeshPath) {
+    modelPreview = 'unavailable'
+    try {
+      const choices = (doc.inputs ?? []).filter(item => ['final', 'lp', 'hp'].includes(String(item.role)))
+      const role = ['final', 'lp', 'hp'].find(value => choices.some(item => item.role === value))
+      const selected = choices.filter(item => item.role === role)
+      const file = input.previewMeshPath
+      const size = (await stat(file)).size
+      const chunks = doc.config?.reviewMeshChunks
+      const chunked = record(chunks) && chunks.schema === 'mesh-chunks/v1' && chunks.meshSha256 === selected[0]?.sha256 && chunks.size === size && size > MESH_REVIEW_MAX_RENDER_BYTES && size <= 2 * MESH_REVIEW_MAX_RENDER_BYTES
+      if (selected.length === 1 && /\.(fbx|glb)$/i.test(file) && size > 0 && (size <= MESH_REVIEW_MAX_RENDER_BYTES || chunked)) {
+        const bytes = await readFile(file)
+        if (bytes.byteLength === size && sha256(bytes) === selected[0]?.sha256) {
+          const prepared = await meshReviewCall(fetchImpl, `${base}/runs/${encodeURIComponent(run.runId)}/model`, {method: 'POST', headers: authHeaders})
+          const data = prepared.data as {signedUrl?: string; signedUrls?: string[]}
+          const targets = chunked ? data.signedUrls : data.signedUrl ? [data.signedUrl] : undefined
+          if (targets?.length === (chunked ? 2 : 1)) {
+            let uploaded = true
+            for (const [index, signedUrl] of targets.entries()) {
+              const part = chunked ? bytes.subarray(index * MESH_REVIEW_MAX_RENDER_BYTES, (index + 1) * MESH_REVIEW_MAX_RENDER_BYTES) : bytes
+              const form = new FormData(); form.append('cacheControl', '3600'); form.append('', new Blob([new Uint8Array(part)], {type: 'application/octet-stream'}))
+              const response = await send(fetchImpl, signedUrl, {method: 'PUT', headers: {'x-upsert': 'true'}, body: form})
+              if (!response.ok) {uploaded = false; break}
+            }
+            if (uploaded) modelPreview = 'uploaded'
+          }
+        }
+      }
+    } catch { /* The completed review is retained even when the optional model upload fails. */ }
+  }
+  let videoPreview: SyncResult['videoPreview']
+  if (run.modelPreviewEnabled && input.previewVideoPath) {
+    videoPreview = 'unavailable'
+    try {
+      const video = doc.config?.reviewMeshVideo
+      const choices = (doc.inputs ?? []).filter(item => ['final', 'lp', 'hp'].includes(String(item.role)))
+      const role = ['final', 'lp', 'hp'].find(value => choices.some(item => item.role === value))
+      const selected = choices.filter(item => item.role === role)
+      const size = (await stat(input.previewVideoPath)).size
+      if (record(video) && video.schema === 'mesh-turntable/v1' && typeof video.videoSha256 === 'string' && HASH.test(video.videoSha256) && selected.length === 1 && selected[0]?.sha256 === video.meshSha256 && /\.mp4$/i.test(input.previewVideoPath) && size > 0 && size <= MESH_REVIEW_MAX_RENDER_BYTES) {
+        const bytes = await readFile(input.previewVideoPath)
+        if (bytes.byteLength <= MESH_REVIEW_MAX_RENDER_BYTES && sha256(bytes) === video.videoSha256) {
+          const prepared = await meshReviewCall(fetchImpl, `${base}/runs/${encodeURIComponent(run.runId)}/video`, {method: 'POST', headers: authHeaders})
+          const signedUrl = (prepared.data as {signedUrl: string}).signedUrl
+          const form = new FormData(); form.append('cacheControl', '3600'); form.append('', new Blob([new Uint8Array(bytes)], {type: 'video/mp4'}))
+          const response = await send(fetchImpl, signedUrl, {method: 'PUT', headers: {'x-upsert': 'true'}, body: form})
+          if (response.ok) videoPreview = 'uploaded'
+        }
+      }
+    } catch { /* The completed review is retained even when the optional video upload fails. */ }
+  }
+  const visualReview = run.autoVisualEnabled ? await startAutomaticVisual({
+    base, runId: run.runId, headers: jsonHeaders, fetchImpl, findingsPath: input.findingsPath,
+    doc, roots: input.visualSourceRoots ?? [], explicit: input.visualExplicitSources ?? [],
+    credentialScope: `key:${sha256(input.apiKey)}`, call: meshReviewCall,
+    onQuote: credits => onProgress({kind: 'visual-quote', credits}),
+  }) : undefined
   onProgress({kind: 'complete', runId: run.runId})
-  return {...result, rendersUploaded}
+  return {...result, rendersUploaded, ...(modelPreview ? {modelPreview} : {}), ...(videoPreview ? {videoPreview} : {}), ...(visualReview ? {visualReview} : {})}
 }
 
 

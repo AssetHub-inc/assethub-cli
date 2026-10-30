@@ -9,10 +9,11 @@ describe('runMeshReviewCommand', () => {
     const runEngine = vi.fn(async () => ({exitCode: 1, findingsPath: '/o/findings.json'}))
     const sync = vi.fn(async () => ({runId: 'r', status: 'needs_fix', summary: {error: 1, warn: 0, info: 0}, baselineRunId: null, unchanged: false, rendersUploaded: 2}))
     const out = await runMeshReviewCommand(
-      {mode: 'run', inputs: ['/d/a'], project: 'Axe', assetKey: 'a', out: '/o', baseline: undefined, config: undefined, skipHp: false, noRender: false, noSync: false, dryRun: false, engineDir: undefined, reference: undefined, noConcept: undefined},
+      {mode: 'run', inputs: ['/d/a.glb'], project: 'Axe', assetKey: 'a', out: '/o', baseline: undefined, config: undefined, skipHp: false, noRender: false, noSync: false, dryRun: false, engineDir: undefined, reference: '/c/f.png', noConcept: undefined},
       {auth: base, runEngine, sync, findEngineCli: async () => '/r/cli.py', log: () => {}},
     )
     expect(sync).toHaveBeenCalledWith(expect.objectContaining({findingsPath: '/o/findings.json', project: 'Axe', assetKey: 'a'}))
+    expect(sync).toHaveBeenCalledWith(expect.objectContaining({previewMeshPath: '/d/a.glb', visualSourceRoots: ['/d/a.glb'], visualExplicitSources: ['/c/f.png']}))
     expect(out.exitCode).toBe(1)
     expect(out.result).toMatchObject({runId: 'r', status: 'needs_fix', reportUrl: 'https://app.assethub.io/control/mesh-reviews/r'})
   })
@@ -58,8 +59,9 @@ describe('runMeshReviewCommand', () => {
   })
   it('sync: uploads an earlier findings.json; dry-run uploads nothing', async () => {
     const sync = vi.fn(async () => ({runId: 'r', status: 'passed', summary: {error: 0, warn: 0, info: 0}, baselineRunId: null, unchanged: true, rendersUploaded: 0}))
-    const out = await runMeshReviewCommand({mode: 'sync', findingsPath: '/o/findings.json', project: 'Axe', assetKey: 'a', dryRun: false}, {auth: {...base, baseUrl: 'https://app.assethub.io/'}, runEngine: vi.fn(), sync, findEngineCli: async () => null, log: () => {}})
+    const out = await runMeshReviewCommand({mode: 'sync', findingsPath: '/o/findings.json', project: 'Axe', assetKey: 'a', dryRun: false, previewVideoPath: '/o/video.mp4'}, {auth: {...base, baseUrl: 'https://app.assethub.io/'}, runEngine: vi.fn(), sync, findEngineCli: async () => null, log: () => {}})
     expect(out.exitCode).toBe(0)
+    expect(sync).toHaveBeenCalledWith(expect.objectContaining({previewVideoPath: '/o/video.mp4'}))
     expect(out.result).toMatchObject({reportUrl: 'https://app.assethub.io/control/mesh-reviews/r'})
     const dry = await runMeshReviewCommand({mode: 'sync', findingsPath: '/o/findings.json', project: 'Axe', assetKey: 'a', dryRun: true}, {auth: base, runEngine: vi.fn(), sync, findEngineCli: async () => null, log: () => {}})
     expect(sync).toHaveBeenCalledTimes(1)
