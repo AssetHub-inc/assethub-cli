@@ -62,6 +62,12 @@ const fakeApi = (): TeamSkillsApi & {rows: SkillPackage[]} => {
       if (!row) throw new Error('not found')
       return row
     },
+    async setSkillPackageStaffShare(skillId: string, shared: boolean) {
+      const top = latest(skillId)
+      if (!top) throw new Error('not found')
+      for (const row of rows) if (row.skillId === skillId) row.sharedWithStaff = shared
+      return {skillId, sharedWithStaff: shared, revision: top.revision}
+    },
   }
 }
 
@@ -304,5 +310,27 @@ describe('push then pull', () => {
     expect((await pullSkills(api, sam, ['claude-code']))[0].status).toBe('kept-local')
     expect(await readFile(join(installed, 'SKILL.md'), 'utf8')).toContain('mine')
   })
-})
 
+  it('shares each saved skill with all staff only when asked', async () => {
+    const api = fakeApi()
+    const src = join(root, 'src')
+    await writeSkill(src, {'SKILL.md': RIG_SKILL})
+    expect(await pushSkills(api, alex, (await planPush(src, alex)).folders)).toEqual([{skillId: 'rig-adapt', revision: 1, created: true, previousRevision: null}])
+    expect(api.rows[0].sharedWithStaff).toBeUndefined()
+    expect(await pushSkills(api, alex, (await planPush(src, alex)).folders, {staff: true})).toMatchObject([
+      {revision: 1, created: false, sharedWithStaff: true},
+    ])
+    expect(api.rows[0].sharedWithStaff).toBe(true)
+  })
+
+  it('says which workspace a skill shared with staff comes from', async () => {
+    const api = fakeApi()
+    const src = join(root, 'src')
+    await writeSkill(src, {'SKILL.md': RIG_SKILL})
+    await pushSkills(api, alex, (await planPush(src, alex)).folders, {note: 'first'})
+    api.rows[0].sharedFrom = 'Art team'
+    const items = await pullSkills(api, sam, ['claude-code'])
+    expect(items[0]).toMatchObject({status: 'installed', sharedFrom: 'Art team'})
+    expect(describePull(items)).toEqual(['New team skill: rig-adapt rev 1 (shared with staff from Art team; Alex: first)'])
+  })
+})

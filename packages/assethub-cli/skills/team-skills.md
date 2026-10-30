@@ -10,8 +10,10 @@ A team skill is an ordinary skill folder (`SKILL.md` plus `scripts/` and `refere
 
 1. Put everything in the folder: scripts in `scripts/`, notes in `references/`, and paths that differ per computer in `local.json` beside SKILL.md (never sent).
 2. `assethub skills push <folder>` without `--yes`. It sends nothing, lists the files, and blocks keys, private links and paths on one computer. Fix the blockers.
-3. Show the person the files (the full text of any new or changed script) and ask: **Share this with everyone in the workspace (they get it on their next pull)** / **Only keep it here**.
-4. Only after they say yes to this push: `assethub skills push <folder> --note "<what changed, in their words>" --yes`. Never pass `--yes` without that answer; a yes for an earlier push does not count. Never offer to save a skill on your own.
+3. Show the person the files (the full text of any new or changed script) and ask: **Share with everyone in the workspace (they get it on their next pull)** / **Share with all AssetHub staff, in every workspace** / **Only keep it here**.
+4. Only after they say yes to this push: `assethub skills push <folder> --note "<what changed, in their words>" --yes`, with `--staff` when they chose all staff. Never pass `--yes` or `--staff` without that answer; a yes for an earlier push does not count. Never offer to save a skill on your own.
 5. Say the result in one line. If a teammate saved a newer revision first, say who and what, and ask: **Get theirs first** (`skills pull`) / **Save mine on top** (rerun with `--on-top`).
+
+**Shared with all staff.** A skill shared with `--staff` follows its newest revision: each later push reaches staff in every workspace on their next pull, and pull names the workspace it comes from. A skill of the person's own workspace wins over a shared one with the same id. Only the workspace that shared it saves new revisions; pushing a changed copy of someone else's shared skill saves a separate copy in this workspace, so say that first. Stop sharing with `assethub skills unshare <id>` (copies already pulled stay).
 
 A Claude Code plugin folder saves each of its skills with the plugin's name and version; its hooks and commands are not sent. Go back to an older revision with `assethub skills use <id>@<n>`; follow the newest again with `<id>@latest`.

@@ -675,9 +675,10 @@ Usage:
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
   assethub skills run-resume <skill-id> <run-id> [--add-credits <n>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID: continues past the limit; --add-credits only where the server still asks for an amount)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
-  assethub skills push <skill-folder|plugin-folder> [--note <text>] [--id <skill-id>] [--dry-run] [--yes] [--on-top]   (save a local agent skill, its scripts and references, as a team skill shared with everyone in the workspace; a Claude Code plugin folder saves each of its skills; shows every file first and blocks secrets, private links and paths for one computer; --yes only after the person agreed to this push)
+  assethub skills push <skill-folder|plugin-folder> [--note <text>] [--id <skill-id>] [--staff] [--dry-run] [--yes] [--on-top]   (save a local agent skill, its scripts and references, as a team skill shared with everyone in the workspace; --staff also shares it with AssetHub staff in every workspace (staff only); a Claude Code plugin folder saves each of its skills; shows every file first and blocks secrets, private links and paths for one computer; --yes only after the person agreed to this push)
   assethub skills pull [--agent claude-code|codex|cursor...] [--replace-local <skill-id>]... [--dry-run] [--quiet]   (copy the newest team skills to ~/.agents/skills and link them into each agent; a copy you changed is kept; runs nothing it downloads)
   assethub skills use <skill-id>@<revision|latest>   (pin one team skill revision on this computer, or follow the newest again)
+  assethub skills unshare <skill-id>   (stop sharing a team skill with staff in other workspaces; copies already pulled stay)
   assethub skills import-goal <skill-folder|skill.json>   (store an authored ag.memory-skill.v8 skill and its references/ files in the workspace; it then shows in skills list --runnable; run it with skills run <skill-id>)
   assethub skills run-answer <skill-id> <run-id> --answer <option> [--wait]   (a goal run that asked a question continues with your answer)
   assethub skills run-stop <skill-id> <run-id>   (a goal run stops after its current step; everything made so far is kept)
@@ -8052,7 +8053,7 @@ const teamSkillAgents = async (flags: Flags): Promise<AgentId[]> => {
  * and needs the person's yes; pull never runs anything it downloads.
  */
 const commandTeamSkills = async (
-  subcommand: 'push' | 'pull' | 'use',
+  subcommand: 'push' | 'pull' | 'use' | 'unshare',
   positionals: string[],
   ctx: CommandContext,
 ) => {
@@ -8080,17 +8081,22 @@ const commandTeamSkills = async (
       return
     }
     const workspace = ctx.auth.workspaceId ? ` ${ctx.auth.workspaceId}` : ''
+    const staff = hasFlag(ctx.flags, 'staff')
+    const audience = `everyone in your AssetHub workspace${workspace}${staff ? ' and with AssetHub staff in every workspace' : ''}`
     // Saving shares the skill and its scripts with every member of the
-    // workspace, so it always needs the person's own yes for this push.
+    // workspace (and with --staff, every staff member), so it always needs
+    // the person's own yes for this push.
     stderr.write(
-      `Saving shares ${plan.skills.length === 1 ? 'this skill and its files' : `these ${plan.skills.length} skills and their files`} with everyone in your AssetHub workspace${workspace}; their agents install it on the next pull.\n`,
+      `Saving shares ${plan.skills.length === 1 ? 'this skill and its files' : `these ${plan.skills.length} skills and their files`} with ${audience}; their agents install it on the next pull.\n`,
     )
     if (!hasFlag(ctx.flags, 'yes')) {
       if (!(stdin.isTTY && stderr.isTTY))
         throw new Error(
-          'Nothing was sent. Saving shares the skill with everyone in this AssetHub workspace, so ask the person every time: show them the files above and ask "Share this with everyone in the workspace?". Only after they say yes to this push, run it again with --yes. A yes for an earlier push does not count.',
+          staff
+            ? 'Nothing was sent. With --staff the skill goes to every AssetHub staff member in every workspace, so ask the person every time: show them the files above and ask "Share this with all AssetHub staff, in every workspace?". Only after they say yes to this push, run it again with --yes. A yes for an earlier push does not count.'
+            : 'Nothing was sent. Saving shares the skill with everyone in this AssetHub workspace, so ask the person every time: show them the files above and ask "Share this with everyone in the workspace?". Only after they say yes to this push, run it again with --yes. A yes for an earlier push does not count.',
         )
-      if (!(await confirmNo(`Share ${plan.skills.length} skill(s) with everyone in your AssetHub workspace${workspace}?`))) {
+      if (!(await confirmNo(`Share ${plan.skills.length} skill(s) with ${audience}?`))) {
         stderr.write('Nothing was sent.\n')
         return
       }
@@ -8099,13 +8105,14 @@ const commandTeamSkills = async (
       const results = await pushSkills(api, home, folders, {
         note: getFlag(ctx.flags, 'note'),
         onTop: hasFlag(ctx.flags, 'on-top'),
+        staff,
       })
       await refreshTeamSkillsGuide(home, true)
       for (const result of results)
         stderr.write(
           result.created
-            ? `Saved ${result.skillId} rev ${result.revision} to the team.\n`
-            : `${result.skillId}: the team already has exactly this as rev ${result.revision}; nothing new was saved.\n`,
+            ? `Saved ${result.skillId} rev ${result.revision} to the team${result.sharedWithStaff ? ' and shared it with all staff' : ''}.\n`
+            : `${result.skillId}: the team already has exactly this as rev ${result.revision}; nothing new was saved${result.sharedWithStaff ? ' (it is shared with all staff)' : ''}.\n`,
         )
       print({items: results})
     } catch (error) {
@@ -8117,6 +8124,13 @@ const commandTeamSkills = async (
       }
       throw error
     }
+    return
+  }
+  if (subcommand === 'unshare') {
+    const skillId = requirePositional(positionals, 2, 'skill-id')
+    const result = await api.setSkillPackageStaffShare(skillId, false)
+    stderr.write(`${skillId} is no longer shared with staff in other workspaces; copies they already pulled stay.\n`)
+    print(result)
     return
   }
   const agents = await teamSkillAgents(ctx.flags)
@@ -8645,7 +8659,7 @@ export const commandSkills = async (
     await commandSkillRun(subcommand, positionals, ctx)
     return
   }
-  if (subcommand === 'push' || subcommand === 'pull' || subcommand === 'use') {
+  if (subcommand === 'push' || subcommand === 'pull' || subcommand === 'use' || subcommand === 'unshare') {
     await commandTeamSkills(subcommand, positionals, ctx)
     return
   }
