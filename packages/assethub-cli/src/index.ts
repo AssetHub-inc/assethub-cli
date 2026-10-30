@@ -674,7 +674,7 @@ Usage:
   assethub skills run-status <skill-id> <run-id> [--wait] [--out-dir <dir>] [--attempts]   (--attempts: also save every image try, named by what the AI check said)
   assethub skills run-resume <skill-id> <run-id> [--add-credits <n>] [--operation-id <uuid>] [--wait] [--out-dir <dir>]   (PAID: continues past the limit; --add-credits only where the server still asks for an amount)
   assethub skills run-verdict <skill-id> <run-id> --verdict keep|not-right [--note <text>]
-  assethub skills push <skill-folder|plugin-folder> [--note <text>] [--id <skill-id>] [--dry-run] [--yes] [--on-top]   (save a local agent skill, its scripts and references, as a team skill; a Claude Code plugin folder saves each of its skills; shows every file first and blocks secrets, private links and paths for one computer; --yes only after the person agreed)
+  assethub skills push <skill-folder|plugin-folder> [--note <text>] [--id <skill-id>] [--dry-run] [--yes] [--on-top]   (save a local agent skill, its scripts and references, as a team skill shared with everyone in the workspace; a Claude Code plugin folder saves each of its skills; shows every file first and blocks secrets, private links and paths for one computer; --yes only after the person agreed to this push)
   assethub skills pull [--agent claude-code|codex|cursor...] [--replace-local <skill-id>]... [--dry-run] [--quiet]   (copy the newest team skills to ~/.agents/skills and link them into each agent; a copy you changed is kept; runs nothing it downloads)
   assethub skills use <skill-id>@<revision|latest>   (pin one team skill revision on this computer, or follow the newest again)
   assethub skills import-goal <skill-folder|skill.json>   (store an authored ag.memory-skill.v8 skill and its references/ files in the workspace; it then shows in skills list --runnable; run it with skills run <skill-id>)
@@ -8061,12 +8061,17 @@ const commandTeamSkills = async (
       return
     }
     const workspace = ctx.auth.workspaceId ? ` ${ctx.auth.workspaceId}` : ''
+    // Saving shares the skill and its scripts with every member of the
+    // workspace, so it always needs the person's own yes for this push.
+    stderr.write(
+      `Saving shares ${plan.skills.length === 1 ? 'this skill and its files' : `these ${plan.skills.length} skills and their files`} with everyone in your AssetHub workspace${workspace}; their agents install it on the next pull.\n`,
+    )
     if (!hasFlag(ctx.flags, 'yes')) {
       if (!(stdin.isTTY && stderr.isTTY))
         throw new Error(
-          'Ask the person first: show them the files above and ask "Share with the AssetHub team?". Only after they say yes, run this again with --yes.',
+          'Nothing was sent. Saving shares the skill with everyone in this AssetHub workspace, so ask the person every time: show them the files above and ask "Share this with everyone in the workspace?". Only after they say yes to this push, run it again with --yes. A yes for an earlier push does not count.',
         )
-      if (!(await confirmNo(`Share ${plan.skills.length} skill(s) with your AssetHub workspace${workspace}?`))) {
+      if (!(await confirmNo(`Share ${plan.skills.length} skill(s) with everyone in your AssetHub workspace${workspace}?`))) {
         stderr.write('Nothing was sent.\n')
         return
       }
