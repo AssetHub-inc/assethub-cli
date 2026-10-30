@@ -122,9 +122,10 @@ export type SetupDeps = {
   /**
    * Whether this login has team skills (internal accounts for now). The answer
    * decides whether the installed guide carries the team skills section.
-   * Optional so callers without it keep the bundled guide untouched.
+   * Undefined when it could not tell (offline, a server error): the guide is
+   * then left as it was. Optional so callers without it keep the bundled guide.
    */
-  teamSkillsAvailable?: (auth: SetupAuth) => Promise<boolean>
+  teamSkillsAvailable?: (auth: SetupAuth) => Promise<boolean | undefined>
   refreshTeamSkillsGuide?: (enabled: boolean) => Promise<void>
   diagnose: () => Promise<DoctorReport>
   findBinary: (name: string) => Promise<string | undefined>
@@ -619,8 +620,11 @@ export const runSetup = async (options: SetupOptions, deps: SetupDeps): Promise<
       skill = await deps.installSkills({root, agents, dryRun: options.dryRun})
       steps.push(skillsStep(skill, options.dryRun))
       // Team skills (internal-only): add or drop their section of the guide.
-      if (!options.dryRun && auth && deps.teamSkillsAvailable && deps.refreshTeamSkillsGuide)
-        await deps.refreshTeamSkillsGuide(await deps.teamSkillsAvailable(auth))
+      // No login yet: nothing is checked and the bundled guide stays as shipped.
+      if (!options.dryRun && auth && deps.teamSkillsAvailable && deps.refreshTeamSkillsGuide) {
+        const available = await deps.teamSkillsAvailable(auth)
+        if (available !== undefined) await deps.refreshTeamSkillsGuide(available)
+      }
     } catch (error) {
       steps.push({name: 'skills', status: 'fail', detail: error instanceof Error ? error.message : String(error)})
     }

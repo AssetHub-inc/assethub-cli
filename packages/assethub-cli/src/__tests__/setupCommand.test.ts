@@ -164,6 +164,30 @@ describe('runSetup', () => {
     },
   )
 
+  it('leaves the guide alone when it cannot tell (offline, server error)', async () => {
+    const refreshed: boolean[] = []
+    const {deps} = makeDeps({
+      teamSkillsAvailable: async () => undefined,
+      refreshTeamSkillsGuide: async enabled => void refreshed.push(enabled),
+    })
+    await runSetup(options(), deps)
+    expect(refreshed).toEqual([])
+  })
+
+  it('checks nothing and leaves the guide alone before anyone has logged in', async () => {
+    const checked: unknown[] = []
+    const {deps} = makeDeps({
+      hasWorkingKey: async () => false,
+      resolveAuth: async () => {
+        throw new Error('not logged in')
+      },
+      teamSkillsAvailable: async auth => void checked.push(auth),
+      refreshTeamSkillsGuide: async () => void checked.push('refresh'),
+    })
+    await runSetup(options(), deps).catch(() => undefined)
+    expect(checked).toEqual([])
+  })
+
   it('leaves the guide alone on a dry run', async () => {
     const refreshed: boolean[] = []
     const {deps} = makeDeps({

@@ -3111,9 +3111,12 @@ const setupRun = async (
           },
           signal: AbortSignal.timeout(10_000),
         })
-        return response.ok
+        if (response.ok) return true
+        // Only a refusal says the account has no team skills; anything else
+        // (a server error) says nothing, so the guide stays as it was.
+        return response.status === 403 || response.status === 404 ? false : undefined
       } catch {
-        return false
+        return undefined
       }
     },
     refreshTeamSkillsGuide: enabled => refreshTeamSkillsGuide(cliHome(), enabled),
