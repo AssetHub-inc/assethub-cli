@@ -9,7 +9,13 @@ import {hostname, platform} from 'node:os'
  * one-time code; the workspace API key arrives in the token POST response.
  */
 
-const DEFAULT_TIMEOUT_MS = 5 * 60_000
+/**
+ * How long the loopback listener waits for the browser. Long enough for an
+ * MFA detour (one authenticator code per MFA-required workspace); the server
+ * still expires the one-time code 5 minutes after approval.
+ */
+export const BROWSER_LOGIN_TIMEOUT_MS = 15 * 60_000
+const DEFAULT_TIMEOUT_MS = BROWSER_LOGIN_TIMEOUT_MS
 const FALLBACK_HINT =
   'Create a workspace API key in AssetHub (Settings > API keys) and run: assethub auth login --api-key-stdin'
 
@@ -366,6 +372,9 @@ export const runBrowserLogin = async ({
     )
     await Promise.resolve(openBrowser(url)).catch(() => {})
   }
+  write(
+    `Waiting for approval in the browser (up to ${Math.round(timeoutMs / 60_000)} minutes). If AssetHub asks for MFA, finish MFA in the browser; this command keeps waiting.\n`,
+  )
   const code = await listener.code
   return exchangeAuthorizationCode({
     baseUrl,
