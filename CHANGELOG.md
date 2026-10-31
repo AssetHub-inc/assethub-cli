@@ -3,6 +3,7 @@
 ## CLI 0.1.66
 
 - Internal mesh reviews can upload the exact reviewed model and recorded video for preview, including bounded chunks for large models, and automatically start the gated visual review using the verified original concept and bounded credits. Requires the coordinated AssetHub Web release.
+- `assethub auth login` with no credential flags opens the browser for workspace approval (loopback + PKCE) and saves a minted workspace API key; `--no-browser` prints the URL instead. `--api-key`, `--api-key-stdin`, `--access-token-stdin` and `ASSETHUB_API_KEY` are unchanged. The server feature is gated (`cli_browser_login_enabled`); a 404 prints the `--api-key-stdin` fallback. Needs the AssetHub Web release with assethub-web #9142.
 
 ## CLI 0.1.65 · SDK 0.1.23
 
