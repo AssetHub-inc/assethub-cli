@@ -16,6 +16,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import {buildAssemblyExperiment} from './assemblyExperiment.js'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
 import {type BrowserLoginResult, runBrowserLogin} from './browserLogin.js'
+import {assignWorkspaceProfileNames} from './browserLoginProfiles.js'
 import {
   AGENT_IDS,
   cliHome,
@@ -2790,31 +2791,128 @@ const commandAuth = async (
       } finally {
         process.removeListener('SIGINT', onSigint)
       }
+      if (login.personal) {
+        const {key, userId, startWorkspace} = login.personal
+        const updatedAt = new Date().toISOString()
+        const config = await readAuthConfig(configPath)
+        const saved: AuthProfile = {
+          apiKey: key.secret,
+          authentication: 'personal',
+          userId,
+          baseUrl,
+          updatedAt,
+        }
+        let selected: {id: string; name: string} | null = null
+        let warning: string | undefined
+        if (startWorkspace) {
+          try {
+            const client = createWorkspaceClient({
+              accessToken: key.secret,
+              baseUrl,
+            })
+            const result = await client.select(startWorkspace.id)
+            if (
+              result.workspaceId !== startWorkspace.id ||
+              result.mfa.status === 'setup_required' ||
+              result.mfa.status === 'verify_required'
+            )
+              throw new Error('Workspace selection needs more verification')
+            saved.workspaceId = startWorkspace.id
+            selected = startWorkspace
+          } catch (error) {
+            warning = `Could not select workspace "${startWorkspace.name}" (${error instanceof Error ? error.message : 'unknown error'}). Run: assethub workspace use ${startWorkspace.id}`
+          }
+        }
+        await writeAuthConfig(configPath, {
+          ...config,
+          defaultProfile: profile,
+          profiles: {...config.profiles, [profile]: saved},
+        })
+        stderr.write(
+          `Logged in with a personal API key (...${key.lastFour}) for all your workspaces. Profile: ${profile}. Switch workspace with: assethub workspace use <id> (see: assethub workspace list)\n`,
+        )
+        if (warning) stderr.write(`Warning: ${warning}\n`)
+        print({
+          success: true,
+          authentication: 'personal',
+          mode: 'personal',
+          profile,
+          baseUrl,
+          configPath,
+          verified: true,
+          userId,
+          apiKey: {
+            id: key.id,
+            name: key.name,
+            lastFour: key.lastFour,
+            expiresAt: key.expiresAt,
+          },
+          workspace: selected,
+        })
+        return
+      }
+      const names = assignWorkspaceProfileNames(
+        login.workspaces,
+        hasFlag(flags, 'profile') ? profile : undefined,
+      )
+      const updatedAt = new Date().toISOString()
       const config = await readAuthConfig(configPath)
+      const savedProfiles = {...config.profiles}
+      login.workspaces.forEach((workspace, index) => {
+        savedProfiles[names[index]!] = {
+          apiKey: workspace.apiKey.secret,
+          baseUrl,
+          updatedAt,
+        }
+      })
+      const defaultProfile = names[0]!
       await writeAuthConfig(configPath, {
         ...config,
-        defaultProfile: profile,
-        profiles: {
-          ...config.profiles,
-          [profile]: {
-            apiKey: login.apiKey,
-            baseUrl,
-            updatedAt: new Date().toISOString(),
-          },
-        },
+        defaultProfile,
+        profiles: savedProfiles,
       })
-      stderr.write(
-        `Logged in to workspace "${login.workspace.name}" with API key "${login.keyName}" (...${login.lastFour}).\n`,
+      const count = login.workspaces.length
+      const lines = [
+        `Logged in to ${count} workspace${count === 1 ? '' : 's'}:`,
+        ...login.workspaces.map(
+          (workspace, index) =>
+            `  ${index === 0 ? '*' : ' '} ${names[index]}   ${workspace.name}   key ...${workspace.apiKey.lastFour}`,
+        ),
+      ]
+      if (login.failed.length > 0) {
+        lines.push(
+          `Could not authorize ${login.failed.length} workspace${login.failed.length === 1 ? '' : 's'}:`,
+          ...login.failed.map(item => `    ${item.id}  ${item.reason}`),
+        )
+      }
+      lines.push(
+        `Default profile: ${defaultProfile}. Use another with: assethub <command> --profile <name>`,
       )
+      stderr.write(`${lines.join('\n')}\n`)
+      const first = login.workspaces[0]!
+      const summary = (
+        workspace: BrowserLoginResult['workspaces'][number],
+      ) => ({
+        id: workspace.apiKey.id,
+        name: workspace.apiKey.name,
+        lastFour: workspace.apiKey.lastFour,
+      })
       print({
         success: true,
-        profile,
+        authentication: 'browser',
         baseUrl,
         configPath,
         verified: true,
-        authentication: 'browser',
-        workspace: login.workspace,
-        apiKey: {id: login.keyId, name: login.keyName, lastFour: login.lastFour},
+        defaultProfile,
+        profile: defaultProfile,
+        workspace: {id: first.id, name: first.name},
+        apiKey: summary(first),
+        profiles: login.workspaces.map((workspace, index) => ({
+          profile: names[index],
+          workspace: {id: workspace.id, name: workspace.name},
+          apiKey: summary(workspace),
+        })),
+        failed: login.failed,
       })
       return
     }

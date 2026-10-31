@@ -123,8 +123,19 @@ describe('code exchange', () => {
       port: 53682,
       fetchImpl,
     })
-    expect(result.apiKey).toBe('assethub-secret')
-    expect(result.workspace).toEqual({id: 'ws-1', name: 'Studio'})
+    expect(result.workspaces).toEqual([
+      {
+        id: 'ws-1',
+        name: 'Studio',
+        apiKey: {
+          secret: 'assethub-secret',
+          id: 'key-1',
+          name: 'AssetHub CLI on laptop (2026-10-31)',
+          lastFour: 'cret',
+        },
+      },
+    ])
+    expect(result.failed).toEqual([])
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [
       string,
       RequestInit,
@@ -158,6 +169,125 @@ describe('code exchange', () => {
         fetchImpl: fetchReturning(status, body),
       }),
     ).rejects.toThrow(message)
+  })
+
+  describe('token body shapes', () => {
+    const exchange = (status: number, body: unknown) =>
+      exchangeAuthorizationCode({
+        baseUrl: 'https://app.assethub.io',
+        code: 'c',
+        verifier: 'v',
+        port: 1,
+        fetchImpl: vi.fn(async () => Response.json(body, {status})),
+      })
+    const ws = (id: string, name = id) => ({
+      id,
+      name,
+      apiKey: {id: `k-${id}`, name: 'n', secret: `s-${id}`, lastFour: 'abcd'},
+    })
+
+    it('parses v2 with several workspaces and failures', async () => {
+      const result = await exchange(200, {
+        success: true,
+        data: {
+          version: 2,
+          workspaces: [ws('a'), ws('b')],
+          failed: [{id: 'c', reason: 'NOT_ADMIN'}],
+        },
+      })
+      expect(result.workspaces.map(w => w.id)).toEqual(['a', 'b'])
+      expect(result.workspaces[1]?.apiKey.secret).toBe('s-b')
+      expect(result.failed).toEqual([{id: 'c', reason: 'NOT_ADMIN'}])
+    })
+
+    it('prefers v2 workspaces when legacy fields are also present', async () => {
+      const result = await exchange(200, {
+        success: true,
+        data: {
+          version: 2,
+          workspaces: [ws('a')],
+          failed: [],
+          apiKey: {id: 'x', key: 'legacy', lastFour: 'x', workspaceId: 'a'},
+          workspace: {id: 'a', name: 'a'},
+        },
+      })
+      expect(result.workspaces).toHaveLength(1)
+      expect(result.workspaces[0]?.apiKey.secret).toBe('s-a')
+    })
+
+    it('parses the legacy v1 body as one workspace', async () => {
+      const result = await exchange(200, tokenBody)
+      expect(result.workspaces).toHaveLength(1)
+      expect(result.failed).toEqual([])
+    })
+
+    it('surfaces message and failed reasons on 403', async () => {
+      await expect(
+        exchange(403, {
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'No workspace could be authorized',
+            details: {failed: [{id: 'w1', reason: 'NOT_ADMIN'}]},
+          },
+        }),
+      ).rejects.toThrow(/No workspace could be authorized.*w1: NOT_ADMIN/s)
+    })
+
+    const personal = (overrides: Record<string, unknown> = {}) => ({
+      version: 2,
+      mode: 'personal',
+      personalKey: {
+        id: 'p',
+        name: 'n',
+        secret: 'ah_pat_x',
+        lastFour: 'abcd',
+        expiresAt: '2027-01-01T00:00:00.000Z',
+      },
+      userId: 'u1',
+      startWorkspace: {id: 'w', name: 'W'},
+      workspaces: [],
+      failed: [],
+      ...overrides,
+    })
+
+    it('parses personal mode', async () => {
+      const result = await exchange(200, {success: true, data: personal()})
+      expect(result.workspaces).toEqual([])
+      expect(result.personal).toMatchObject({
+        userId: 'u1',
+        startWorkspace: {id: 'w', name: 'W'},
+        key: {secret: 'ah_pat_x', lastFour: 'abcd'},
+      })
+      const none = await exchange(200, {
+        success: true,
+        data: personal({startWorkspace: null}),
+      })
+      expect(none.personal?.startWorkspace).toBeNull()
+    })
+
+    it.each([
+      ['wrong secret prefix', {personalKey: {id: 'p', secret: 'sk_x'}}],
+      ['missing userId', {userId: ''}],
+      ['bad startWorkspace', {startWorkspace: {id: 'w'}}],
+      ['missing key', {personalKey: undefined}],
+    ])('rejects personal mode with %s', async (_label, overrides) => {
+      await expect(
+        exchange(200, {success: true, data: personal(overrides)}),
+      ).rejects.toThrow(/invalid response/)
+    })
+
+    it.each([
+      ['empty workspaces', {workspaces: [], failed: []}],
+      ['missing secret', {workspaces: [{...ws('a'), apiKey: {id: 'k'}}]}],
+      ['empty name', {workspaces: [ws('a', '')]}],
+      ['duplicate ids', {workspaces: [ws('a'), ws('a')]}],
+      ['non-object workspace', {workspaces: ['a']}],
+    ])('rejects %s', async (_label, data) => {
+      await expect(exchange(200, {success: true, data})).rejects.toThrow(
+        /invalid response/,
+      )
+    })
   })
 
   it('uses a dedicated error for not-available', async () => {
@@ -199,7 +329,7 @@ describe('runBrowserLogin', () => {
         written += text
       },
     })
-    expect(result.apiKey).toBe('assethub-secret')
+    expect(result.workspaces[0]?.apiKey.secret).toBe('assethub-secret')
     expect(openBrowser).toHaveBeenCalledTimes(1)
     expect(written).toContain('https://app.assethub.io/cli/authorize?')
     expect(written).not.toContain('assethub-secret')

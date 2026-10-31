@@ -130,27 +130,128 @@ export const waitForLoopbackCallback = async ({
   return {port: address.port, code}
 }
 
+export type BrowserLoginWorkspace = {
+  id: string
+  name: string
+  apiKey: {secret: string; id: string; name: string; lastFour: string}
+}
+
+export type BrowserLoginPersonal = {
+  key: {id: string; name: string; secret: string; lastFour: string; expiresAt: string}
+  userId: string
+  startWorkspace: {id: string; name: string} | null
+}
+
 export type BrowserLoginResult = {
-  apiKey: string
-  keyId: string
-  keyName: string
-  lastFour: string
-  workspace: {id: string; name: string}
+  workspaces: BrowserLoginWorkspace[]
+  failed: {id: string; reason: string}[]
+  /** Set in personal mode: one personal key for all workspaces. */
+  personal?: BrowserLoginPersonal
+}
+
+type Json = Record<string, unknown>
+
+const isObject = (value: unknown): value is Json =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+const text = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.length > 0 ? value : undefined
+
+const parseFailed = (value: unknown): {id: string; reason: string}[] =>
+  Array.isArray(value)
+    ? value.flatMap(item =>
+        isObject(item)
+          ? [{id: String(item.id ?? ''), reason: String(item.reason ?? '')}]
+          : [],
+      )
+    : []
+
+const invalid = () => new Error('Browser login returned an invalid response')
+
+const parseWorkspace = (value: unknown): BrowserLoginWorkspace => {
+  if (!isObject(value) || !isObject(value.apiKey)) throw invalid()
+  const id = text(value.id)
+  const name = text(value.name)
+  const secret = text(value.apiKey.secret)
+  if (!id || !name || !secret) throw invalid()
+  return {
+    id,
+    name,
+    apiKey: {
+      secret,
+      id: String(value.apiKey.id ?? ''),
+      name: String(value.apiKey.name ?? ''),
+      lastFour: String(value.apiKey.lastFour ?? ''),
+    },
+  }
+}
+
+const parseTokenData = (data: unknown): BrowserLoginResult => {
+  if (!isObject(data)) throw invalid()
+  if (data.mode === 'personal') {
+    const key = data.personalKey
+    if (!isObject(key)) throw invalid()
+    const secret = text(key.secret)
+    const userId = text(data.userId)
+    if (!secret?.startsWith('ah_pat_') || !userId) throw invalid()
+    let startWorkspace: {id: string; name: string} | null = null
+    if (data.startWorkspace != null) {
+      const start = data.startWorkspace
+      if (!isObject(start) || !text(start.id) || !text(start.name))
+        throw invalid()
+      startWorkspace = {id: String(start.id), name: String(start.name)}
+    }
+    return {
+      workspaces: [],
+      failed: parseFailed(data.failed),
+      personal: {
+        key: {
+          id: String(key.id ?? ''),
+          name: String(key.name ?? ''),
+          secret,
+          lastFour: String(key.lastFour ?? ''),
+          expiresAt: String(key.expiresAt ?? ''),
+        },
+        userId,
+        startWorkspace,
+      },
+    }
+  }
+  if (Array.isArray(data.workspaces)) {
+    const workspaces = data.workspaces.map(parseWorkspace)
+    if (workspaces.length === 0) throw invalid()
+    if (new Set(workspaces.map(w => w.id)).size !== workspaces.length)
+      throw invalid()
+    return {workspaces, failed: parseFailed(data.failed)}
+  }
+  // Legacy v1: one workspace.
+  const apiKey = data.apiKey
+  const workspace = data.workspace
+  if (!isObject(apiKey) || !isObject(workspace)) throw invalid()
+  const id = text(workspace.id)
+  const name = text(workspace.name)
+  const secret = text(apiKey.key)
+  if (!id || !name || !secret || apiKey.workspaceId !== id) throw invalid()
+  return {
+    workspaces: [
+      {
+        id,
+        name,
+        apiKey: {
+          secret,
+          id: String(apiKey.id ?? ''),
+          name: String(apiKey.name ?? ''),
+          lastFour: String(apiKey.lastFour ?? ''),
+        },
+      },
+    ],
+    failed: [],
+  }
 }
 
 type TokenResponse = {
   success?: boolean
-  data?: {
-    apiKey?: {
-      id?: unknown
-      key?: unknown
-      lastFour?: unknown
-      name?: unknown
-      workspaceId?: unknown
-    }
-    workspace?: {id?: unknown; name?: unknown}
-  }
-  error?: {code?: unknown; message?: unknown}
+  data?: unknown
+  error?: {code?: unknown; message?: unknown; details?: unknown}
 }
 
 export const exchangeAuthorizationCode = async ({
@@ -187,27 +288,22 @@ export const exchangeAuthorizationCode = async ({
     )
   if (response.status === 429)
     throw new Error('Too many login attempts. Wait a minute and try again.')
-  if (!response.ok)
+  if (!response.ok) {
+    const message =
+      typeof body.error?.message === 'string'
+        ? body.error.message
+        : 'unknown error'
+    const failed = isObject(body.error?.details)
+      ? parseFailed(body.error.details.failed)
+      : []
+    const reasons = failed.length
+      ? ` (${failed.map(f => `${f.id}: ${f.reason}`).join(', ')})`
+      : ''
     throw new Error(
-      `Browser login failed (HTTP ${response.status}): ${typeof body.error?.message === 'string' ? body.error.message : 'unknown error'}`,
+      `Browser login failed (HTTP ${response.status}): ${message}${reasons}`,
     )
-  const apiKey = body.data?.apiKey
-  const workspace = body.data?.workspace
-  if (
-    typeof apiKey?.key !== 'string' ||
-    apiKey.key.length === 0 ||
-    typeof workspace?.id !== 'string' ||
-    typeof workspace.name !== 'string' ||
-    apiKey.workspaceId !== workspace.id
-  )
-    throw new Error('Browser login returned an invalid response')
-  return {
-    apiKey: apiKey.key,
-    keyId: String(apiKey.id ?? ''),
-    keyName: String(apiKey.name ?? ''),
-    lastFour: String(apiKey.lastFour ?? ''),
-    workspace: {id: workspace.id, name: workspace.name},
   }
+  return parseTokenData(body.data)
 }
 
 export const openInBrowser = async (url: string): Promise<void> => {
