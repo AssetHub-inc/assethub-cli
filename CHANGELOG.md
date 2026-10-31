@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.68
+
+- Browser login waits up to 15 minutes for approval so a workspace or account MFA step on the approval page does not time out, and prints a hint while waiting. Needs the AssetHub Web release with assethub-web #9148.
+
 ## CLI 0.1.67
 
 - Browser login approval can grant all workspaces or a selected set. All workspaces saves one personal API key like an existing personal-key login (switch with `workspace use`); a selected set saves one profile per workspace, listed with `--profile` switch hints. Older single-workspace server responses still work. Needs the AssetHub Web release with assethub-web #9145.

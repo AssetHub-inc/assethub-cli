@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto'
 import {describe, expect, it, vi} from 'vitest'
 
 import {
+  BROWSER_LOGIN_TIMEOUT_MS,
   BrowserLoginUnavailableError,
   buildAuthorizeUrl,
   createPkcePair,
@@ -350,5 +351,21 @@ describe('runBrowserLogin', () => {
     await expect(login).rejects.toThrow(/Timed out.*--api-key-stdin/s)
     expect(openBrowser).not.toHaveBeenCalled()
     expect(written).toContain('Open this URL in a browser')
+  })
+
+  it('waits long enough for an MFA detour and says so while waiting', async () => {
+    expect(BROWSER_LOGIN_TIMEOUT_MS).toBe(15 * 60_000)
+    let written = ''
+    const login = runBrowserLogin({
+      baseUrl: 'https://app.assethub.io',
+      noBrowser: true,
+      timeoutMs: 50,
+      write: text => {
+        written += text
+      },
+    })
+    await expect(login).rejects.toThrow(/Timed out/)
+    expect(written).toContain('Waiting for approval in the browser')
+    expect(written).toContain('finish MFA in the browser')
   })
 })
