@@ -67,7 +67,12 @@ const fixture = async (tokenStatus = 200) => {
   const baseUrl = `http://127.0.0.1:${address.port}`
 
   /** Run the CLI; when the authorize URL appears on stderr, "approve" it. */
-  const run = (args: string[], input = '', approve = true) =>
+  const run = (
+    args: string[],
+    input = '',
+    approve = true,
+    extraEnv: Record<string, string> = {},
+  ) =>
     new Promise<{
       code: number | null
       output: string
@@ -83,6 +88,8 @@ const fixture = async (tokenStatus = 200) => {
           ASSETHUB_API_KEY: '',
           ASSETHUB_ACCESS_TOKEN: '',
           ASSETHUB_NO_AUTO_UPDATE: '1',
+          CI: '',
+          ...extraEnv,
         },
       })
       let output = ''
@@ -168,10 +175,26 @@ it('prints the --api-key-stdin fallback when the server does not offer browser l
   expect(result.stderr).toContain('assethub auth login --api-key-stdin')
 }, 30_000)
 
-it('keeps the non-interactive bare login error unchanged', async () => {
+it('keeps the bare login error in CI', async () => {
   const f = await fixture()
-  const result = await f.run(['auth', 'login'], '', false)
+  const result = await f.run(['auth', 'login'], '', false, {CI: 'true'})
   expect(result.code).not.toBe(0)
   expect(result.authorizeUrl).toBeUndefined()
   expect(result.stderr).toContain('API key is empty')
+}, 30_000)
+
+// Agent shells and `!` prompts have no TTY; a bare login there used to fail
+// with "API key is empty", so starting the browser flow changes no working path.
+it('starts browser login for a bare login without a TTY outside CI', async () => {
+  const f = await fixture()
+  const result = await f.run(['auth', 'login'], '', true, {
+    // keep the test from launching a real browser
+    ASSETHUB_BROWSER_LOGIN_NO_OPEN: '1',
+  })
+  expect(result.code).toBe(0)
+  expect(result.authorizeUrl).toBeDefined()
+  expect(f.exchanges).toHaveLength(1)
+  expect((await f.config()).profiles.default).toMatchObject({
+    apiKey: 'assethub-minted-secret',
+  })
 }, 30_000)

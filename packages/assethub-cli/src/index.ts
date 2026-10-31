@@ -2759,12 +2759,18 @@ const commandAuth = async (
     }
     // Browser login only when no credential is supplied any other way, so the
     // flag/stdin/env paths below stay exactly as they were.
-    const noBrowser = hasFlag(flags, 'no-browser')
+    // ASSETHUB_BROWSER_LOGIN_NO_OPEN=1 is the env form of --no-browser (SSH, tests).
+    const noBrowser =
+      hasFlag(flags, 'no-browser') ||
+      env.ASSETHUB_BROWSER_LOGIN_NO_OPEN === '1'
+    // Without a TTY (agent shells, `!` prompts) a bare login used to fail with
+    // "API key is empty", so it starts the browser flow too; CI keeps the error.
+    const ci = Boolean((env.CI ?? '').trim()) && env.CI !== 'false'
     if (
       !hasFlag(flags, 'api-key-stdin') &&
       !getFlag(flags, 'api-key') &&
       !(env.ASSETHUB_API_KEY ?? '').trim() &&
-      (noBrowser || Boolean(stdin.isTTY && stderr.isTTY))
+      (noBrowser || Boolean(stdin.isTTY && stderr.isTTY) || !ci)
     ) {
       const baseUrl =
         getFlag(flags, 'base-url') ??
