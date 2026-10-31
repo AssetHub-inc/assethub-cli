@@ -928,6 +928,18 @@ Configuration:
 - `ASSETHUB_API_BASE_URL`: optional, defaults to `https://app.assethub.io`.
 - `ASSETHUB_CLI_CONFIG`: optional auth config path.
 
+Browser login (interactive terminal, rolling out gradually):
+
+```sh
+assethub auth login               # opens AssetHub; approve a workspace in the browser
+assethub auth login --no-browser  # prints the URL to open on this machine instead
+```
+
+Approving mints a workspace API key named `AssetHub CLI on <host> (<date>)` (revocable in the
+workspace API key list) and saves it exactly like `--api-key-stdin`. Only workspace admins can
+approve, and workspace MFA applies. If your account does not have browser login yet, the CLI
+prints the `--api-key-stdin` fallback.
+
 Agent-friendly login:
 
 ```sh

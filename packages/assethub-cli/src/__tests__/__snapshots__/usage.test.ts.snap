@@ -13,6 +13,7 @@ Usage:
   assethub doctor [--mcp] [--setup [--agent <name>...] [--project]] [--profile <name>] [--timeout-ms <n>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--account] [--base-url <url>]
+  assethub auth login [--no-browser] [--base-url <url>] [--profile <name>]   (approve in the browser; mints a workspace API key)
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
   assethub auth login --access-token-stdin [--base-url <url>] [--profile <name>]

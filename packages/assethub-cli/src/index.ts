@@ -15,6 +15,7 @@ import {
 import {setTimeout as delay} from 'node:timers/promises'
 import {buildAssemblyExperiment} from './assemblyExperiment.js'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
+import {type BrowserLoginResult, runBrowserLogin} from './browserLogin.js'
 import {
   AGENT_IDS,
   cliHome,
@@ -538,6 +539,7 @@ Usage:
   assethub doctor [--mcp] [--setup [--agent <name>...] [--project]] [--profile <name>] [--timeout-ms <n>]
   assethub mcp tools [tool-name] [--account] [--profile <name>] [--timeout-ms <n>]
   assethub mcp config --client cursor|codex [--account] [--base-url <url>]
+  assethub auth login [--no-browser] [--base-url <url>] [--profile <name>]   (approve in the browser; mints a workspace API key)
   assethub auth login --api-key <key> [--base-url <url>] [--profile <name>]
   assethub auth login --api-key-stdin [--base-url <url>] [--profile <name>]
   assethub auth login --access-token-stdin [--base-url <url>] [--profile <name>]
@@ -2752,6 +2754,61 @@ const commandAuth = async (
         baseUrl,
         configPath,
         verified: true,
+      })
+      return
+    }
+    // Browser login only when no credential is supplied any other way, so the
+    // flag/stdin/env paths below stay exactly as they were.
+    const noBrowser = hasFlag(flags, 'no-browser')
+    if (
+      !hasFlag(flags, 'api-key-stdin') &&
+      !getFlag(flags, 'api-key') &&
+      !(env.ASSETHUB_API_KEY ?? '').trim() &&
+      (noBrowser || Boolean(stdin.isTTY && stderr.isTTY))
+    ) {
+      const baseUrl =
+        getFlag(flags, 'base-url') ??
+        env.ASSETHUB_API_BASE_URL ??
+        defaultBaseUrl
+      const controller = new AbortController()
+      const onSigint = () => controller.abort()
+      process.once('SIGINT', onSigint)
+      let login: BrowserLoginResult
+      try {
+        login = await runBrowserLogin({
+          baseUrl,
+          noBrowser,
+          signal: controller.signal,
+          write: text => stderr.write(text),
+        })
+      } finally {
+        process.removeListener('SIGINT', onSigint)
+      }
+      const config = await readAuthConfig(configPath)
+      await writeAuthConfig(configPath, {
+        ...config,
+        defaultProfile: profile,
+        profiles: {
+          ...config.profiles,
+          [profile]: {
+            apiKey: login.apiKey,
+            baseUrl,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      })
+      stderr.write(
+        `Logged in to workspace "${login.workspace.name}" with API key "${login.keyName}" (...${login.lastFour}).\n`,
+      )
+      print({
+        success: true,
+        profile,
+        baseUrl,
+        configPath,
+        verified: true,
+        authentication: 'browser',
+        workspace: login.workspace,
+        apiKey: {id: login.keyId, name: login.keyName, lastFour: login.lastFour},
       })
       return
     }
