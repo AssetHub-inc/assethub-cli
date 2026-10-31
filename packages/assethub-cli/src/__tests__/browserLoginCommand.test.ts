@@ -16,7 +16,10 @@ afterEach(async () => {
   for (const run of cleanup.splice(0).reverse()) await run()
 })
 
-const fixture = async (tokenStatus = 200) => {
+type Variant = 'v2' | 'legacy' | 'personal' | 'personal-nostart' | 'personal-mfa'
+
+const fixture = async (tokenStatus = 200, variant: Variant = 'v2') => {
+  const legacy = variant === 'legacy'
   const directory = await mkdtemp(join(tmpdir(), 'assethub-browser-login-'))
   cleanup.push(() => rm(directory, {recursive: true, force: true}))
   const configPath = join(directory, 'config.json')
@@ -35,20 +38,81 @@ const fixture = async (tokenStatus = 200) => {
           {success: false, error: {code: 'NOT_FOUND', message: 'Not found'}},
           tokenStatus,
         )
+      if (variant.startsWith('personal'))
+        return json({
+          success: true,
+          data: {
+            version: 2,
+            mode: 'personal',
+            personalKey: {
+              id: 'pat-1',
+              name: 'AssetHub CLI',
+              secret: 'ah_pat_personal-secret',
+              lastFour: 'cret',
+              expiresAt: '2027-01-01T00:00:00.000Z',
+            },
+            userId: 'user-1',
+            startWorkspace:
+              variant === 'personal-nostart'
+                ? null
+                : {id: 'ws-1', name: 'Studio'},
+            workspaces: [],
+            failed: [],
+          },
+        })
+      if (legacy)
+        return json({
+          success: true,
+          data: {
+            apiKey: {
+              id: 'key-1',
+              key: 'assethub-minted-secret',
+              lastFour: 'cret',
+              name: 'AssetHub CLI on host (2026-10-31)',
+              workspaceId: 'ws-1',
+            },
+            workspace: {id: 'ws-1', name: 'Studio'},
+          },
+        })
       return json({
         success: true,
         data: {
-          apiKey: {
-            id: 'key-1',
-            key: 'assethub-minted-secret',
-            lastFour: 'cret',
-            name: 'AssetHub CLI on host (2026-10-31)',
-            workspaceId: 'ws-1',
-          },
-          workspace: {id: 'ws-1', name: 'Studio'},
+          version: 2,
+          workspaces: [
+            {
+              id: 'ws-1',
+              name: 'Studio',
+              apiKey: {
+                id: 'key-1',
+                name: 'AssetHub CLI on host (2026-10-31)',
+                secret: 'assethub-minted-secret',
+                lastFour: 'cret',
+              },
+            },
+            {
+              id: 'ws-2',
+              name: 'CC2',
+              apiKey: {
+                id: 'key-2',
+                name: 'AssetHub CLI on host (2026-10-31)',
+                secret: 'assethub-second-secret',
+                lastFour: 'cret',
+              },
+            },
+          ],
+          failed: [{id: 'ws-3', reason: 'NOT_ADMIN'}],
         },
       })
     }
+    if (req.url === '/api/workspaces/select')
+      return json({
+        workspaceId: (JSON.parse(raw) as {workspaceId: string}).workspaceId,
+        selected: true,
+        mfa: {
+          status:
+            variant === 'personal-mfa' ? 'verify_required' : 'not_required',
+        },
+      })
     if (req.url === '/api/v2/models')
       return json({success: true, data: {models: []}})
     return json({error: {code: 'NOT_FOUND'}}, 404)
@@ -141,21 +205,37 @@ it('logs in through the browser and saves the minted key like --api-key-stdin', 
   expect(exchange.redirect_port).toBe(Number(url.searchParams.get('port')))
   // Never in argv/URL/stdout/stderr
   expect(url.toString()).not.toContain('assethub-minted-secret')
-  expect(result.output + result.stderr).not.toContain('assethub-minted-secret')
+  const everything = result.output + result.stderr
+  expect(everything).not.toContain('assethub-minted-secret')
+  expect(everything).not.toContain('assethub-second-secret')
   expect(JSON.parse(result.output)).toMatchObject({
     success: true,
     authentication: 'browser',
+    defaultProfile: 'ws-studio-ws1',
+    profile: 'ws-studio-ws1',
     workspace: {id: 'ws-1', name: 'Studio'},
     apiKey: {lastFour: 'cret'},
+    profiles: [
+      {profile: 'ws-studio-ws1', workspace: {id: 'ws-1', name: 'Studio'}},
+      {profile: 'ws-cc2-ws2', workspace: {id: 'ws-2', name: 'CC2'}},
+    ],
+    failed: [{id: 'ws-3', reason: 'NOT_ADMIN'}],
   })
+  expect(result.stderr).toContain('Logged in to 2 workspaces:')
+  expect(result.stderr).toContain('ws-cc2-ws2')
+  expect(result.stderr).toContain('ws-3  NOT_ADMIN')
+  expect(result.stderr).toContain('assethub <command> --profile <name>')
   const saved = await f.config()
-  expect(saved.defaultProfile).toBe('default')
-  expect(saved.profiles.default).toMatchObject({
+  expect(saved.defaultProfile).toBe('ws-studio-ws1')
+  expect(saved.profiles['ws-studio-ws1']).toMatchObject({
     apiKey: 'assethub-minted-secret',
     baseUrl: f.baseUrl,
   })
+  expect(saved.profiles['ws-cc2-ws2']).toMatchObject({
+    apiKey: 'assethub-second-secret',
+  })
 
-  // The stdin path is unchanged and overwrites the same profile.
+  // The stdin path is unchanged and writes the default profile.
   const stdinLogin = await f.run(
     ['auth', 'login', '--api-key-stdin'],
     'manual-key',
@@ -165,6 +245,35 @@ it('logs in through the browser and saves the minted key like --api-key-stdin', 
   expect((await f.config()).profiles.default).toMatchObject({
     apiKey: 'manual-key',
   })
+}, 30_000)
+
+it('saves the first workspace under an explicit --profile and makes it default', async () => {
+  const f = await fixture()
+  const result = await f.run([
+    'auth',
+    'login',
+    '--no-browser',
+    '--profile',
+    'mine',
+  ])
+  expect(result.code).toBe(0)
+  const saved = await f.config()
+  expect(saved.defaultProfile).toBe('mine')
+  expect(saved.profiles.mine).toMatchObject({apiKey: 'assethub-minted-secret'})
+  expect(saved.profiles['ws-cc2-ws2']).toMatchObject({
+    apiKey: 'assethub-second-secret',
+  })
+  expect(saved.profiles['ws-studio-ws1']).toBeUndefined()
+}, 30_000)
+
+it('still saves one ws- profile from a legacy v1 server', async () => {
+  const f = await fixture(200, 'legacy')
+  const result = await f.run(['auth', 'login', '--no-browser'])
+  expect(result.code).toBe(0)
+  const saved = await f.config()
+  expect(saved.defaultProfile).toBe('ws-studio-ws1')
+  expect(Object.keys(saved.profiles)).toEqual(['ws-studio-ws1'])
+  expect(result.output + result.stderr).not.toContain('assethub-minted-secret')
 }, 30_000)
 
 it('prints the --api-key-stdin fallback when the server does not offer browser login', async () => {
@@ -194,7 +303,56 @@ it('starts browser login for a bare login without a TTY outside CI', async () =>
   expect(result.code).toBe(0)
   expect(result.authorizeUrl).toBeDefined()
   expect(f.exchanges).toHaveLength(1)
-  expect((await f.config()).profiles.default).toMatchObject({
+  expect((await f.config()).profiles['ws-studio-ws1']).toMatchObject({
     apiKey: 'assethub-minted-secret',
   })
+}, 30_000)
+
+it('saves a personal key like a personal-key login and selects the start workspace', async () => {
+  const f = await fixture(200, 'personal')
+  const result = await f.run(['auth', 'login', '--no-browser'])
+  expect(result.code).toBe(0)
+  expect(result.output + result.stderr).not.toContain('ah_pat_personal-secret')
+  expect(JSON.parse(result.output)).toMatchObject({
+    success: true,
+    authentication: 'personal',
+    mode: 'personal',
+    profile: 'default',
+    userId: 'user-1',
+    apiKey: {id: 'pat-1', lastFour: 'cret'},
+    workspace: {id: 'ws-1', name: 'Studio'},
+  })
+  expect(result.stderr).toContain('Logged in with a personal API key (...cret)')
+  expect(result.stderr).toContain('assethub workspace use <id>')
+  const saved = await f.config()
+  expect(saved.defaultProfile).toBe('default')
+  expect(saved.profiles.default).toMatchObject({
+    apiKey: 'ah_pat_personal-secret',
+    authentication: 'personal',
+    userId: 'user-1',
+    workspaceId: 'ws-1',
+    baseUrl: f.baseUrl,
+  })
+}, 30_000)
+
+it('saves a personal key without a start workspace', async () => {
+  const f = await fixture(200, 'personal-nostart')
+  const result = await f.run(['auth', 'login', '--no-browser', '--profile', 'me'])
+  expect(result.code).toBe(0)
+  expect(JSON.parse(result.output).workspace).toBeNull()
+  const saved = await f.config()
+  expect(saved.defaultProfile).toBe('me')
+  expect(saved.profiles.me?.workspaceId).toBeUndefined()
+}, 30_000)
+
+it('keeps the personal profile and warns when the start workspace needs MFA', async () => {
+  const f = await fixture(200, 'personal-mfa')
+  const result = await f.run(['auth', 'login', '--no-browser'])
+  expect(result.code).toBe(0)
+  expect(result.stderr).toContain('Warning:')
+  expect(result.stderr).toContain('assethub workspace use ws-1')
+  expect(JSON.parse(result.output).workspace).toBeNull()
+  const saved = await f.config()
+  expect(saved.profiles.default).toMatchObject({apiKey: 'ah_pat_personal-secret'})
+  expect(saved.profiles.default?.workspaceId).toBeUndefined()
 }, 30_000)
