@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.69
+
+- `--part-extractor` accepts V5.0.8 through V5.0.14 Character Assembly (`ah_agent_graph_harpy_assembly_v5_0_8` … `_v5_0_14`) and treats them as Character Assembly routes, so `--part-count`, `--garment-fit`, `--whole-guide` and `--body-construction` work with them. Ported from assethub-web `packages/assethub-cli`.
+
 ## CLI 0.1.68
 
 - Browser login waits up to 15 minutes for approval so a workspace or account MFA step on the approval page does not time out, and prints a hint while waiting. Needs the AssetHub Web release with assethub-web #9148.
