@@ -5,7 +5,7 @@ description: |
 
   TRIGGER when:
   - Generating or editing an image, concept, or reference for a 3D asset
-  - Turning an image or prompt into a 3D mesh, splitting it into parts, or composing parts
+  - Turning an image or prompt into a 3D mesh, splitting it into parts, or turning concept art into a finished, assembled 3D character
   - Rigging, animating, retopologizing, texturing, or converting a mesh
   - Running a 3D production pipeline, checking a job, or recovering a run
   - Asking what models or operations are available, or what something will cost
@@ -131,8 +131,8 @@ Every choice the person makes goes through your question tool: **AskUserQuestion
 Prefer the dedicated commands (`image generate`, `mesh generate`, `parts split`, `rig create`, `animate retarget`, `production analyze` …). For anything else, search the live catalog and **read the schema before calling**:
 
 ```bash
-assethub api search "compose parts"
-assethub api describe "POST /mesh/compose"
+assethub api search "retopology"
+assethub api describe "POST /mesh/retopo"
 ```
 
 ### 2. Pick the model deliberately
@@ -149,7 +149,7 @@ The default is not always right. A model's catalog entry carries its credit plan
 ```bash
 assethub image generate --prompt "stylized wooden crate" --wait --download --out-dir ./out/crate
 assethub mesh generate --source-id <image-asset-id> --canvas <canvas-id> --wait
-assethub api call "POST /mesh/compose" --input-json "@request.json" --operation-id <uuid>
+assethub api call "POST /mesh/retopo" --input-json "@request.json" --operation-id <uuid>
 ```
 
 - `--wait` blocks until the job finishes. Without it you get an id to watch.
@@ -157,16 +157,20 @@ assethub api call "POST /mesh/compose" --input-json "@request.json" --operation-
 - `--operation-id <uuid>`: reuse the **same** id with the **same** input to retry; a new attempt needs a new id. Make the UUID yourself and paste the value (any random v4 UUID); don't rely on `uuidgen`, which Windows lacks.
 - Results include `execution` with the canvas URL, run and job ids, and output asset ids. Chain them into the next step with `--source-id`.
 
-### Fast path: one image to a finished, composed asset
+### Concept art to a finished 3D character: V5 Production Agent
 
-You do not need `parts split` → `mesh generate` per part → `composer run` by hand:
+When the person wants concept art of a character turned into a finished, assembled 3D model, use the **V5 Production Agent** (V5 Character Assembly). It runs automatically from the concept art: it splits the parts, makes a mesh for each, and assembles and checks the result. Do not build it yourself from `parts split`, `mesh generate` and Composer steps.
 
 ```bash
-assethub production run --image ./character.png --estimate
-assethub production run --image ./character.png --max-cost 500 --wait --download --out-dir ./out/asset
+assethub production agents
+assethub production analyze --file ./concept.png --part-extractor v5 --wait --download --out-dir ./character
 ```
 
-`--image` takes a file path or an asset id. `--estimate` is free and shows the cost; show it and ask before the real run. `--max-cost <credits>` refuses to start once the estimate exceeds it. `--compose v6` asks for a Composer V6 pass; `--compose none` stops after the meshes. `runs get <run-id> --summary` is the readable way to check a long run. If `--image` is not in `assethub --help`, the CLI is out of date: update it.
+- First check that "V5 Character Assembly" is in `production agents`. If it is not there, this account does not have it yet: say so and ask the person to contact AssetHub for access. Do not fall back to another route on your own.
+- A run takes about an hour. Without `--wait`, follow it with `assethub production watch <order-id>`. If it stops, `assethub production resume <order-id>` picks the same run back up.
+- For an image already in AssetHub, pass `--source-id <image-asset-id>` instead of `--file`.
+
+**Part Composer is not the way to make a character.** `composer run`, `composer refine`, `POST /mesh/compose`, `production run --image` and `--compose v6` are an internal preview for putting together meshes that already exist. Never pick them on your own, even if they appear in `--help` or `api search`. Use them only when the person asks for the Composer by name.
 
 ### Waiting and recovering
 
@@ -188,7 +192,7 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> --report 
 
 ## Cost safety
 
-- `production run --order-id … --mission-id …` defaults to `full_auto`, which never pauses for a person. **Always pass `--max-cost-credits <n>`** (the `--image` form uses `--max-cost <n>`). The server caps `--max-iterations` at 5. Over MCP, always set `maxCostCredits` on `production_run`.
+- `production run --order-id … --mission-id …` defaults to `full_auto`, which never pauses for a person. **Always pass `--max-cost-credits <n>`**. The server caps `--max-iterations` at 5. Over MCP, always set `maxCostCredits` on `production_run`.
 - There is no balance command; find the credit routes with `assethub api search credit`.
 - Prefer a dedicated, scoped API key for agent work over a full-access one.
 
