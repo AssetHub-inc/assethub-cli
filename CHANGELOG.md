@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.69
+
+- The bundled agent skill now sends coding agents to the V5 Production Agent (`production analyze --part-extractor v5`) to turn concept art into a finished 3D character, explains that V5 is included in the Max plan and above, and tells them not to pick the Part Composer (`composer run`, `POST /mesh/compose`, `production run --image`, `--compose v6`) on their own. `--help` labels the Part Composer commands as an internal preview and shows the V5 example instead of the `--compose v6` one. No command or request changes.
+
 ## CLI 0.1.68
 
 - Browser login waits up to 15 minutes for approval so a workspace or account MFA step on the approval page does not time out, and prints a hint while waiting. Needs the AssetHub Web release with assethub-web #9148.

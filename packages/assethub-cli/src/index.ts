@@ -587,6 +587,7 @@ Usage:
   assethub api search [query]
   assethub api describe "<METHOD /path>"
   assethub api call "<METHOD /path>" [--path-json <json|@file>] [--query-json <json|@file>] [--input-json <json|@file|@->] [--operation-id <uuid>]
+  Part Composer (internal preview; assembles meshes that already exist. For concept art to a finished character, use production analyze --part-extractor v5):
   assethub composer models
   assethub composer refine --list-modes
   assethub composer refine --from-run <run-id> --instruction <text> [--mode standard|thorough|placement|workshop|blender|codex] [--effort light|standard|thorough] [--max-rounds <n>] [--agent-model <provider:id|unambiguous-id>] [--transforms-json <json|@file>] [--wait] [--download --out-dir <dir>]
@@ -643,6 +644,7 @@ Usage:
   assethub production execute --order-id <id> --mission-id <id> --task-id <id> [--task-id <id>...] [--part-extractor <name>] [--part-extraction-mode fast|high_quality] [--wait] [--download --out-dir <dir>]
   assethub production run --order-id <id> --mission-id <id> [--run-mode full_auto|approval] [--task-id <id>...] [--part-extractor <name>] [--part-extraction-mode fast|high_quality] [--allowed-model-id <id>...] [--max-iterations <n>] [--max-cost-credits <n>] [--wait] [--download --out-dir <dir>]
   assethub production run --image <file|asset-id> [--canvas <id>] [--part-extractor <name>] [--compose v6|none] [--mesh-model <id>] [--max-parts <n>] [--max-cost <credits>] [--estimate] [--wait] [--download --out-dir <dir>] [--json]
+    Uses the Part Composer (internal preview). For concept art to a finished character, use production analyze --part-extractor v5.
   assethub production watch <order-id> [--interval-ms <ms>] [--timeout-ms <ms>] [--download --out-dir <dir>]
   assethub production intervene <order-id> (--exclude <target-id> | --include <target-id> | --add-part <name> | --rename <target-id>=<name> | --reject <target-id>[=<reason>] | --regenerate <target-id>=<mode> | --set-param <key>=<value> | --ops-json <json|@file|@->)... [--idempotency-key <key>]
   assethub production interventions <order-id>
@@ -720,11 +722,10 @@ Examples:
   assethub rig create --source-resource-id mesh_x --rig-type biped --wait
   assethub animate retarget --resource-id rig_x --animation preset:idle --wait
   assethub production analyze --file ./input.png --part-extractor "V1.5" --wait
+  assethub production analyze --file ./concept.png --part-extractor v5 --wait --download --out-dir ./character
   assethub production analyze --file ./concept.png --part-extractor v4 --wait --download --out-dir ./character
   assethub production batch --file ./harpy.png --file ./satyr.png --repeat 2 --part-extractor v4 --yes --wait --download --out-dir ./batch
   assethub production run --order-id ord_x --mission-id ms_x --run-mode full_auto --max-cost-credits 200 --wait
-  assethub production run --image ./character.png --estimate
-  assethub production run --image ./character.png --compose v6 --max-cost 500 --wait --download --out-dir ./out/asset
   assethub production watch ord_x
   assethub runs get run_x --summary
   assethub runs wait run_x --timeout-ms 3600000
