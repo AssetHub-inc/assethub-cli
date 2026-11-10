@@ -167,7 +167,7 @@ assethub production analyze --file ./concept.png --part-extractor v5 --wait --do
 ```
 
 - V5 is included in the Max plan and above. First check that "V5 Character Assembly" is in `production agents`. If it is not there, or the start answers that it needs the Max plan, tell the person that V5 comes with the Max plan (or that AssetHub can give them access) and ask how they want to continue. Do not switch to another route on your own.
-- A run takes about an hour. Without `--wait`, follow it with `assethub production watch <order-id>`. If it stops, `assethub production resume <order-id>` picks the same run back up.
+- A run takes about an hour. Without `--wait`, follow it with `assethub runs watch <run-id>` (the `runId` from the start). It ends as completed, or as needs_review (exit 3) when the best assembly was kept for a person to check: report that, never call it done. If it stops, `assethub production resume <run-id> --wait` picks the same run back up.
 - For an image already in AssetHub, pass `--source-id <image-asset-id>` instead of `--file`.
 
 **Part Composer is not the way to make a character.** `composer run`, `composer refine`, `POST /mesh/compose`, `production run --image` and `--compose v6` are an internal preview for putting together meshes that already exist. Never pick them on your own, even if they appear in `--help` or `api search`. Use them only when the person asks for the Composer by name.
