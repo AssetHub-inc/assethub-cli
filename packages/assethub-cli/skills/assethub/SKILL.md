@@ -167,6 +167,7 @@ assethub production analyze --file ./concept.png --part-extractor v5 --wait --do
 ```
 
 - V5 is included in the Max plan and above. First check that "V5 Character Assembly" is in `production agents`. If it is not there, or the start answers that it needs the Max plan, tell the person that V5 comes with the Max plan (or that AssetHub can give them access) and ask how they want to continue. Do not switch to another route on your own.
+- Read the V5 entry in `production agents`. When its `supportedOnGraphEndpoint` is `false` and it lists `supportedAssemblyPolicies`, start it with `assethub production analyze --file ./concept.png --part-extractor v5 --pipeline-depth composition --assembly-policy concept-to-character-v1 --wait --download --out-dir ./character`.
 - A run takes about an hour. Without `--wait`, follow it with `assethub runs watch <run-id>` (the `runId` from the start). It ends as completed, or as needs_review (exit 3) when the best assembly was kept for a person to check: report that, never call it done. If it stops, `assethub production resume <run-id> --wait` picks the same run back up.
 - For an image already in AssetHub, pass `--source-id <image-asset-id>` instead of `--file`.
 
