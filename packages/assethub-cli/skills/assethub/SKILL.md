@@ -166,7 +166,7 @@ assethub production agents
 assethub production analyze --file ./concept.png --part-extractor v5 --wait --download --out-dir ./character
 ```
 
-- First check that "V5 Character Assembly" is in `production agents`. If it is not there, this account does not have it yet: say so and ask the person to contact AssetHub for access. Do not fall back to another route on your own.
+- V5 is included in the Max plan and above. First check that "V5 Character Assembly" is in `production agents`. If it is not there, or the start answers that it needs the Max plan, tell the person that V5 comes with the Max plan (or that AssetHub can give them access) and ask how they want to continue. Do not switch to another route on your own.
 - A run takes about an hour. Without `--wait`, follow it with `assethub production watch <order-id>`. If it stops, `assethub production resume <order-id>` picks the same run back up.
 - For an image already in AssetHub, pass `--source-id <image-asset-id>` instead of `--file`.
 
