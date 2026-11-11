@@ -100,11 +100,11 @@ export const writeAutoUpdateSetting = async (path: string, autoUpdate: boolean):
   await writeFile(path, `${JSON.stringify({...settings, autoUpdate}, null, 2)}\n`)
 }
 
-const truthy = (value: string | undefined): boolean => ['1', 'true', 'yes'].includes((value ?? '').toLowerCase())
+export const truthyEnv = (value: string | undefined): boolean => ['1', 'true', 'yes'].includes((value ?? '').toLowerCase())
 
 /** Auto-update is on by default; the saved setting or ASSETHUB_NO_AUTO_UPDATE turns it off. */
 export const autoUpdateEnabled = (setting: boolean | undefined, env: NodeJS.ProcessEnv): boolean =>
-  setting !== false && !truthy(env.ASSETHUB_NO_AUTO_UPDATE) && !updateCheckDisabled(env)
+  setting !== false && !truthyEnv(env.ASSETHUB_NO_AUTO_UPDATE) && !updateCheckDisabled(env)
 
 /**
  * Only a global install can be upgraded by `assethub update`: a project
@@ -115,6 +115,7 @@ export const autoUpdateEnabled = (setting: boolean | undefined, env: NodeJS.Proc
 export const isInstalledPackage = (cliPath: string): boolean => {
   const path = cliPath.replaceAll('\\', '/')
   if (!path.includes(`/node_modules/${PACKAGE_NAME}/`) || path.includes('/_npx/')) return false
+  if (/\/assethub-cli\/releases\/npm-[^/]+\/node_modules\/@assethub\/cli\//.test(path)) return true // official installer
   return [
     `/lib/node_modules/${PACKAGE_NAME}/`, // npm, nvm, Homebrew node, a custom npm prefix
     `/npm/node_modules/${PACKAGE_NAME}/`, // npm on Windows (%AppData%/npm)
@@ -127,18 +128,27 @@ export const isInstalledPackage = (cliPath: string): boolean => {
 
 /** Opted out, or running somewhere nobody reads a hint (CI). */
 export const updateCheckDisabled = (env: NodeJS.ProcessEnv): boolean =>
-  truthy(env.ASSETHUB_NO_UPDATE_CHECK) || Boolean(env.CI)
+  truthyEnv(env.ASSETHUB_NO_UPDATE_CHECK) || Boolean(env.CI)
 
 export type NoticeDecision = {notices: string[]; refresh: boolean; markAnnounced: boolean; markNoticed: boolean}
 
 const TURN_OFF = 'turn off with `assethub setup --no-auto-update`'
 
 /** What to print now, whether to mark a background install as announced, and whether to refresh. */
+export type NoticeOptions = {
+  /** false when the background install will deal with the newer version (or notices are off). */
+  availableNotice?: boolean
+  /** Print nothing at all (ASSETHUB_NO_UPDATE_NOTICE); the refresh still runs. */
+  quiet?: boolean
+}
+
 export const decideUpdateNotice = (
   current: string,
   cache: UpdateCheckCache | undefined,
   now: Date,
+  options: NoticeOptions = {},
 ): NoticeDecision => {
+  if (options.quiet) return {...decideUpdateNotice(current, cache, now), notices: [], markAnnounced: false, markNoticed: false}
   const checked = cache ? Date.parse(cache.checkedAt) : Number.NaN
   const refresh = !Number.isFinite(checked) || now.getTime() - checked >= CHECK_INTERVAL_MS || checked > now.getTime()
   const notices: string[] = []
@@ -151,9 +161,12 @@ export const decideUpdateNotice = (
   const noticed = cache?.noticedAt ? Date.parse(cache.noticedAt) : Number.NaN
   const noticeDue = !Number.isFinite(noticed) || now.getTime() - noticed >= CHECK_INTERVAL_MS || noticed > now.getTime()
   // A failed install is reported together with the release it could not install.
-  const available = cache !== undefined && compareVersions(cache.latest, current) > 0 && (noticeDue || (announce && 'error' in result))
-  if (available)
-    notices.push(`${PACKAGE_NAME} ${cache.latest} is available (you have ${current}). Run \`assethub update\` to upgrade; your login is kept.`)
+  const failedInstall = announce && 'error' in result
+  const available =
+    cache !== undefined &&
+    compareVersions(cache.latest, current) > 0 &&
+    ((noticeDue && options.availableNotice !== false) || failedInstall)
+  if (available) notices.push(`A newer AssetHub CLI is available: ${current} → ${cache.latest}. Run: assethub update`)
   return {notices, refresh, markAnnounced: announce, markNoticed: available}
 }
 

@@ -78,7 +78,18 @@ next command prints one line on stderr (`updated itself from 0.1.36 to 0.1.37`).
 stdout stays one JSON object. If the install fails, the CLI keeps the current
 version and says so, then keeps announcing the newer release.
 
-It applies only to a global install (not `npx`, a project dependency or a source
+When a newer release exists but will not be installed automatically (auto-update
+is off, or `ASSETHUB_NO_AUTO_UPDATE=1`), the next command prints one stderr line,
+at most once a day, from the same daily cache (no extra network call):
+`A newer AssetHub CLI is available: 0.1.69 → 0.1.70. Run: assethub update`.
+`ASSETHUB_NO_UPDATE_NOTICE=1` silences it.
+
+The official installer layout (`~/.local/share/assethub-cli/releases/npm-<version>`,
+linked from `~/.local/bin/assethub`) is updated in place: `assethub update` installs
+the new version into a fresh `releases/npm-<version>` directory and atomically
+repoints the symlink (set `ASSETHUB_BIN_LINK` if your link lives elsewhere).
+
+It applies only to a global or official-installer install (not `npx`, a project dependency or a source
 checkout) and is off in CI, with `ASSETHUB_NO_AUTO_UPDATE=1` (no install, notice
 only) or with `ASSETHUB_NO_UPDATE_CHECK=1` (no check at all). The choice is saved
 in `~/.assethub/settings.json`, and `assethub setup` shows it as its `auto-update`
@@ -390,6 +401,12 @@ For example, an agent that has not inspected the output yet can submit:
 
 Replace the verdict and reason with the actual assessment after inspecting the
 artifact; reference and evidence IDs must belong to the authenticated organization.
+
+`--part-extractor` accepts any agent the server lists (`assethub production agents`):
+match by label, agentVersion or internalVersion, case-insensitive; the CLI's built-in
+names (`v4`, `v5.0.8`, …) remain as aliases and as the offline fallback (with a stderr
+warning). Without the flag the server's `recommended` agent is used, else its default
+agent, and the choice is printed on stderr. The agent list is fetched once per command.
 
 Existing parts commands use the same canvas and durable operation storage:
 
