@@ -79,6 +79,13 @@ const characterAssemblyApiValues = new Set([
   'ah_agent_graph_harpy_assembly_v5_0_2',
   'ah_agent_graph_harpy_assembly_v5_0_4',
   'ah_agent_graph_harpy_assembly_v5_0_5',
+  'ah_agent_graph_harpy_assembly_v5_0_8',
+  'ah_agent_graph_harpy_assembly_v5_0_9',
+  'ah_agent_graph_harpy_assembly_v5_0_10',
+  'ah_agent_graph_harpy_assembly_v5_0_11',
+  'ah_agent_graph_harpy_assembly_v5_0_12',
+  'ah_agent_graph_harpy_assembly_v5_0_13',
+  'ah_agent_graph_harpy_assembly_v5_0_14',
 ])
 
 describe('built recorded CLI', () => {
@@ -312,6 +319,13 @@ describe('built recorded CLI', () => {
     ['V5.0.2 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_2', 'V5.0.2 Character Assembly', ['v5.0.2', '5.0.2', 'v5.0.2 character assembly']],
     ['V5.0.4 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_4', 'V5.0.4 Character Assembly', ['v5.0.4', '5.0.4', 'v5.0.4 character assembly']],
     ['V5.0.5 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_5', 'V5.0.5 Character Assembly', ['v5.0.5', '5.0.5', 'v5.0.5 character assembly']],
+    ['V5.0.8 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_8', 'V5.0.8 Character Assembly', ['v5.0.8', '5.0.8', 'v5.0.8 character assembly']],
+    ['V5.0.9 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_9', 'V5.0.9 Character Assembly', ['v5.0.9', '5.0.9', 'v5.0.9 character assembly']],
+    ['V5.0.10 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_10', 'V5.0.10 Character Assembly', ['v5.0.10', '5.0.10', 'v5.0.10 character assembly']],
+    ['V5.0.11 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_11', 'V5.0.11 Character Assembly', ['v5.0.11', '5.0.11', 'v5.0.11 character assembly']],
+    ['V5.0.12 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_12', 'V5.0.12 Character Assembly', ['v5.0.12', '5.0.12', 'v5.0.12 character assembly']],
+    ['V5.0.13 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_13', 'V5.0.13 Character Assembly', ['v5.0.13', '5.0.13', 'v5.0.13 character assembly']],
+    ['V5.0.14 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_0_14', 'V5.0.14 Character Assembly', ['v5.0.14', '5.0.14', 'v5.0.14 character assembly']],
     ['V5.3 Character Assembly', 'ah_agent_graph_harpy_assembly_v5_3', 'V5.3 Character Assembly', ['v5.3', '5.3', 'v5.3 character assembly']],
     ['V5 Character Assembly', 'ah_agent_graph_harpy_assembly_v2', 'V5 Character Assembly', ['v5', '5', 'v5 character assembly']],
     ['V4 Character Assembly', 'ah_agent_graph_harpy_assembly_v4_legacy', 'V4 Character Assembly', ['v4', '4', 'v4 character assembly', 'character assembly']],

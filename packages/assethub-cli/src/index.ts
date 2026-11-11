@@ -464,6 +464,41 @@ const partExtractorOptions = [
     aliases: ['v5.0.5', '5.0.5', 'v5.0.5 character assembly'],
   },
   {
+    publicName: 'V5.0.8 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_8',
+    aliases: ['v5.0.8', '5.0.8', 'v5.0.8 character assembly'],
+  },
+  {
+    publicName: 'V5.0.9 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_9',
+    aliases: ['v5.0.9', '5.0.9', 'v5.0.9 character assembly'],
+  },
+  {
+    publicName: 'V5.0.10 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_10',
+    aliases: ['v5.0.10', '5.0.10', 'v5.0.10 character assembly'],
+  },
+  {
+    publicName: 'V5.0.11 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_11',
+    aliases: ['v5.0.11', '5.0.11', 'v5.0.11 character assembly'],
+  },
+  {
+    publicName: 'V5.0.12 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_12',
+    aliases: ['v5.0.12', '5.0.12', 'v5.0.12 character assembly'],
+  },
+  {
+    publicName: 'V5.0.13 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_13',
+    aliases: ['v5.0.13', '5.0.13', 'v5.0.13 character assembly'],
+  },
+  {
+    publicName: 'V5.0.14 Character Assembly',
+    apiValue: 'ah_agent_graph_harpy_assembly_v5_0_14',
+    aliases: ['v5.0.14', '5.0.14', 'v5.0.14 character assembly'],
+  },
+  {
     publicName: 'V5.3 Character Assembly',
     apiValue: 'ah_agent_graph_harpy_assembly_v5_3',
     aliases: ['v5.3', '5.3', 'v5.3 character assembly'],
@@ -484,7 +519,14 @@ const isV4CharacterAssembly = (version: string): boolean =>
   version === 'ah_agent_graph_harpy_assembly_v5_0_1' ||
   version === 'ah_agent_graph_harpy_assembly_v5_0_2' ||
   version === 'ah_agent_graph_harpy_assembly_v5_0_4' ||
-  version === 'ah_agent_graph_harpy_assembly_v5_0_5'
+  version === 'ah_agent_graph_harpy_assembly_v5_0_5' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_8' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_9' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_10' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_11' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_12' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_13' ||
+  version === 'ah_agent_graph_harpy_assembly_v5_0_14'
 
 // A V4 Character Assembly run (image → parts → meshes → assembled character) takes
 // about an hour, so `--wait` defaults past the generic 15 minute limit.
