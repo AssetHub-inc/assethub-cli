@@ -852,6 +852,7 @@ describe('built recorded CLI', () => {
         }
       } else if (path.includes('/runs/'))
         data = executions.get(path.split('/').at(-1)!)
+      else if (path.endsWith('/production/agents')) data = {agents: []}
       else if (path.includes('/production/status/') && stallStatuses) return
       else if (path.includes('/production/status/'))
         data = {
