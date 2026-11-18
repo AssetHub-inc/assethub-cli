@@ -406,7 +406,23 @@ assethub production analyze --source-id "$IMAGE_ASSET_ID" --canvas "$CANVAS_ID" 
 assethub production automation --canvas "$CANVAS_ID" --input-json @batch.json --wait
 ```
 
-### V4 Character Assembly: image to assembled 3D character
+### Character Assembly: image to assembled 3D character
+
+V5 Character Assembly (`--part-extractor v5`) is available to workspaces on the
+Max plan or above; any other workspace is refused before a credit hold. A V5 run
+holds credits by part count (`--part-count few`, the default, 1,300 credits;
+`--part-count default`, 1,700 credits), charges the actual cost of the run when it
+settles, never more than the hold, and releases the rest. `--part-count detailed`
+is not available yet and is refused before any charge. The HTTP flow and billing
+details are in the "Starting V5 Character Assembly" section of the v2 API docs.
+
+```sh
+assethub production analyze --file ./concept.png --part-extractor v5 --part-count few \
+  --name "My character" --canvas "$CANVAS_ID" --wait --download --out-dir ./character
+```
+
+V4 Character Assembly (`--part-extractor v4`) remains Internal. Everything below
+applies to both unless it says Internal.
 
 One command runs the whole pipeline (parts, meshes, Blender assembly and review) and
 saves the assembled character GLB:
@@ -466,58 +482,25 @@ contract is in `docs/api-character-assembly-progress.md`.
 
 ### Batch runs: many images, or one image many times
 
-Actors admitted to V4/V5 (Internal users and named V4 testers) can choose the same part count as the canvas with
-`--part-count few|default|detailed`: Few targets 3–4 groups, Standard (`default`)
-5–6, and Detailed 8–12, including the base body. These are planner targets, not
-exact output guarantees. The flag works on `production analyze`, `production batch`,
-and new V4/V5 `parts split` / `parts compare` runs; other agents and resumed orders
-are rejected before dispatch. It sends `assemblyExperiment.partCount` without
-changing the assembler, body mode, or mesh settings. Omit it to preserve the API's
-existing behavior. An explicit JSON `partCount` is also accepted; conflicting JSON
-and flag values or repeated flags are rejected before any request. A part-count-only
-request follows existing V4 tester admission; other experiment switches remain
-internal-only. Requires the matching API update (assethub-web #8495).
+`--part-count few|default|detailed` picks the planner target, including the base body:
+Few targets 3–4 groups, Standard (`default`) 5–6, and Detailed 8–12. These are targets,
+not exact output guarantees. V5 accepts `few` and `default`; `detailed` is Internal for
+now. The flag works on `production analyze`, `production batch`, and new `parts split` /
+`parts compare` runs of a Character Assembly agent; other agents and resumed orders are
+rejected before dispatch. It sends `assemblyExperiment.partCount` and nothing else. An
+explicit JSON `partCount` is also accepted; conflicting JSON and flag values or repeated
+flags are rejected before any request.
 
 ```sh
-assethub production analyze --file ./concept.png --part-extractor v4 --part-count few --wait
-# Preserve other V5 experiment switches while selecting Standard:
-assethub production analyze --file ./concept.png --part-extractor v5 --part-count default \
-  --assembly-experiment '{"v5Assembler":true,"v5Start":"placement"}' --wait
+assethub production analyze --file ./concept.png --part-extractor v5 --part-count default --wait
 ```
 
-Internal actors can also supply `--assembly-experiment <json|@file>` to preserve
-V5 switches such as `v5Assembler` and `v5Start` (`placement` or `fit`). The JSON
-accepts known garment-fit flags and model roles; `--garment-fit a,b` enables known
-flags and merges them into that JSON. Unknown keys are rejected client-side. The existing
-`partImageModel` pin accepts `openai/gpt-image-2.5-sunburst` or
-`google/gemini-3.1-flash-image`. Saved `google/gemini-3-pro-image` and
-`-preview` pins are replaced with GPT Image 2.5 Sunburst before dispatch.
-Nano Banana Pro is retired; the server enforces the replacement's access and pricing.
-
-Internal V4 actors with the `workflow_v4_clothed_scaffold_enabled` rollout gate can add
-`--body-construction clothed-scaffold-v1` to `production analyze` or `production batch`.
-This explicitly keeps the source outfit on the scaffold and avoids a separate undressed
-base-body stage. Omitting it preserves the existing V4 flow. Other agents and gate-off
-actors are refused before graph billing; provider safety filters remain active.
-
-Internal V5.3/V5 actors can opt a run into the whole-guide correction with
-`--whole-guide [--whole-guide-mesh mesh_<id>]` (or `{"wholeGuide":{"enabled":true,"guideMeshAssetId":"mesh_<id>"}}`
-in `--assembly-experiment`). It reuses the internal `workflow_part_composer_v8_whole_guide_enabled` gate: the server
-silently drops it for other agents or when the gate is off, and rejects a guide mesh your workspace does not own.
-Omitting it leaves the request unchanged.
-
-Internal V5.3 actors can also send the "best-of-both" assembly switches through `--assembly-experiment`:
-`maskedBaseBody` (`true`) and `shellConform` (boolean), next to `partImageModel`, `v5Assembler`, `v5Start`,
-`garmentFit` and `wholeGuide`. The server keeps them only for an internal V5.3 start and, when the
-`production_v53_best_of_both_enabled` gate passes, fills in any of them you left unset (explicit values win).
-Select the agent with `--part-extractor v5.3` (`ah_agent_graph_harpy_assembly_v5_3`) or one of the internal
-V5 variants `v5.0.1`, `v5.0.2`, `v5.0.4` or `v5.0.5`.
-
-```sh
-assethub production analyze --file ./concept.png --part-extractor v5.3 --assembly-experiment \
-  '{"v5Assembler":true,"maskedBaseBody":true,"shellConform":true,"v5Start":"fit","wholeGuide":{"enabled":true}}' --wait
-assethub production analyze --file ./concept.png --part-extractor v5.3 --whole-guide --whole-guide-mesh mesh_123 --wait
-```
+Internal actors can also use `--body-construction`, `--assembly-experiment <json|@file>`,
+`--garment-fit <flag,flag>` and `--whole-guide [--whole-guide-mesh mesh_<id>]` on a
+Character Assembly run. Unknown keys are rejected client-side. For any other caller the
+API answers 403 `assemblyExperiment is internal-only` when `assemblyExperiment` carries
+anything besides `partCount` or `headBodyFirst`, and refuses the other options before any
+credit hold. Omitting them leaves the request unchanged.
 
 V4 actors with the mesh-quality rollout (internal and named V4 testers) can choose the
 mesh quality and the models the run may use, like the canvas start card. The whole run
