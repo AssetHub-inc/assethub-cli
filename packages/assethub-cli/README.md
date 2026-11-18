@@ -497,9 +497,10 @@ assethub production analyze --file ./concept.png --part-extractor v5 --part-coun
 
 Internal actors can also use `--body-construction`, `--assembly-experiment <json|@file>`,
 `--garment-fit <flag,flag>` and `--whole-guide [--whole-guide-mesh mesh_<id>]` on a
-Character Assembly run. Unknown keys are rejected client-side, and the API answers 403
-`assemblyExperiment is internal-only` (or refuses the option before any credit hold)
-for any other caller. Omitting them leaves the request unchanged.
+Character Assembly run. Unknown keys are rejected client-side. For any other caller the
+API answers 403 `assemblyExperiment is internal-only` when `assemblyExperiment` carries
+anything besides `partCount` or `headBodyFirst`, and refuses the other options before any
+credit hold. Omitting them leaves the request unchanged.
 
 V4 actors with the mesh-quality rollout (internal and named V4 testers) can choose the
 mesh quality and the models the run may use, like the canvas start card. The whole run
