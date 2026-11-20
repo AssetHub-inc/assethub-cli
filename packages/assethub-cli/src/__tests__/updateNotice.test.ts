@@ -34,13 +34,26 @@ describe('update notice', () => {
       refresh: false,
       markAnnounced: false,
       markNoticed: true,
-      notices: ['@assethub/cli 0.1.36 is available (you have 0.1.35). Run `assethub update` to upgrade; your login is kept.'],
+      notices: ['A newer AssetHub CLI is available: 0.1.35 → 0.1.36. Run: assethub update'],
     })
     expect(decideUpdateNotice('0.1.35', {checkedAt: checkedAgo(CHECK_INTERVAL_MS), latest: '0.1.35'}, now)).toEqual({refresh: true, notices: [], markAnnounced: false, markNoticed: false})
     expect(decideUpdateNotice('0.1.35', undefined, now)).toEqual({refresh: true, notices: [], markAnnounced: false, markNoticed: false})
     // A clock that went backwards or a broken date is treated as stale.
     expect(decideUpdateNotice('0.1.35', {checkedAt: '2027-01-01T00:00:00Z', latest: '0.1.35'}, now).refresh).toBe(true)
     expect(decideUpdateNotice('0.1.35', {checkedAt: 'nope', latest: '0.1.35'}, now).refresh).toBe(true)
+  })
+
+  it('stays silent when auto-update will install it, or the notice is turned off', () => {
+    const cache = {checkedAt: checkedAgo(1000), latest: '0.1.36'}
+    expect(decideUpdateNotice('0.1.35', cache, now, {availableNotice: false})).toMatchObject({notices: [], markNoticed: false})
+    // ...but a failed background install is still reported.
+    const failed = {...cache, autoUpdate: {from: '0.1.35', error: 'EACCES', at: checkedAgo(500)}}
+    expect(decideUpdateNotice('0.1.35', failed, now, {availableNotice: false}).notices).toEqual([
+      expect.stringContaining('could not update itself'),
+      expect.stringContaining('0.1.35 → 0.1.36'),
+    ])
+    expect(decideUpdateNotice('0.1.35', failed, now, {quiet: true})).toMatchObject({notices: [], markNoticed: false, markAnnounced: false})
+    expect(decideUpdateNotice('0.1.35', {...cache, checkedAt: checkedAgo(CHECK_INTERVAL_MS)}, now, {quiet: true}).refresh).toBe(true)
   })
 
   it('shows the "is available" line at most once a day', () => {
@@ -64,7 +77,7 @@ describe('update notice', () => {
     const failed = decideUpdateNotice('0.1.35', {checkedAt: at, latest: '0.1.36', autoUpdate: {from: '0.1.35', error: 'EACCES', at}}, now)
     expect(failed.notices).toEqual([
       '@assethub/cli could not update itself to 0.1.36: EACCES',
-      expect.stringContaining('0.1.36 is available'),
+      expect.stringContaining('0.1.35 → 0.1.36'),
     ])
   })
 
@@ -73,6 +86,9 @@ describe('update notice', () => {
     expect(isInstalledPackage('/Users/u/.nvm/versions/node/v22.20.0/lib/node_modules/@assethub/cli/dist/index.js')).toBe(true)
     expect(isInstalledPackage('C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@assethub\\cli\\dist\\index.js')).toBe(true)
     expect(isInstalledPackage('/Users/u/.volta/tools/image/packages/@assethub/cli/lib/node_modules/@assethub/cli/dist/index.js')).toBe(true)
+    // The official installer layout.
+    expect(isInstalledPackage('/Users/u/.local/share/assethub-cli/releases/npm-0.1.69/node_modules/@assethub/cli/dist/index.js')).toBe(true)
+    expect(isInstalledPackage('C:\\Users\\u\\AppData\\Local\\assethub-cli\\releases\\npm-0.1.69\\node_modules\\@assethub\\cli\\dist\\index.js')).toBe(true)
     // A project dependency cannot be upgraded by `assethub update`.
     expect(isInstalledPackage('/Users/u/work/game/node_modules/@assethub/cli/dist/index.js')).toBe(false)
     expect(isInstalledPackage('/Users/u/.npm/_npx/abc/node_modules/@assethub/cli/dist/index.js')).toBe(false)
@@ -244,17 +260,26 @@ describe('installed package (spawned)', () => {
           env: {PATH: process.env.PATH ?? '', HOME: join(root, 'home'), ASSETHUB_CLI_HOME: join(root, 'home'), ASSETHUB_CLI_CONFIG: config, ...extraEnv},
         }).catch((error: {stdout: string; stderr: string}) => error)
 
+      await writeAutoUpdateSetting(settingsPath(config), false)
+      expect((await run({ASSETHUB_NO_UPDATE_NOTICE: '1'})).stderr).not.toContain('A newer AssetHub CLI')
+      // Auto-update on (the default) will install it, so there is nothing to announce.
+      await writeAutoUpdateSetting(settingsPath(config), true)
+      expect((await run({})).stderr).not.toContain('A newer AssetHub CLI')
+      // ASSETHUB_NO_AUTO_UPDATE=1 means notice only (documented): the line is shown.
+      expect((await run({ASSETHUB_NO_AUTO_UPDATE: '1'})).stderr).toContain('A newer AssetHub CLI')
+      await writeUpdateCheck(updateCheckPath(config), '99.0.0')
+      await writeAutoUpdateSetting(settingsPath(config), false)
       const shown = await run({})
-      expect(shown.stderr).toContain(`@assethub/cli 99.0.0 is available (you have ${await cliVersion()})`)
-      expect(shown.stdout).not.toContain('is available')
+      expect(shown.stderr).toContain(`A newer AssetHub CLI is available: ${await cliVersion()} → 99.0.0. Run: assethub update`)
+      expect(shown.stdout).not.toContain('A newer AssetHub CLI')
       // The cache is fresh, so no background refresh rewrote it.
       expect(JSON.parse(await readFile(updateCheckPath(config), 'utf8')).latest).toBe('99.0.0')
 
       // Once a day: the next command does not repeat it.
-      expect((await run({})).stderr).not.toContain('is available')
+      expect((await run({})).stderr).not.toContain('A newer AssetHub CLI')
 
       const quiet = await run({ASSETHUB_NO_UPDATE_CHECK: '1'})
-      expect(quiet.stderr).not.toContain('is available')
+      expect(quiet.stderr).not.toContain('A newer AssetHub CLI')
 
       // A background install that already happened is announced exactly once.
       const version = await cliVersion()

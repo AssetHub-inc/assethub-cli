@@ -5,7 +5,7 @@
 // version's skill, so agents never read rules for a CLI they no longer run.
 
 import {execFile, spawn} from 'node:child_process'
-import {readFile, realpath} from 'node:fs/promises'
+import {readFile, readlink, realpath, rename, stat, symlink, unlink} from 'node:fs/promises'
 import {homedir} from 'node:os'
 import {join} from 'node:path'
 import {argv, cwd, env, platform, stderr, stdin} from 'node:process'
@@ -20,6 +20,8 @@ export const PACKAGE_NAME = '@assethub/cli'
 export type Installer = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'volta'
 export type Install =
   | {kind: 'global'; installer: Installer}
+  /** The official installer: <root>/releases/npm-<version>/node_modules/@assethub/cli, linked from ~/.local/bin/assethub. */
+  | {kind: 'managed'; root: string}
   | {kind: 'npx'}
   | {kind: 'project'}
   | {kind: 'source'}
@@ -33,6 +35,8 @@ export type UpdateDeps = {
   binPath: () => Promise<string>
   npmGlobalRoot: () => Promise<string | undefined>
   run: (command: string, args: string[]) => Promise<{code: number}>
+  /** Managed installs only: points the `assethub` symlink at the freshly installed release. */
+  repointManaged?: (root: string, version: string) => Promise<void>
   /** Runs the freshly installed binary: its version and whether the saved login still works. */
   verify: () => Promise<{version: string; auth: 'pass' | 'fail' | 'not_configured'}>
   /** Has the freshly installed binary rewrite each agent skill copy setup installed. */
@@ -47,12 +51,12 @@ export type SkillRefresh = {path: string; change: 'updated' | 'unchanged'; versi
 export type UpdateReport =
   | {status: 'up_to_date'; from: string; latest: string}
   | {status: 'update_available'; from: string; latest: string}
-  | {status: 'dry_run'; from: string; latest: string; installer: Installer; command: string}
+  | {status: 'dry_run'; from: string; latest: string; installer: Installer | 'managed'; command: string}
   | {
       status: 'updated'
       from: string
       to: string
-      installer: Installer
+      installer: Installer | 'managed'
       auth: 'pass' | 'fail' | 'not_configured'
       skills: SkillRefresh[]
     }
@@ -76,12 +80,16 @@ export const compareVersions = (a: string, b: string): number => {
   return left.prerelease.localeCompare(right.prerelease, 'en', {numeric: true})
 }
 
+const managedLayout = /^(.*\/assethub-cli)\/releases\/npm-[^/]+\/node_modules\/@assethub\/cli\//
+
 const packageSegment = `/node_modules/${PACKAGE_NAME}/`
 
 export const detectInstall = (binPath: string, npmGlobalRoot?: string): Install => {
   const path = binPath.replaceAll('\\', '/')
   if (!path.includes(packageSegment)) return {kind: 'source'}
   if (path.includes('/_npx/')) return {kind: 'npx'}
+  const managed = managedLayout.exec(path)
+  if (managed) return {kind: 'managed', root: managed[1]}
   if (path.includes('/.volta/')) return {kind: 'global', installer: 'volta'}
   if (path.includes('/.bun/install/global/')) return {kind: 'global', installer: 'bun'}
   if (path.includes('/pnpm/global/')) return {kind: 'global', installer: 'pnpm'}
@@ -107,7 +115,36 @@ export const installCommand = (installer: Installer, version: string): [string, 
   }
 }
 
-const refusal = (install: Exclude<Install, {kind: 'global'}>, latest: string): string => {
+/** What the official installer does: a fresh releases/npm-<version> prefix (then the symlink is repointed). */
+export const managedInstallCommand = (root: string, version: string): [string, string[]] => [
+  'npm',
+  ['install', '--prefix', `${root}/releases/npm-${version}`, '--no-audit', '--no-fund', `${PACKAGE_NAME}@${version}`],
+]
+
+/**
+ * Points the first candidate symlink that currently targets this managed root
+ * at the new release, through a temp link + rename so the swap is atomic.
+ */
+export const repointManagedLink = async (root: string, version: string, candidates: string[]): Promise<void> => {
+  const releases = `${root.replaceAll('\\', '/')}/releases/`
+  const target = join(root, 'releases', `npm-${version}`, 'node_modules', '@assethub', 'cli', 'dist', 'index.js')
+  await stat(target) // never repoint at something that is not there
+  for (const link of candidates) {
+    const current = await readlink(link).then(
+      value => value.replaceAll('\\', '/'),
+      () => undefined,
+    )
+    if (current === undefined || !current.startsWith(releases)) continue
+    const temp = `${link}.tmp-${process.pid}`
+    await unlink(temp).catch(() => undefined)
+    await symlink(target, temp)
+    await rename(temp, link)
+    return
+  }
+  throw new Error(`No symlink pointing into ${root}/releases was found (looked at ${candidates.join(', ') || 'nothing'}); set ASSETHUB_BIN_LINK to the assethub symlink.`)
+}
+
+const refusal = (install: Exclude<Install, {kind: 'global' | 'managed'}>, latest: string): string => {
   switch (install.kind) {
     case 'npx':
       return `This CLI is running from the npx cache; run \`npx ${PACKAGE_NAME}@latest\` to use ${latest}.`
@@ -124,11 +161,12 @@ export const runUpdate = async (options: UpdateOptions, deps: UpdateDeps): Promi
   if (options.check) return {status: 'update_available', from, latest}
 
   const install = detectInstall(await deps.binPath(), await deps.npmGlobalRoot())
-  if (install.kind !== 'global') throw new Error(refusal(install, latest))
+  if (install.kind !== 'global' && install.kind !== 'managed') throw new Error(refusal(install, latest))
 
-  const [command, args] = installCommand(install.installer, latest)
-  const shown = [command, ...args].join(' ')
-  if (options.dryRun) return {status: 'dry_run', from, latest, installer: install.installer, command: shown}
+  const installer = install.kind === 'managed' ? 'managed' : install.installer
+  const [command, args] = install.kind === 'managed' ? managedInstallCommand(install.root, latest) : installCommand(install.installer, latest)
+  const shown = [command, ...args].join(' ') + (install.kind === 'managed' ? ' && repoint the assethub symlink' : '')
+  if (options.dryRun) return {status: 'dry_run', from, latest, installer, command: shown}
 
   if (deps.interactive && !options.yes && !(await deps.confirm(`Update ${PACKAGE_NAME} ${from} -> ${latest} with \`${shown}\`?`)))
     throw new Error('Update cancelled; nothing was changed.')
@@ -136,6 +174,10 @@ export const runUpdate = async (options: UpdateOptions, deps: UpdateDeps): Promi
   deps.say(`Running ${shown}`)
   const {code} = await deps.run(command, args)
   if (code !== 0) throw new Error(`\`${shown}\` exited with code ${code}; ${PACKAGE_NAME} is still ${from}.`)
+  if (install.kind === 'managed') {
+    if (!deps.repointManaged) throw new Error('This environment cannot repoint the managed assethub symlink.')
+    await deps.repointManaged(install.root, latest)
+  }
 
   // Before verifying: the verifying doctor would quietly sync the home copy itself.
   let skills: SkillRefresh[] = []
@@ -158,7 +200,7 @@ export const runUpdate = async (options: UpdateOptions, deps: UpdateDeps): Promi
     deps.say(`Updated, but the agent skill could not be refreshed (${skillError}). Run \`assethub setup --only skills\` to refresh it.`)
   for (const skill of skills)
     if (skill.change === 'updated') deps.say(`Agent skill updated: ${skill.path} (${skill.version ?? installed.version})`)
-  return {status: 'updated', from, to: installed.version, installer: install.installer, auth: installed.auth, skills}
+  return {status: 'updated', from, to: installed.version, installer, auth: installed.auth, skills}
 }
 
 // Windows installs expose `npm.cmd` / `assethub.cmd`, which need a shell.
@@ -232,6 +274,12 @@ export const createNodeUpdateDeps = (forwardFlags: string[], forwardEnv: Record<
   currentVersion: cliVersion,
   latestVersion: () => resolveLatestVersion(latestViaNpm, latestViaRegistry),
   binPath: () => realpath(argv[1]),
+  repointManaged: (root, version) =>
+    repointManagedLink(
+      root,
+      version,
+      [env.ASSETHUB_BIN_LINK, join(homedir(), '.local', 'bin', 'assethub')].filter((value): value is string => Boolean(value)),
+    ),
   npmGlobalRoot: async () => {
     try {
       return (await execFileAsync('npm', ['root', '--global'], {shell})).stdout.trim() || undefined
