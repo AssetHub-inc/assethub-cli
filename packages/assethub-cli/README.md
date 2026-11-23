@@ -90,8 +90,8 @@ each, and assembles them into one GLB. A run takes about 25–60 minutes.
    assethub runs watch <run-id> --download --out-dir ./character
    ```
 
-A workspace below Max is refused before any credit hold with
-`V5_MAX_PLAN_REQUIRED`. More detail, including resume and failure codes, is in
+A workspace below Max is refused before any credit hold; the error's
+`details.reason` is `V5_MAX_PLAN_REQUIRED`. More detail, including resume and failure codes, is in
 [Character Assembly](#character-assembly-image-to-assembled-3d-character); the
 HTTP flow is in the "Starting V5 Character Assembly" section of the v2 API docs.
 

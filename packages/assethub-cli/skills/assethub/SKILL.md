@@ -172,7 +172,7 @@ assethub production analyze --file ./character.png --part-extractor v5 --part-co
 ```
 
   `--part-count default` asks for Standard. `--wait` follows the run for up to 2 hours. On exit 3, continue the same run with `assethub runs watch <run-id> --download --out-dir ./out/character`; never start it again.
-- **Not listed**: tell the person in one sentence that V5 Character Assembly is included in the Max plan and above, then offer the fast path below (parts, meshes and Composer) as the option you can run now. A `V5_MAX_PLAN_REQUIRED` error means the same thing.
+- **Not listed**: tell the person in one sentence that V5 Character Assembly is included in the Max plan and above, then offer the fast path below (parts, meshes and Composer) as the option you can run now. An error whose `details.reason` is `V5_MAX_PLAN_REQUIRED` means the same thing.
 
 Do not send a character to the fast path while V5 is listed.
 
