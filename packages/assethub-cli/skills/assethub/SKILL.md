@@ -157,9 +157,28 @@ assethub api call "POST /mesh/compose" --input-json "@request.json" --operation-
 - `--operation-id <uuid>`: reuse the **same** id with the **same** input to retry; a new attempt needs a new id. Make the UUID yourself and paste the value (any random v4 UUID); don't rely on `uuidgen`, which Windows lacks.
 - Results include `execution` with the canvas URL, run and job ids, and output asset ids. Chain them into the next step with `--source-id`.
 
+### A character image: V5 Character Assembly first (Max plan)
+
+When the image is a character (a person, creature or mascot with a head, body and outfit) and the person wants a 3D model of it, check whether the workspace has V5 Character Assembly before anything else. V5 turns one image into separate parts (head, hair, body, outfit) and assembles them into one character GLB. It is included in the Max plan and above.
+
+```bash
+assethub production agents
+```
+
+- **V5 is listed** (an agent whose `label` starts with `V5 Character Assembly`; its `internalVersion` is `ah_agent_graph_harpy_assembly_v2`): use it. Ask once with the hold and its part count (Simple, the default, holds 1,300 credits; Standard holds 1,700). The run charges its actual cost when it settles, never more than the hold. It takes 25–60 minutes:
+
+```bash
+assethub production analyze --file ./character.png --part-extractor v5 --part-count few --wait --download --out-dir ./out/character
+```
+
+  `--part-count default` asks for Standard. `--wait` follows the run for up to 2 hours. On exit 3, continue the same run with `assethub runs watch <run-id> --timeout-ms 7200000 --download --out-dir ./out/character`; never start it again.
+- **Not listed**: tell the person in one sentence that V5 Character Assembly is included in the Max plan and above, then offer the fast path below (parts, meshes and Composer) as the option you can run now. An error whose `details.reason` is `V5_MAX_PLAN_REQUIRED` means the same thing.
+
+Do not send a character to the fast path while V5 is listed.
+
 ### Fast path: one image to a finished, composed asset
 
-You do not need `parts split` → `mesh generate` per part → `composer run` by hand:
+For objects and props, and for characters when V5 is not listed (see above). You do not need `parts split` → `mesh generate` per part → `composer run` by hand:
 
 ```bash
 assethub production run --image ./character.png --estimate
@@ -213,7 +232,7 @@ assethub evaluations submit --canvas <canvas-id> --artifact <asset-id> --report 
 
 ## MCP equivalents
 
-The hosted MCP (`https://app.assethub.io/api/mcp`) exposes the same API. `capabilities_get` ↔ `capabilities`; `operation_search` / `operation_describe` / `operation_call` ↔ `api search` / `describe` / `call`; `job_poll` ↔ `jobs watch`; `evaluation_submit` ↔ `evaluations submit`. Whichever you use, the golden rules are the same.
+The hosted MCP (`https://app.assethub.io/api/mcp`) exposes the same API. `capabilities_get` ↔ `capabilities`; `operation_search` / `operation_describe` / `operation_call` ↔ `api search` / `describe` / `call`; `job_poll` ↔ `jobs watch`; `production_analyze` with `agentVersion` `"ah_agent_graph_harpy_assembly_v2"` then `run_get` ↔ the V5 `production analyze --part-extractor v5` run; `evaluation_submit` ↔ `evaluations submit`. Whichever you use, the golden rules are the same.
 
 ## Diagnose
 
