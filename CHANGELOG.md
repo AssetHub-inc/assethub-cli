@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.70
+
+- Docs only, no command changes. The bundled agent skill now sends a character image to V5 Character Assembly when `production agents` lists it (Max plan and above), and to the Composer fast path otherwise. The README gains a V5 quick start and drops internal details (#113, #114).
+
 ## CLI 0.1.69
 
 - `--part-extractor` accepts V5.0.8 through V5.0.14 Character Assembly (`ah_agent_graph_harpy_assembly_v5_0_8` … `_v5_0_14`) and treats them as Character Assembly routes, so `--part-count`, `--garment-fit`, `--whole-guide` and `--body-construction` work with them. Ported from assethub-web `packages/assethub-cli`.
