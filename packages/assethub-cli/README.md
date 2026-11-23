@@ -87,7 +87,7 @@ each, and assembles them into one GLB. A run takes about 25–60 minutes.
    run again; do not start a new one:
 
    ```sh
-   assethub runs watch <run-id> --download --out-dir ./character
+   assethub runs watch <run-id> --timeout-ms 7200000 --download --out-dir ./character
    ```
 
 A workspace below Max is refused before any credit hold; the error's
