@@ -62,6 +62,39 @@ print the `export ASSETHUB_API_KEY=...` line, and export it in the shell that
 starts Claude Code or Codex. The key is redacted
 (`ah_…last4`) everywhere else.
 
+## V5 quick start: one character image to an assembled 3D character
+
+V5 Character Assembly is included in the Max plan and above. It turns one
+character image into separate parts (head, hair, body, outfit), makes a mesh for
+each, and assembles them into one GLB. A run takes about 25–60 minutes.
+
+1. Check that your workspace has it (free). An agent labelled
+   `V5 Character Assembly` must be listed; if it is not, the workspace is below Max.
+
+   ```sh
+   assethub production agents
+   ```
+
+2. Start the run, wait for it and save the GLB. `--part-count few` (Simple, the
+   default) holds 1,300 credits; `--part-count default` (Standard) holds 1,700.
+   You pay the actual cost when the run settles, never more than the hold.
+
+   ```sh
+   assethub production analyze --file ./concept.png --part-extractor v5 --part-count few --wait --download --out-dir ./character
+   ```
+
+3. If the wait ends early (exit code 3) or the terminal closes, follow the same
+   run again; do not start a new one:
+
+   ```sh
+   assethub runs watch <run-id> --download --out-dir ./character
+   ```
+
+A workspace below Max is refused before any credit hold with
+`V5_MAX_PLAN_REQUIRED`. More detail, including resume and failure codes, is in
+[Character Assembly](#character-assembly-image-to-assembled-3d-character); the
+HTTP flow is in the "Starting V5 Character Assembly" section of the v2 API docs.
+
 ## Staying up to date
 
 ```sh
