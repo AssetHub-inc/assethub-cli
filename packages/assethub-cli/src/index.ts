@@ -57,6 +57,13 @@ import {
   isFeatureNotAvailableError,
   trustSystemCertificates,
 } from './networkErrors.js'
+import {
+  catalogAgentByInternal,
+  catalogNames,
+  findCatalogAgent,
+  parseAgentCatalog,
+  type AgentCatalog,
+} from './partExtractorCatalog.js'
 import {createNodeUpdateDeps, runUpdate} from './update.js'
 import {
   autoUpdateEnabled,
@@ -70,6 +77,7 @@ import {
   refreshInBackground,
   refreshUpdateCheck,
   settingsPath,
+  truthyEnv,
   takeLock,
   updateCheckDisabled,
   updateCheckPath,
@@ -510,7 +518,16 @@ const partExtractorOptions = [
   },
 ] as const satisfies readonly PartExtractorOption[]
 
-const isV4CharacterAssembly = (version: string): boolean =>
+// The server's agent list for this invocation (undefined: not fetched, or the
+// request failed, so the table above is the offline fallback).
+let agentCatalog: AgentCatalog | undefined
+
+const isV4CharacterAssembly = (version: string): boolean => {
+  const listed = agentCatalog && catalogAgentByInternal(agentCatalog, version)
+  return listed ? listed.characterAssembly : isKnownV4CharacterAssembly(version)
+}
+
+const isKnownV4CharacterAssembly = (version: string): boolean =>
   version === 'ah_agent_graph_harpy_assembly_v2' ||
   version === 'ah_agent_graph_harpy_assembly_v4_legacy' ||
   version === 'ah_agent_graph_harpy_assembly_v2_preserve' ||
@@ -539,6 +556,14 @@ const artifactGraphPartExtractorApiValues = new Set<string>(
     .map(option => option.apiValue)
     .filter(apiValue => apiValue.startsWith('ah_agent_graph_')),
 )
+
+const isGraphPartExtractor = (apiValue: string): boolean => {
+  const listed = agentCatalog && catalogAgentByInternal(agentCatalog, apiValue)
+  return (
+    artifactGraphPartExtractorApiValues.has(apiValue) ||
+    Boolean(listed && (listed.supportedOnGraphEndpoint || apiValue.startsWith('ah_agent_graph_')))
+  )
+}
 
 const partExtractorPublicNames = partExtractorOptions
   .map(option => option.publicName)
@@ -865,42 +890,89 @@ const getPartExtractorFlag = (flags: Flags): string | undefined =>
   getFlag(flags, 'part-extractor-version') ??
   getFlag(flags, 'agent-version')
 
-const resolvePartExtractorPublicName = (value: string): string => {
-  if (isInternalPartExtractorId(value)) {
-    throw new Error(
-      `Internal part extractor IDs are not accepted by the public CLI. Use one of: ${partExtractorPublicNames}.`,
-    )
-  }
+type ResolvedPartExtractor = {publicName: string; apiValue: string}
 
-  const option = partExtractorByInput.get(normalizePartExtractorName(value))
-  if (option == null) {
-    throw new Error(
-      `Unknown part extractor: ${value}. Use one of: ${partExtractorPublicNames}.`,
-    )
-  }
-  return option.publicName
+const currentPartExtractorNames = (): string =>
+  agentCatalog ? catalogNames(agentCatalog) : partExtractorPublicNames
+
+/** Server list first (label, agentVersion, internalVersion), then the table's aliases; never an allowlist offline. */
+const lookupPartExtractor = (value: string): ResolvedPartExtractor | undefined => {
+  const alias = partExtractorByInput.get(normalizePartExtractorName(value))
+  if (agentCatalog === undefined)
+    return alias && {publicName: alias.publicName, apiValue: alias.apiValue}
+  const listed =
+    findCatalogAgent(agentCatalog, value) ??
+    (alias && catalogAgentByInternal(agentCatalog, alias.apiValue))
+  return listed && {publicName: listed.label, apiValue: listed.internalVersion}
 }
 
-const resolvePartExtractorApiValue = (value: string): string => {
+const resolvePartExtractor = (value: string): ResolvedPartExtractor => {
   if (isInternalPartExtractorId(value)) {
     throw new Error(
-      `Internal part extractor IDs are not accepted by the public CLI. Use one of: ${partExtractorPublicNames}.`,
+      `Internal part extractor IDs are not accepted by the public CLI. Use one of: ${currentPartExtractorNames()}.`,
     )
   }
-
-  const option = partExtractorByInput.get(normalizePartExtractorName(value))
-  if (option == null) {
+  const found = lookupPartExtractor(value)
+  if (found == null) {
     throw new Error(
-      `Unknown part extractor: ${value}. Use one of: ${partExtractorPublicNames}.`,
+      `Unknown part extractor: ${value}. Use one of: ${currentPartExtractorNames()}.`,
     )
   }
-  return option.apiValue
+  return found
 }
 
-const resolvePartExtractorForAnalyze = (flags: Flags): string =>
-  resolvePartExtractorApiValue(
-    getPartExtractorFlag(flags) ?? defaultPartExtractorName,
-  )
+const resolvePartExtractorPublicName = (value: string): string =>
+  resolvePartExtractor(value).publicName
+
+const resolvePartExtractorApiValue = (value: string): string =>
+  resolvePartExtractor(value).apiValue
+
+/** No --part-extractor: the server's recommended agent, else its default, else the CLI default. */
+const resolveDefaultPartExtractor = (): string => {
+  const preferred = agentCatalog?.preferred
+  if (preferred !== undefined) {
+    stderr.write(
+      `Using part extractor ${preferred.label} (${preferred.recommended ? 'recommended' : 'default'} on the server). Pass --part-extractor to choose another.\n`,
+    )
+    return preferred.internalVersion
+  }
+  return resolvePartExtractorApiValue(defaultPartExtractorName)
+}
+
+const resolvePartExtractorForAnalyze = (flags: Flags): string => {
+  const requested = getPartExtractorFlag(flags)
+  return requested == null
+    ? resolveDefaultPartExtractor()
+    : resolvePartExtractorApiValue(requested)
+}
+
+/**
+ * Fetches the server's agent list once per invocation. Offline or an unusable
+ * answer falls back to the built-in table with a stderr warning.
+ */
+const loadAgentCatalog = async (ctx: CommandContext): Promise<void> => {
+  try {
+    agentCatalog = parseAgentCatalog(await ctx.client.v1.getProductionAgents())
+  } catch (error) {
+    agentCatalog = undefined
+    stderr.write(
+      `Warning: could not read the server's part extractor list (${error instanceof Error ? error.message : String(error)}); using the built-in list, which may be out of date.\n`,
+    )
+  }
+}
+
+const needsAgentCatalog = (
+  command: string,
+  subcommand: string | undefined,
+  flags: Flags,
+): boolean =>
+  getPartExtractorFlag(flags) != null ||
+  (command === 'production' &&
+    ['analyze', 'batch', 'automation', 'execute', 'run', 'resume', 'watch'].includes(subcommand ?? '')) ||
+  (command === 'parts' &&
+    ['split', 'compare'].includes(subcommand ?? '') &&
+    // Continuing an order without --part-extractor needs no agent list.
+    !(subcommand === 'split' && hasFlag(flags, 'order-id')))
 
 const resolveProductionSkillSelection = (
   flags: Flags,
@@ -961,6 +1033,7 @@ const publicPartExtractorName = (
     return null
   }
   return (
+    (agentCatalog && catalogAgentByInternal(agentCatalog, value)?.label) ??
     partExtractorPublicNameByApiValue.get(value) ??
     (isInternalPartExtractorId(value) ? 'Unknown' : value)
   )
@@ -3458,9 +3531,9 @@ const executionOptions = (flags: Flags) => ({
 const defaultWaitMs = (flags: Flags): number => {
   const extractor = getPartExtractorFlag(flags)
   const option =
-    extractor == null
+    extractor == null || isInternalPartExtractorId(extractor)
       ? undefined
-      : partExtractorByInput.get(normalizePartExtractorName(extractor))
+      : lookupPartExtractor(extractor)
   return option !== undefined && isV4CharacterAssembly(option.apiValue)
     ? harpyAssemblyV2WaitMs
     : 900000
@@ -4798,7 +4871,7 @@ const resolvePartExtractorFromMission = async (
   if (mission?.agentVersion == null || mission.agentVersion.trim() === '') {
     throw new Error(
       'Could not infer the part extractor from the mission. Pass --part-extractor with one of: ' +
-        partExtractorPublicNames,
+        currentPartExtractorNames(),
     )
   }
 
@@ -4806,7 +4879,7 @@ const resolvePartExtractorFromMission = async (
   if (publicName == null || publicName === 'Unknown') {
     throw new Error(
       'Could not infer the public part extractor from the mission. Pass --part-extractor with one of: ' +
-        partExtractorPublicNames,
+        currentPartExtractorNames(),
     )
   }
   return resolvePartExtractorApiValue(publicName)
@@ -5667,9 +5740,8 @@ const commandProductionBatch = async (ctx: CommandContext) => {
     write: text => stderr.write(text),
     operationId,
     agent:
-      partExtractorOptions.find(
-        option => option.apiValue === options.agentVersion,
-      )?.publicName ?? String(options.agentVersion),
+      publicPartExtractorName(String(options.agentVersion)) ??
+      String(options.agentVersion),
     canvasId: session.canvas.id,
     ...(wait ? {concurrency} : {}),
     images: entries.map(entry => ({
@@ -6277,9 +6349,7 @@ const isArtifactGraphPartSplit = (
     typeof value === 'object' &&
     'engine' in value &&
     value.engine === 'artifact-graph') ||
-  artifactGraphPartExtractorApiValues.has(
-    String(execution.resolvedInput?.agentVersion),
-  )
+  isGraphPartExtractor(String(execution.resolvedInput?.agentVersion))
 
 const commandParts = async (
   subcommand: string | undefined,
@@ -6315,9 +6385,9 @@ const commandParts = async (
     const partExtractorFlag = getPartExtractorFlag(ctx.flags)
     const requestedAgentVersion =
       orderId == null || partExtractorFlag != null
-        ? resolvePartExtractorApiValue(
-            partExtractorFlag ?? defaultPartExtractorName,
-          )
+        ? partExtractorFlag != null
+          ? resolvePartExtractorApiValue(partExtractorFlag)
+          : resolveDefaultPartExtractor()
         : undefined
     const skillSelection =
       orderId == null && requestedAgentVersion != null
@@ -6332,7 +6402,7 @@ const commandParts = async (
       )
     if (
       requestedAgentVersion != null &&
-      artifactGraphPartExtractorApiValues.has(requestedAgentVersion)
+      isGraphPartExtractor(requestedAgentVersion)
     ) {
       const publicName = publicPartExtractorName(requestedAgentVersion)
       for (const flag of ['task-id', 'mission-id', 'part-extraction-mode']) {
@@ -9346,7 +9416,12 @@ const noticeUpdate = async (flags: Flags): Promise<void> => {
     const cachePath = updateCheckPath(getConfigPath(flags))
     const cache = await readUpdateCheck(cachePath)
     const now = new Date()
-    const decision = decideUpdateNotice(await cliVersion(), cache, now)
+    // Silent when the daily background install will take care of it, or when opted out.
+    const autoUpdateOn = autoUpdateEnabled(await readAutoUpdateSetting(settingsPath(getConfigPath(flags))), env)
+    const decision = decideUpdateNotice(await cliVersion(), cache, now, {
+      availableNotice: !autoUpdateOn,
+      quiet: truthyEnv(env.ASSETHUB_NO_UPDATE_NOTICE),
+    })
     for (const notice of decision.notices) stderr.write(`${notice}\n`)
     if (cache && (decision.markAnnounced || decision.markNoticed))
       await patchUpdateCheck(cachePath, cache, {
@@ -9659,6 +9734,9 @@ const run = async (): Promise<void> => {
   }
 
   const ctx = await createContext(parsed.flags, argv.slice(2))
+  agentCatalog = undefined
+  if (needsAgentCatalog(command, subcommand, parsed.flags))
+    await loadAgentCatalog(ctx)
   switch (command) {
     case 'api':
       await commandApi(subcommand, parsed.positionals, ctx)

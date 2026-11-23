@@ -1,8 +1,13 @@
+import {mkdir, mkdtemp, readlink, rm, symlink, writeFile} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {describe, expect, test} from 'vitest'
 import {
   compareVersions,
   detectInstall,
   installCommand,
+  managedInstallCommand,
+  repointManagedLink,
   resolveLatestVersion,
   runUpdate,
   type UpdateDeps,
@@ -42,6 +47,74 @@ describe('detectInstall', () => {
     expect(detectInstall('/Users/a/.npm/_npx/abc/node_modules/@assethub/cli/dist/index.js', NPM_ROOT).kind).toBe('npx')
     expect(detectInstall('/Users/a/game/node_modules/@assethub/cli/dist/index.js', NPM_ROOT).kind).toBe('project')
     expect(detectInstall('/Users/a/assethub-web/packages/assethub-cli/dist/index.js', NPM_ROOT).kind).toBe('source')
+  })
+})
+
+describe('managed installer layout', () => {
+  test.each([
+    '/Users/a/.local/share/assethub-cli/releases/npm-0.1.69/node_modules/@assethub/cli/dist/index.js',
+    '/home/a/.local/share/assethub-cli/releases/npm-0.1.69/node_modules/@assethub/cli/dist/index.js',
+    'C:\\Users\\a\\AppData\\Local\\assethub-cli\\releases\\npm-0.1.69\\node_modules\\@assethub\\cli\\dist\\index.js',
+  ])('recognises %s as managed', path => {
+    const install = detectInstall(path, NPM_ROOT)
+    expect(install.kind).toBe('managed')
+    expect(install).toMatchObject({root: expect.stringMatching(/assethub-cli$/)})
+  })
+
+  test('does not treat other releases/ trees as managed', () => {
+    expect(detectInstall('/Users/a/game/releases/npm-1.0.0/node_modules/@assethub/cli/dist/index.js', NPM_ROOT).kind).toBe('project')
+  })
+
+  test('plans a new release dir and a symlink repoint', async () => {
+    const root = '/Users/a/.local/share/assethub-cli'
+    expect(managedInstallCommand(root, '0.1.70')).toEqual([
+      'npm',
+      ['install', '--prefix', `${root}/releases/npm-0.1.70`, '--no-audit', '--no-fund', '@assethub/cli@0.1.70'],
+    ])
+    const bin = `${root}/releases/npm-0.1.69/node_modules/@assethub/cli/dist/index.js`
+    const repointed: [string, string][] = []
+    const {deps: d, calls} = deps({binPath: async () => bin, repointManaged: async (r, v) => void repointed.push([r, v])})
+    expect(await runUpdate({dryRun: true}, d)).toMatchObject({status: 'dry_run', installer: 'managed', command: expect.stringContaining('npm-0.1.31')})
+    expect(calls.runs).toEqual([])
+    const report = await runUpdate({yes: true}, d)
+    expect(report).toMatchObject({status: 'updated', installer: 'managed', to: '0.1.31'})
+    expect(calls.runs[0][1]).toContain(`${root}/releases/npm-0.1.31`)
+    expect(repointed).toEqual([[root, '0.1.31']])
+  })
+
+  test('does not repoint when the install fails; --check never installs', async () => {
+    const root = '/Users/a/.local/share/assethub-cli'
+    const bin = `${root}/releases/npm-0.1.69/node_modules/@assethub/cli/dist/index.js`
+    let repointed = 0
+    const failed = deps({binPath: async () => bin, run: async () => ({code: 1}), repointManaged: async () => void (repointed += 1)})
+    await expect(runUpdate({}, failed.deps)).rejects.toThrow(/exited with code 1/)
+    expect(repointed).toBe(0)
+    const {deps: d} = deps({binPath: async () => bin})
+    expect(await runUpdate({check: true}, d)).toMatchObject({status: 'update_available'})
+  })
+
+  test('repointManagedLink swaps the symlink atomically and refuses foreign links', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'assethub-managed-'))
+    try {
+      const root = join(base, 'share', 'assethub-cli')
+      const entry = (v: string) => join(root, 'releases', `npm-${v}`, 'node_modules', '@assethub', 'cli', 'dist', 'index.js')
+      for (const v of ['0.1.69', '0.1.70']) {
+        await mkdir(join(entry(v), '..'), {recursive: true})
+        await writeFile(entry(v), '')
+      }
+      const link = join(base, 'bin', 'assethub')
+      await mkdir(join(base, 'bin'))
+      await symlink(entry('0.1.69'), link)
+      await repointManagedLink(root, '0.1.70', [link])
+      expect(await readlink(link)).toBe(entry('0.1.70'))
+
+      const foreign = join(base, 'bin', 'other')
+      await symlink('/usr/bin/true', foreign)
+      await expect(repointManagedLink(root, '0.1.70', [foreign, join(base, 'bin', 'missing')])).rejects.toThrow(/symlink/)
+      expect(await readlink(foreign)).toBe('/usr/bin/true')
+    } finally {
+      await rm(base, {recursive: true, force: true})
+    }
   })
 })
 

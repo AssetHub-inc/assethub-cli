@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.1.70
+
+- `assethub update` and the daily background auto-update now work for the official installer layout (`~/.local/share/assethub-cli/releases/npm-<version>/…`, linked from `~/.local/bin/assethub`); they were refusing it as a "project dependency". The update installs into a new `releases/npm-<latest>` directory and atomically repoints the symlink (`ASSETHUB_BIN_LINK` overrides its location).
+- The startup notice is one stderr line, `A newer AssetHub CLI is available: 0.1.69 → 0.1.70. Run: assethub update`, at most once a day from the existing daily check cache. It stays silent when auto-update will install the release, and with `ASSETHUB_NO_UPDATE_NOTICE=1`.
+- `--part-extractor` is resolved against the server's `GET /production/agents` list (label, agentVersion, internalVersion, or a built-in alias), so new server agents need no CLI release. Without the flag the server's `recommended` agent (else its `defaultAgent`) is used and printed on stderr. Character Assembly gating (`--part-count`, `--garment-fit`, `--whole-guide`, `--body-construction`, the long `--wait` default) follows server metadata. If the list cannot be read, the built-in table is used with a warning.
+
 ## CLI 0.1.69
 
 - `--part-extractor` accepts V5.0.8 through V5.0.14 Character Assembly (`ah_agent_graph_harpy_assembly_v5_0_8` … `_v5_0_14`) and treats them as Character Assembly routes, so `--part-count`, `--garment-fit`, `--whole-guide` and `--body-construction` work with them. Ported from assethub-web `packages/assethub-cli`.
