@@ -18,9 +18,11 @@ assethub auth login --api-key-stdin
 assethub doctor
 ```
 
-Create an API key in [AssetHub](https://app.assethub.io), run the login
-command, paste the key, and finish standard input with Ctrl+D on macOS/Linux or
-Ctrl+Z then Enter on Windows. The key selects the workspace for API operations.
+Create an API key in [AssetHub](https://app.assethub.io) (Settings > API keys),
+run the login command, paste the key at the prompt and press Enter. The key is
+not shown while you paste. You can also pipe it in:
+`printf '%s' "$KEY" | assethub auth login --api-key-stdin`. The key selects the
+workspace for API operations.
 Do not put keys in issue reports, committed files, or command arguments.
 
 CLI 0.1.21 discovers personal access for eligible existing `sk_` keys as well as
