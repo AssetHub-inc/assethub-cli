@@ -4,6 +4,10 @@
 
 - `assethub auth login --api-key-stdin` (and `--access-token-stdin`, and `setup --api-key-stdin`) run in a terminal now show a hidden "Paste your AssetHub API key and press Enter" prompt and finish on Enter. Before, they waited silently for end-of-input (Ctrl+D / Ctrl+Z), so pressing Enter after pasting did nothing and the key was never saved. Piped input is read exactly as before.
 
+## CLI 0.1.71
+
+- Submit production feedback with a stable operation ID and trace an evaluation to the methods, measurements and reviewer decisions on a specific order with `feedback trace <evaluation-id> --order <order-id>`. Both commands use the active workspace.
+
 ## CLI 0.1.69
 
 - `--part-extractor` accepts V5.0.8 through V5.0.14 Character Assembly (`ah_agent_graph_harpy_assembly_v5_0_8` … `_v5_0_14`) and treats them as Character Assembly routes, so `--part-count`, `--garment-fit`, `--whole-guide` and `--body-construction` work with them. Ported from assethub-web `packages/assethub-cli`.

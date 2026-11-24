@@ -13,6 +13,7 @@ import {
   type WorkspaceSkillBuild,
 } from '@assethub/api-client'
 import {setTimeout as delay} from 'node:timers/promises'
+import {submitProductionFeedback, traceProductionFeedback} from './productionFeedback.js'
 import {buildAssemblyExperiment} from './assemblyExperiment.js'
 import {cliVersion, diagnose, mcpConfig} from './setup.js'
 import {type BrowserLoginResult, runBrowserLogin} from './browserLogin.js'
@@ -656,6 +657,8 @@ Usage:
   assethub graph image <graph-id> <node-id> [--out <path>]
   assethub evaluate list
   assethub evaluations submit --artifact <asset-id> --report <json|file|@file|@-> [--agent <name>] [--canvas <id>] [--reference <asset-id>...] [--run <run-id>] [--operation-id <uuid>] [--require-pass]
+  assethub feedback trace <evaluation-id> [--order <order-id>]
+  assethub feedback submit --input-json <json|@file|@-> --operation-id <uuid>
   assethub evaluations list [--canvas <id>] [--artifact <asset-id>]
   assethub evaluations get <evaluation-id>
   assethub image generate --input-json <json|@file|@-> [--canvas <id>] [--operation-id <uuid>] [--agent <name>] [--derived-from-run <run-id>] [--from-node <graphId/nodeId> --graph-revision <rev>] [--wait]
@@ -9687,6 +9690,18 @@ const run = async (): Promise<void> => {
     case 'graph':
       await commandGraph(subcommand, parsed.positionals, ctx)
       return
+    case 'feedback': {
+      if (subcommand === 'trace') {
+        print(await traceProductionFeedback(ctx.client, requirePositional(parsed.positionals, 2, 'evaluation-id'), hasFlag(ctx.flags, 'order') ? requireFlag(ctx.flags, 'order') : undefined))
+        return
+      }
+      if (subcommand !== 'submit') throw new Error('Use feedback submit or trace')
+      const operationId = requireFlag(ctx.flags, 'operation-id')
+      const input = await readJsonArgument(requireFlag(ctx.flags, 'input-json'), '--input-json')
+      activeExecution.operationId = operationId
+      print(await submitProductionFeedback(ctx.client, input, operationId))
+      return
+    }
     case 'evaluations':
       await commandEvaluations(subcommand, parsed.positionals, ctx)
       return
