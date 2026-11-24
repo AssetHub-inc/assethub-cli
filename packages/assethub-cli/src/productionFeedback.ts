@@ -159,6 +159,7 @@ export async function submitProductionFeedback(
               claim,
               sourceIds: [evaluation.id],
               confidence: 'low',
+              ontologyRuleIds: [rule.ruleId],
               proposedOntologyChange: {
                 document: rule.document,
                 ruleId: rule.ruleId,
@@ -321,9 +322,11 @@ export async function traceProductionFeedback(
   const ruleIds = new Set(
     entries
       .filter(entry => links.some(link => link.entryId === entry.id))
-      .flatMap(entry =>
-        Array.isArray(entry.ontologyRuleIds) ? entry.ontologyRuleIds : [],
-      ),
+      .flatMap(entry => {
+        if (Array.isArray(entry.ontologyRuleIds) && entry.ontologyRuleIds.length) return entry.ontologyRuleIds
+        const proposal = entry.proposedOntologyChange
+        return isRecord(proposal) && typeof proposal.ruleId === 'string' ? [proposal.ruleId] : []
+      }),
   )
   return {
     ...published,

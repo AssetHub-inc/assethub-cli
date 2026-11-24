@@ -112,7 +112,7 @@ it.each([true, false])(
       ).toMatchObject({
         sources: [{authority: 'agent', externalId: id}],
         entries: [
-          {kind: 'observation', proposedOntologyChange: {ruleId: 'rim'}},
+          {kind: 'observation', ontologyRuleIds: ['rim'], proposedOntologyChange: {ruleId: 'rim'}},
         ],
       })
     expect(transport).toHaveBeenCalledTimes(available ? 5 : 4)
@@ -239,7 +239,8 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
     status: 'approved',
     review: {sharedMethod: method},
     sourceIds: ['s'],
-    ontologyRuleIds: ['rim'],
+    ontologyRuleIds: [],
+    proposedOntologyChange: {ruleId: 'rim'},
   }
   const selection = {
     evaluationId: id,

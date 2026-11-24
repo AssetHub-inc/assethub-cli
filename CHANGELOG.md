@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.72
+
+- Preserve the target rule on new feedback proposals and resolve the target of earlier proposals when tracing an order.
+
 ## CLI 0.1.71
 
 - Submit production feedback with a stable operation ID and trace an evaluation to the methods, measurements and reviewer decisions on a specific order with `feedback trace <evaluation-id> --order <order-id>`. Both commands use the active workspace.
