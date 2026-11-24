@@ -16,6 +16,9 @@ const destinations = [
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+const evaluationUrl = (client: AssetHubClient, id: string) =>
+  client.baseUrl + '/api/v2/evaluations/' + encodeURIComponent(id)
+
 /** Record the case first so a refused or interrupted promotion keeps its evidence. */
 export async function submitProductionFeedback(
   client: AssetHubClient,
@@ -140,10 +143,7 @@ export async function submitProductionFeedback(
               id: evaluation.id,
               kind: 'run',
               externalId: evaluation.id,
-              url: new URL(
-                '/api/v2/evaluations/' + encodeURIComponent(evaluation.id),
-                client.baseUrl,
-              ).href,
+              url: evaluationUrl(client, evaluation.id),
               contentSha256: createHash('sha256').update(reason).digest('hex'),
               text: {original: reason, en: rule.findingEn},
               observedAt: evaluation.createdAt,
@@ -181,10 +181,9 @@ export async function submitProductionFeedback(
       return {...receipt, status: proposal.status, proposal}
     }
   } catch (cause) {
-    throw new Error(
-      `Feedback recorded as ${evaluation.id}. Proposal step failed: ${cause instanceof Error ? cause.message : String(cause)}. Retry uncertain responses with the original operation ID and payload.`,
-      {cause},
-    )
+    const error = cause instanceof Error ? cause : new Error(String(cause))
+    error.message = `Feedback recorded as ${evaluation.id}. Proposal step failed: ${error.message}. Retry uncertain responses with the original operation ID and payload.`
+    throw error
   }
   return {
     ...receipt,
@@ -245,6 +244,7 @@ export async function traceProductionFeedback(
   orderId?: string,
 ) {
   if (!uuid.test(evaluationId)) throw new Error('Invalid evaluation ID')
+  if (orderId !== undefined && !uuid.test(orderId)) throw new Error('Invalid order ID')
   const evaluation = await client.v2.getEvaluation(evaluationId)
   const receipt = {
     evaluationId: evaluation.id,
@@ -252,7 +252,6 @@ export async function traceProductionFeedback(
     runId: evaluation.runId,
     artifactId: evaluation.artifactId,
   }
-  if (orderId && !uuid.test(orderId)) throw new Error('Invalid order ID')
   const {ownerId} = await client.v2.getCapabilities()
   const order = orderId
     ? (
@@ -286,10 +285,7 @@ export async function traceProductionFeedback(
   const kb: unknown = doc ? JSON.parse(doc.content) : {sources: [], entries: []}
   if (!isRecord(kb) || !Array.isArray(kb.sources) || !Array.isArray(kb.entries))
     throw new Error('Invalid published knowledge document')
-  const sourceUrl = new URL(
-    '/api/v2/evaluations/' + evaluation.id,
-    client.baseUrl,
-  ).href
+  const sourceUrl = evaluationUrl(client, evaluation.id)
   const sourceIds = new Set(
     kb.sources
       .filter(isRecord)

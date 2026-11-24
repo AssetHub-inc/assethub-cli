@@ -9683,12 +9683,12 @@ const run = async (): Promise<void> => {
       return
     case 'feedback': {
       if (subcommand === 'trace') {
-        print(await traceProductionFeedback(ctx.client, requirePositional(parsed.positionals, 2, 'evaluation-id'), getFlag(ctx.flags, 'order')))
+        print(await traceProductionFeedback(ctx.client, requirePositional(parsed.positionals, 2, 'evaluation-id'), hasFlag(ctx.flags, 'order') ? requireFlag(ctx.flags, 'order') : undefined))
         return
       }
       if (subcommand !== 'submit') throw new Error('Use feedback submit or trace')
-      const input = await readJsonArgument(requireFlag(ctx.flags, 'input-json'), '--input-json')
       const operationId = requireFlag(ctx.flags, 'operation-id')
+      const input = await readJsonArgument(requireFlag(ctx.flags, 'input-json'), '--input-json')
       activeExecution.operationId = operationId
       print(await submitProductionFeedback(ctx.client, input, operationId))
       return

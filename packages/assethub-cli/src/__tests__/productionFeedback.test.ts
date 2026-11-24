@@ -181,7 +181,7 @@ it('traces the decision through the published workspace source', async () => {
     id: 's',
     kind: 'run',
     externalId: id,
-    url: 'https://api.test/api/v2/evaluations/' + id,
+    url: 'https://api.test/gateway/api/v2/evaluations/' + id,
   }
   const entry = {
     id: 'entry',
@@ -196,7 +196,7 @@ it('traces the decision through the published workspace source', async () => {
   }
   const client = createAssetHubClient({
     apiKey: 'test',
-    baseUrl: 'https://api.test',
+    baseUrl: 'https://api.test/gateway',
     fetch: async url => {
       const path = new URL(String(url)).pathname
       const data = path.endsWith('/catalog')
