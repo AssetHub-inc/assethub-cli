@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.72
+
+- Trace feedback to its exact rule document and ID while keeping retries compatible with earlier CLI versions.
+
 ## CLI 0.1.71
 
 - `assethub auth login --api-key-stdin` (and `--access-token-stdin`, and `setup --api-key-stdin`) run in a terminal now show a hidden "Paste your AssetHub API key and press Enter" prompt and finish on Enter. Before, they waited silently for end-of-input (Ctrl+D / Ctrl+Z), so pressing Enter after pasting did nothing and the key was never saved. Piped input is read exactly as before.

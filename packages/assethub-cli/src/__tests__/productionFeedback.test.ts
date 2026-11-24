@@ -239,7 +239,8 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
     status: 'approved',
     review: {sharedMethod: method},
     sourceIds: ['s'],
-    ontologyRuleIds: ['rim'],
+    ontologyRuleIds: [],
+    proposedOntologyChange: {document: 'geometry-ontology.json', ruleId: 'rim'},
   }
   const selection = {
     evaluationId: id,
@@ -249,7 +250,7 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
   }
   const rule = {
     id: 'rim-check',
-    specifiedBy: {ruleId: 'rim'},
+    specifiedBy: {document: 'geometry-ontology.json', ruleId: 'rim'},
     state: 'unverified',
     assertions: [],
     reviewerFindings: [],
@@ -288,7 +289,7 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
               meshArtifactId: 'after',
               reportArtifactId: 'report',
               planningKnowledge: [selection],
-              requirements: [rule],
+              requirements: [rule, {...rule, id: 'unrelated', specifiedBy: {document: 'conversion-ontology.json', ruleId: 'rim'}}],
             },
           },
         '/api/v2/ontology/revisions/r1': {
