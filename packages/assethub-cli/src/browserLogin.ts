@@ -373,7 +373,7 @@ export const runBrowserLogin = async ({
     await Promise.resolve(openBrowser(url)).catch(() => {})
   }
   write(
-    `Waiting for approval in the browser (up to ${Math.round(timeoutMs / 60_000)} minutes). If AssetHub asks for MFA, finish MFA in the browser; this command keeps waiting.\n`,
+    `Waiting for approval in the browser (up to ${Math.round(timeoutMs / 60_000)} minutes). If AssetHub asks for MFA, finish MFA in the browser; this command keeps waiting.\nIf the page says browser login is not available (or shows 404), press Ctrl+C. ${FALLBACK_HINT}\n`,
   )
   const code = await listener.code
   return exchangeAuthorizationCode({

@@ -1110,6 +1110,15 @@ const readStdin = async (): Promise<string> =>
     stdin.on('error', reject)
   })
 
+// `--api-key-stdin` / `--access-token-stdin` typed into a terminal used to wait
+// for end-of-input (Ctrl+D / Ctrl+Z) with no prompt, so pressing Enter after a
+// paste looked like it did nothing and the key was never saved. A terminal now
+// gets a hidden one-line prompt; piped input is read to the end as before.
+const readSecretFromStdin = async (label: string): Promise<string> =>
+  stdin.isTTY
+    ? await promptHidden(`Paste your ${label} and press Enter: `)
+    : (await readStdin()).trim()
+
 const readStdinBlob = async (type?: string): Promise<Blob> =>
   await new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
@@ -2763,7 +2772,7 @@ const commandAuth = async (
     if (hasFlag(flags, 'access-token-stdin')) {
       if (hasFlag(flags, 'api-key-stdin') || getFlag(flags, 'api-key'))
         throw new Error('Choose user access-token login or API-key login')
-      const accessToken = (await readStdin()).trim()
+      const accessToken = await readSecretFromStdin('AssetHub access token')
       const baseUrl =
         getFlag(flags, 'base-url') ??
         env.ASSETHUB_API_BASE_URL ??
@@ -2959,7 +2968,7 @@ const commandAuth = async (
       return
     }
     const apiKey = hasFlag(flags, 'api-key-stdin')
-      ? (await readStdin()).trim()
+      ? await readSecretFromStdin('AssetHub API key')
       : (getFlag(flags, 'api-key') ?? env.ASSETHUB_API_KEY ?? '').trim()
     if (apiKey.length === 0) {
       throw new Error(
