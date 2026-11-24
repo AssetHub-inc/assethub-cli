@@ -953,8 +953,9 @@ assethub auth login --no-browser  # prints the URL to open on this machine inste
 
 Approving mints a workspace API key named `AssetHub CLI on <host> (<date>)` (revocable in the
 workspace API key list) and saves it exactly like `--api-key-stdin`. Only workspace admins can
-approve, and workspace MFA applies. If your account does not have browser login yet, the CLI
-prints the `--api-key-stdin` fallback.
+approve, and workspace MFA applies. If your account does not have browser login yet, the
+AssetHub page says so: press Ctrl+C, create a workspace API key in Settings > API keys, and run
+`assethub auth login --api-key-stdin` (paste the key and press Enter).
 
 Agent-friendly login:
 
