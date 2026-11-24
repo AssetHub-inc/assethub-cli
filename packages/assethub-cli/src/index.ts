@@ -1113,14 +1113,47 @@ const readStdin = async (): Promise<string> =>
     stdin.on('error', reject)
   })
 
+// A secret is one line. Stop at its first non-empty line instead of waiting
+// for end-of-input: Git Bash's mintty window gives node a pipe, not a
+// terminal, so a key pasted there and followed by Enter would otherwise never
+// finish. Piped input without a trailing newline still ends at end-of-input.
+const readStdinFirstLine = async (): Promise<string> =>
+  await new Promise((resolve, reject) => {
+    let value = ''
+    const finish = (line: string) => {
+      stdin.removeListener('data', onData)
+      stdin.removeListener('end', onEnd)
+      stdin.removeListener('error', reject)
+      stdin.pause()
+      // An open pipe would otherwise keep the process alive after the login.
+      ;(stdin as {unref?: () => void}).unref?.()
+      resolve(line)
+    }
+    const onData = (chunk: string) => {
+      value += chunk
+      let newline = value.indexOf('\n')
+      while (newline !== -1) {
+        const line = value.slice(0, newline).trim()
+        if (line.length > 0) return finish(line)
+        value = value.slice(newline + 1)
+        newline = value.indexOf('\n')
+      }
+    }
+    const onEnd = () => finish(value.trim())
+    stdin.setEncoding('utf8')
+    stdin.on('data', onData)
+    stdin.on('end', onEnd)
+    stdin.on('error', reject)
+  })
+
 // `--api-key-stdin` / `--access-token-stdin` typed into a terminal used to wait
 // for end-of-input (Ctrl+D / Ctrl+Z) with no prompt, so pressing Enter after a
 // paste looked like it did nothing and the key was never saved. A terminal now
-// gets a hidden one-line prompt; piped input is read to the end as before.
+// gets a hidden one-line prompt; other input is read up to its first line.
 const readSecretFromStdin = async (label: string): Promise<string> =>
   stdin.isTTY
     ? await promptHidden(`Paste your ${label} and press Enter: `)
-    : (await readStdin()).trim()
+    : await readStdinFirstLine()
 
 const readStdinBlob = async (type?: string): Promise<Blob> =>
   await new Promise((resolve, reject) => {
