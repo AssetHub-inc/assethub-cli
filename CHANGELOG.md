@@ -2,7 +2,7 @@
 
 ## CLI 0.1.72
 
-- Preserve the target rule on new feedback proposals and resolve the target of earlier proposals when tracing an order.
+- Trace feedback to its exact rule document and ID while keeping retries compatible with earlier CLI versions.
 
 ## CLI 0.1.71
 

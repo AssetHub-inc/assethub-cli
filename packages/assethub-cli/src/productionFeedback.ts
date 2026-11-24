@@ -159,7 +159,6 @@ export async function submitProductionFeedback(
               claim,
               sourceIds: [evaluation.id],
               confidence: 'low',
-              ontologyRuleIds: [rule.ruleId],
               proposedOntologyChange: {
                 document: rule.document,
                 ruleId: rule.ruleId,
@@ -219,7 +218,7 @@ interface FeedbackOrder {
     }[]
     requirements: {
       id: string
-      specifiedBy: {ruleId: string}
+      specifiedBy: {document?: string; ruleId: string}
       state: string
       assertions: {
         requirementId: string
@@ -319,15 +318,7 @@ export async function traceProductionFeedback(
           entry.review.sharedMethod === link.method,
       ),
   )
-  const ruleIds = new Set(
-    entries
-      .filter(entry => links.some(link => link.entryId === entry.id))
-      .flatMap(entry => {
-        if (Array.isArray(entry.ontologyRuleIds) && entry.ontologyRuleIds.length) return entry.ontologyRuleIds
-        const proposal = entry.proposedOntologyChange
-        return isRecord(proposal) && typeof proposal.ruleId === 'string' ? [proposal.ruleId] : []
-      }),
-  )
+  const selectedEntries = entries.filter(entry => links.some(link => link.entryId === entry.id))
   return {
     ...published,
     ...(order
@@ -338,7 +329,13 @@ export async function traceProductionFeedback(
             reportArtifactId: graph?.reportArtifactId ?? null,
             selectedMethods: links,
             requirements: (graph?.requirements ?? [])
-              .filter(rule => ruleIds.has(rule.specifiedBy.ruleId))
+              .filter(rule => selectedEntries.some(entry => {
+                const proposal = entry.proposedOntologyChange
+                if (isRecord(proposal))
+                  return typeof proposal.document === 'string' && proposal.document === rule.specifiedBy.document &&
+                    proposal.ruleId === rule.specifiedBy.ruleId
+                return Array.isArray(entry.ontologyRuleIds) && entry.ontologyRuleIds.includes(rule.specifiedBy.ruleId)
+              }))
               .map(rule => ({
                 id: rule.id,
                 state: rule.state,
