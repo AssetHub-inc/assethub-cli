@@ -234,6 +234,15 @@ it('traces the decision through the published workspace source', async () => {
 it('joins order evidence against the frozen approval and ignores an unrelated evaluation', async () => {
   const {traceProductionFeedback} = await import('../productionFeedback.js')
   let planningKnowledgeRecorded: boolean | undefined
+  const controlId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const workspace = {organizationId: 'org', ontologyId: 'workspace', revisionId: 'r1'}
+  const shared = {...workspace, ontologyId: 'public', revisionId: 'p1'}
+  const controlPublic = {...shared}
+  let controlHasGraph = true
+  let returnedControlId = controlId
+  let controlRecorded = true
+  let controlLinks: unknown[] = []
+  const reads: string[] = []
   const method = 'compare_views'
   const entry = {
     id: 'feedback-' + id,
@@ -261,6 +270,7 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
     baseUrl: 'https://api.test',
     fetch: async input => {
       const url = new URL(String(input))
+      reads.push(url.pathname)
       const source = {
         id: 's',
         kind: 'run',
@@ -284,7 +294,7 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
         ['/api/v2/production/ontology-orders/' + id + '?include=requirements']:
           {
             orderId: id,
-            meshReview: {pins: {workspace: {revisionId: 'r1'}}},
+            meshReview: {pins: {workspace, public: shared}},
             requirementGraph: {
               schema: 'assethub.mesh-requirements/v1',
               meshArtifactId: 'after',
@@ -294,6 +304,12 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
               requirements: [rule, {...rule, id: 'unrelated', specifiedBy: {document: 'conversion-ontology.json', ruleId: 'rim'}}],
             },
           },
+        ['/api/v2/production/ontology-orders/' + controlId + '?include=requirements']: {
+          orderId: returnedControlId,
+          meshReview: {pins: {workspace, public: controlPublic}},
+          requirementGraph: controlHasGraph ? {schema: 'assethub.mesh-requirements/v1', meshArtifactId: 'control', reportArtifactId: 'control-report',
+            planningKnowledgeRecorded: controlRecorded, planningKnowledge: controlLinks, requirements: []} : null,
+        },
         '/api/v2/ontology/revisions/r1': {
           catalog: {
             audience: 'workspace',
@@ -318,6 +334,36 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
   expect(found.order?.requirements).toMatchObject([
     {id: 'rim-check', state: 'unverified'},
   ])
+  const compare = () => traceProductionFeedback(client, id, id, controlId)
+  reads.length = 0
+  expect(await compare()).toMatchObject({order: {selectionStatus: 'selected'}, control: {selectionStatus: 'not_selected'}})
+  expect(reads).toHaveLength(5)
+  expect(new Set(reads).size).toBe(5)
+  controlHasGraph = false
+  expect((await compare()).control?.selectionStatus).toBe('unknown')
+  controlHasGraph = true
+  returnedControlId = id
+  await expect(compare()).rejects.toThrow('verified workspace mesh review pin')
+  returnedControlId = controlId
+  controlRecorded = false
+  expect((await compare()).control?.selectionStatus).toBe('unknown')
+  controlRecorded = true
+  controlLinks = [selection]
+  expect((await compare()).control?.selectionStatus).toBe('selected')
+  controlLinks = [{...selection, workspaceRevisionId: 'stale'}]
+  expect((await compare()).control?.selectionStatus).toBe('unknown')
+  controlLinks = []
+  entry.status = 'proposed'
+  expect((await compare()).control?.selectionStatus).toBe('unknown')
+  entry.status = 'approved'
+  controlPublic.revisionId = 'p2'
+  await expect(compare()).rejects.toThrow('same complete public and workspace pins')
+  controlPublic.revisionId = ''
+  await expect(compare()).rejects.toThrow('same complete public and workspace pins')
+  reads.length = 0
+  await expect(traceProductionFeedback(client, id, id, id.toUpperCase())).rejects.toThrow('distinct order IDs')
+  await expect(traceProductionFeedback(client, id, undefined, controlId)).rejects.toThrow('distinct order IDs')
+  expect(reads).toEqual([])
   selection.evaluationId = 'another-evaluation'
   expect((await traceProductionFeedback(client, id, id)).order).toMatchObject({
     planningKnowledgeRecorded: true,
