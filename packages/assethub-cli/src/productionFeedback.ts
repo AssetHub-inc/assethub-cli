@@ -203,13 +203,20 @@ interface PublishedCatalog {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+interface FeedbackPin {
+  organizationId?: string
+  ontologyId?: string
+  revisionId: string
+}
+
 interface FeedbackOrder {
   orderId: string
-  meshReview?: {pins?: {workspace?: {revisionId: string}}} | null
+  meshReview?: {pins?: {public?: FeedbackPin; workspace?: FeedbackPin}} | null
   requirementGraph?: {
     schema: string
     meshArtifactId: string
     reportArtifactId: string
+    planningKnowledgeRecorded?: boolean
     planningKnowledge: {
       entryId: string
       method: string
@@ -237,14 +244,31 @@ interface FeedbackOrder {
   } | null
 }
 
-/** Read one authorized evaluation and only the currently published workspace revision. */
+async function readFeedbackOrder(client: AssetHubClient, id: string) {
+  const {data} = await client.request<FeedbackOrder>(
+    'v2', '/production/ontology-orders/' + id + '?include=requirements', {method: 'GET'},
+  )
+  if (data?.orderId !== id || !data.meshReview?.pins?.workspace?.revisionId)
+    throw new Error('This order has no verified workspace mesh review pin')
+  return data
+}
+
+function sameFeedbackPin(a?: FeedbackPin, b?: FeedbackPin) {
+  return Boolean(a?.organizationId && a.ontologyId && a.revisionId &&
+    a.organizationId === b?.organizationId && a.ontologyId === b.ontologyId && a.revisionId === b.revisionId)
+}
+
+/** Trace the published head or the catalogs pinned by the requested orders. */
 export async function traceProductionFeedback(
   client: AssetHubClient,
   evaluationId: string,
   orderId?: string,
+  controlOrderId?: string,
 ) {
   if (!uuid.test(evaluationId)) throw new Error('Invalid evaluation ID')
   if (orderId !== undefined && !uuid.test(orderId)) throw new Error('Invalid order ID')
+  if (controlOrderId !== undefined && (!uuid.test(controlOrderId) || !orderId || controlOrderId.toLowerCase() === orderId.toLowerCase()))
+    throw new Error('A control requires two distinct order IDs')
   const evaluation = await client.v2.getEvaluation(evaluationId)
   const receipt = {
     evaluationId: evaluation.id,
@@ -253,18 +277,12 @@ export async function traceProductionFeedback(
     artifactId: evaluation.artifactId,
   }
   const {ownerId} = await client.v2.getCapabilities()
-  const order = orderId
-    ? (
-        await client.request<FeedbackOrder>(
-          'v2',
-          '/production/ontology-orders/' + orderId + '?include=requirements',
-          {method: 'GET'},
-        )
-      ).data
-    : null
+  const order = orderId ? await readFeedbackOrder(client, orderId) : null
   const pinned = order?.meshReview?.pins?.workspace?.revisionId
-  if (orderId && (order?.orderId !== orderId || !pinned))
-    throw new Error('This order has no verified workspace mesh review pin')
+  const control = controlOrderId ? await readFeedbackOrder(client, controlOrderId) : null
+  if (control && (!sameFeedbackPin(order?.meshReview?.pins?.public, control.meshReview?.pins?.public) ||
+      !sameFeedbackPin(order?.meshReview?.pins?.workspace, control.meshReview?.pins?.workspace)))
+    throw new Error('Target and control must have the same complete public and workspace pins')
   const {
     data: {catalog, pin},
   } = await client.request<PublishedCatalog>(
@@ -305,46 +323,56 @@ export async function traceProductionFeedback(
         entry.sourceIds.some(id => sourceIds.has(id)),
     )
 
-  const graph = order?.requirementGraph
-  const links = (graph?.planningKnowledge ?? []).filter(
-    link =>
-      link.evaluationId === evaluation.id &&
-      link.workspaceRevisionId === pinned &&
-      entries.some(
-        entry =>
-          entry.id === link.entryId &&
-          entry.status === 'approved' &&
-          isRecord(entry.review) &&
-          entry.review.sharedMethod === link.method,
-      ),
+  const approvedMethods = entries.flatMap(entry =>
+    entry.status === 'approved' && typeof entry.id === 'string' && isRecord(entry.review) &&
+      typeof entry.review.sharedMethod === 'string' && entry.review.sharedMethod.trim()
+      ? [{entryId: entry.id, method: entry.review.sharedMethod}]
+      : [],
   )
-  const selectedEntries = entries.filter(entry => links.some(link => link.entryId === entry.id))
+
+  function project(item: FeedbackOrder) {
+    const graph = item.requirementGraph
+    const links = (graph?.planningKnowledge ?? []).filter(
+      link =>
+        link.evaluationId === evaluation.id &&
+        link.workspaceRevisionId === pinned &&
+        approvedMethods.some(approved => approved.entryId === link.entryId && approved.method === link.method),
+    )
+    const selectedEntries = entries.filter(entry => links.some(link => link.entryId === entry.id))
+    const recorded = graph?.planningKnowledgeRecorded === true && Array.isArray(graph.planningKnowledge)
+    const hasRelatedLink = graph?.planningKnowledge?.some(link =>
+      link.evaluationId === evaluation.id || entries.some(entry => entry.id === link.entryId))
+    // An inconsistent source or revision cannot establish a negative control.
+    let selectionStatus: 'unknown' | 'selected' | 'not_selected' = 'unknown'
+    if (links.length) selectionStatus = 'selected'
+    else if (recorded && approvedMethods.length > 0 && !hasRelatedLink) selectionStatus = 'not_selected'
+    return {
+      id: item.orderId,
+      meshArtifactId: graph?.meshArtifactId ?? null,
+      reportArtifactId: graph?.reportArtifactId ?? null,
+      planningKnowledgeRecorded: recorded,
+      selectionStatus,
+      selectedMethods: links,
+      requirements: (graph?.requirements ?? [])
+        .filter(rule => selectedEntries.some(entry => {
+          const proposal = entry.proposedOntologyChange
+          if (isRecord(proposal))
+            return typeof proposal.document === 'string' && proposal.document === rule.specifiedBy.document &&
+              proposal.ruleId === rule.specifiedBy.ruleId
+          return Array.isArray(entry.ontologyRuleIds) && entry.ontologyRuleIds.includes(rule.specifiedBy.ruleId)
+        }))
+        .map(rule => ({
+          id: rule.id,
+          state: rule.state,
+          assertions: rule.assertions,
+          reviewerFindings: rule.reviewerFindings,
+        })),
+    }
+  }
   return {
     ...published,
-    ...(order
-      ? {
-          order: {
-            id: orderId,
-            meshArtifactId: graph?.meshArtifactId ?? null,
-            reportArtifactId: graph?.reportArtifactId ?? null,
-            selectedMethods: links,
-            requirements: (graph?.requirements ?? [])
-              .filter(rule => selectedEntries.some(entry => {
-                const proposal = entry.proposedOntologyChange
-                if (isRecord(proposal))
-                  return typeof proposal.document === 'string' && proposal.document === rule.specifiedBy.document &&
-                    proposal.ruleId === rule.specifiedBy.ruleId
-                return Array.isArray(entry.ontologyRuleIds) && entry.ontologyRuleIds.includes(rule.specifiedBy.ruleId)
-              }))
-              .map(rule => ({
-                id: rule.id,
-                state: rule.state,
-                assertions: rule.assertions,
-                reviewerFindings: rule.reviewerFindings,
-              })),
-          },
-        }
-      : {}),
+    ...(order ? {order: project(order)} : {}),
+    ...(control ? {control: project(control)} : {}),
     decisions: entries.map(entry => ({
       entryId: entry.id,
       status: entry.status,

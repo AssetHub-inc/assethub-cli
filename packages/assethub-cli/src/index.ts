@@ -657,7 +657,7 @@ Usage:
   assethub graph image <graph-id> <node-id> [--out <path>]
   assethub evaluate list
   assethub evaluations submit --artifact <asset-id> --report <json|file|@file|@-> [--agent <name>] [--canvas <id>] [--reference <asset-id>...] [--run <run-id>] [--operation-id <uuid>] [--require-pass]
-  assethub feedback trace <evaluation-id> [--order <order-id>]
+  assethub feedback trace <evaluation-id> [--order <order-id> [--control-order <order-id>]]
   assethub feedback submit --input-json <json|@file|@-> --operation-id <uuid>
   assethub evaluations list [--canvas <id>] [--artifact <asset-id>]
   assethub evaluations get <evaluation-id>
@@ -9692,7 +9692,11 @@ const run = async (): Promise<void> => {
       return
     case 'feedback': {
       if (subcommand === 'trace') {
-        print(await traceProductionFeedback(ctx.client, requirePositional(parsed.positionals, 2, 'evaluation-id'), hasFlag(ctx.flags, 'order') ? requireFlag(ctx.flags, 'order') : undefined))
+        print(await traceProductionFeedback(
+          ctx.client, requirePositional(parsed.positionals, 2, 'evaluation-id'),
+          hasFlag(ctx.flags, 'order') ? requireFlag(ctx.flags, 'order') : undefined,
+          hasFlag(ctx.flags, 'control-order') ? requireFlag(ctx.flags, 'control-order') : undefined,
+        ))
         return
       }
       if (subcommand !== 'submit') throw new Error('Use feedback submit or trace')
