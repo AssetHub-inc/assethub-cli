@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.73
+
+- Order feedback traces include `planningKnowledgeRecorded`. A false value means an empty selection cannot establish that a control order excluded the method. Older servers return no evidence flag and are treated as unverified.
+
 ## CLI 0.1.72
 
 - Trace feedback to its exact rule document and ID while keeping retries compatible with earlier CLI versions.

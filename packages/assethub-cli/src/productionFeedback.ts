@@ -210,6 +210,7 @@ interface FeedbackOrder {
     schema: string
     meshArtifactId: string
     reportArtifactId: string
+    planningKnowledgeRecorded?: boolean
     planningKnowledge: {
       entryId: string
       method: string
@@ -327,6 +328,7 @@ export async function traceProductionFeedback(
             id: orderId,
             meshArtifactId: graph?.meshArtifactId ?? null,
             reportArtifactId: graph?.reportArtifactId ?? null,
+            planningKnowledgeRecorded: graph?.planningKnowledgeRecorded === true && Array.isArray(graph.planningKnowledge),
             selectedMethods: links,
             requirements: (graph?.requirements ?? [])
               .filter(rule => selectedEntries.some(entry => {

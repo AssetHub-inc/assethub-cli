@@ -233,6 +233,7 @@ it('traces the decision through the published workspace source', async () => {
 // @testdoc Order evidence must resolve the pinned catalog and its exact approved method before exposing matching rule measurements.
 it('joins order evidence against the frozen approval and ignores an unrelated evaluation', async () => {
   const {traceProductionFeedback} = await import('../productionFeedback.js')
+  let planningKnowledgeRecorded: boolean | undefined
   const method = 'compare_views'
   const entry = {
     id: 'feedback-' + id,
@@ -288,6 +289,7 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
               schema: 'assethub.mesh-requirements/v1',
               meshArtifactId: 'after',
               reportArtifactId: 'report',
+              planningKnowledgeRecorded,
               planningKnowledge: [selection],
               requirements: [rule, {...rule, id: 'unrelated', specifiedBy: {document: 'conversion-ontology.json', ruleId: 'rim'}}],
             },
@@ -310,12 +312,15 @@ it('joins order evidence against the frozen approval and ignores an unrelated ev
     },
   })
   const found = await traceProductionFeedback(client, id, id)
+  expect(found.order?.planningKnowledgeRecorded).toBe(false)
+  planningKnowledgeRecorded = true
   expect(found.order?.selectedMethods).toEqual([selection])
   expect(found.order?.requirements).toMatchObject([
     {id: 'rim-check', state: 'unverified'},
   ])
   selection.evaluationId = 'another-evaluation'
   expect((await traceProductionFeedback(client, id, id)).order).toMatchObject({
+    planningKnowledgeRecorded: true,
     selectedMethods: [],
     requirements: [],
   })
