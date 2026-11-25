@@ -12,7 +12,7 @@
 
 ## CLI 0.1.71
 
-- `assethub auth login --api-key-stdin` (and `--access-token-stdin`, and `setup --api-key-stdin`) run in a terminal now show a hidden "Paste your AssetHub API key and press Enter" prompt and finish on Enter. Before, they waited silently for end-of-input (Ctrl+D / Ctrl+Z), so pressing Enter after pasting did nothing and the key was never saved. Piped input is read exactly as before.
+- `assethub auth login --api-key-stdin` (and `--access-token-stdin`, and `setup --api-key-stdin`) run in a terminal now show a hidden "Paste your AssetHub API key and press Enter" prompt and finish on Enter. Before, they waited silently for end-of-input (Ctrl+D / Ctrl+Z), so pressing Enter after pasting did nothing and the key was never saved. When stdin is not a terminal (for example Git Bash's default mintty window, which gives node a pipe), the key is read up to its first non-empty line, so paste then Enter finishes there too; piped input without a trailing newline still ends at end-of-input.
 - Submit production feedback with a stable operation ID and trace an evaluation to the methods, measurements and reviewer decisions on a specific order with `feedback trace <evaluation-id> --order <order-id>`. Both commands use the active workspace.
 
 ## CLI 0.1.69
