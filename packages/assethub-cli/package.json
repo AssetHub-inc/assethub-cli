@@ -1,6 +1,6 @@
 {
   "name": "@assethub/cli",
-  "version": "0.1.73",
+  "version": "0.1.75",
   "description": "Command line interface for AssetHub.",
   "type": "module",
   "bin": {

@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.75
+
+- Compare and repair a selected mesh patch or joint support rings with a reference mesh using `mesh-review repair-region`. The local Blender command writes a measured geometry trial and works offline.
+
 ## CLI 0.1.73
 
 - Compare planning selections with `feedback trace <evaluation-id> --order <target-id> --control-order <control-id>`. Both orders must pin the same public and workspace catalogs. Each reports selected, not_selected, or unknown. This checks method selection only.
