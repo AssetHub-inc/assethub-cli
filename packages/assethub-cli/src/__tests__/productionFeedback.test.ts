@@ -119,6 +119,39 @@ it.each([true, false])(
   },
 )
 
+// @testdoc A source-specific correction carries its original hash into the draft and replay identity.
+it('binds the knowledge candidate to the referenced original', async () => {
+  const submit = async (sourceSha256: string) => {
+    const {client, transport} = setup(true)
+    await submitProductionFeedback(
+      client,
+      {...feedback, ...rule, sourceSha256},
+      id,
+    )
+    const evaluation = JSON.parse(String(transport.mock.calls[1][1]?.body))
+    const candidate = JSON.parse(String(transport.mock.calls.at(-1)?.[1]?.body))
+    expect(candidate.entries[0].sourceSha256).toBe(sourceSha256)
+    return evaluation.report.criteria[1].reason
+  }
+  expect(await submit('a'.repeat(64))).not.toBe(await submit('b'.repeat(64)))
+})
+
+// @testdoc A malformed or unusable scope cannot silently become a workspace-wide proposal.
+it.each([
+  {...rule, sourceSha256: 'invalid'},
+  {...rule, sourceSha256: 'a'.repeat(64), baseRevisionId: undefined},
+  {destination: 'case', sourceSha256: 'a'.repeat(64)},
+])(
+  'refuses an unusable original hash before recording the case',
+  async input => {
+    const {client, transport} = setup(true)
+    await expect(
+      submitProductionFeedback(client, {...feedback, ...input}, id),
+    ).rejects.toThrow(/sourceSha256/)
+    expect(transport).not.toHaveBeenCalled()
+  },
+)
+
 // @testdoc Preparation propagates the native archive status without accepting a skill.
 it('returns the actual skill preparation state', async () => {
   const {client} = setup()

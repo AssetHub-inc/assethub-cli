@@ -1,5 +1,9 @@
 # Changelog
 
+## CLI 0.1.74
+
+- Preserve an optional original image SHA-256 in a feedback evaluation and any resulting workspace knowledge draft. An invalid or unsupported source constraint is rejected before writes.
+
 ## CLI 0.1.73
 
 - Compare planning selections with `feedback trace <evaluation-id> --order <target-id> --control-order <control-id>`. Both orders must pin the same public and workspace catalogs. Each reports selected, not_selected, or unknown. This checks method selection only.
