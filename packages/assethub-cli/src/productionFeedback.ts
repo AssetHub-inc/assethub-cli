@@ -51,6 +51,17 @@ export async function submitProductionFeedback(
   const runId = field('runId')
   if (!uuid.test(runId))
     throw new Error('Use the run that produced this artifact')
+  const sourceSha256 = input.sourceSha256
+  if (
+    sourceSha256 !== undefined &&
+    (destination !== 'workspace-rule' ||
+      input.baseRevisionId === undefined ||
+      typeof sourceSha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(sourceSha256))
+  )
+    throw new Error(
+      'sourceSha256 requires a workspace-rule proposal with catalog context and a lowercase SHA-256 digest',
+    )
   const rule =
     destination === 'workspace-rule' && input.baseRevisionId !== undefined
       ? {
@@ -61,6 +72,7 @@ export async function submitProductionFeedback(
           findingEn: field('findingEn', 4000),
           changeEn: field('changeEn', 4000),
           changeJa: field('changeJa', 4000),
+          ...(sourceSha256 === undefined ? {} : {sourceSha256}),
         }
       : undefined
   const graphId =
@@ -158,6 +170,9 @@ export async function submitProductionFeedback(
               title: {en: 'Workspace rule proposal', ja: '組織ルールの変更案'},
               claim,
               sourceIds: [evaluation.id],
+              ...(rule.sourceSha256 === undefined
+                ? {}
+                : {sourceSha256: rule.sourceSha256}),
               confidence: 'low',
               proposedOntologyChange: {
                 document: rule.document,

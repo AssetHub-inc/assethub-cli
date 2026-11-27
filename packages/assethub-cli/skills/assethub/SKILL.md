@@ -274,3 +274,7 @@ preserve rollback history; conflicts and uncertain writes require a read, not
 an automatic retry. Existing operations retain their pins; new workers can take
 up to five seconds to observe a change. See the package README for exact saved
 profile restoration and the development workflow.
+
+For a workspace rule correction limited to one original, include its registered
+lowercase SHA-256 digest as `sourceSha256` alongside the catalog context in the
+`feedback submit` JSON. The evaluation and knowledge draft retain that scope.
